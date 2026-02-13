@@ -258,14 +258,7 @@ interface InternalPosition {
 }
 
 export function createLiveAdapter(): ExecutionAdapter {
-  const sim = createSimAdapter()
-  return {
-    place: sim.place,
-    cancel: sim.cancel,
-    modify: sim.modify,
-    reconcile: sim.reconcile,
-    snapshot: sim.snapshot
-  }
+  throw new Error('live OMS adapter not implemented (set ENABLE_LIVE_OMS=false for SIM)')
 }
 
 export function mapToOperatorOrder(order: PlacedOrder): OperatorOrder {
