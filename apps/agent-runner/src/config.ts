@@ -58,9 +58,17 @@ export const env = z
     BASKET_SYMBOLS: z.string().default('BTC,ETH'),
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(1000),
 
+    // Hyperliquid info endpoint for universe selection.
+    HL_INFO_URL: z.string().default('https://api.hyperliquid.xyz/info'),
+
     // Agent uses these to mark proposals as LIVE when the runtime is live.
     DRY_RUN: booleanFromEnv.default(true),
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),
+
+    // Basket selection (dynamic basket against HYPE).
+    AGENT_BASKET_SIZE: z.coerce.number().int().min(1).max(12).default(3),
+    AGENT_BASKET_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(120).default(40),
+    AGENT_BASKET_REFRESH_MS: z.coerce.number().int().positive().default(30 * 60_000),
 
     // LLM settings
     // Claude model name passed to the `claude` CLI.
