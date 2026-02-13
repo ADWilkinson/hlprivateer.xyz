@@ -1,0 +1,42 @@
+# llms.txt - Agent Navigation Guide for HL Privateer
+
+Project purpose:
+- Build and operate a self-hosted agentic trading platform on Hyperliquid with deterministic risk hard-gates.
+
+Primary entrypoints:
+- Product + architecture: `docs/SPEC.md`
+- API contracts: `API.md`
+- Security policies: `SECURITY.md`
+- Operations: `RUNBOOK.md`
+- Agent capabilities: `skills.md`
+
+Repository map for agents:
+- `apps/api`: REST, auth, x402 enforcement
+- `apps/runtime`: strategy orchestration and OMS integration
+- `apps/ws-gateway`: websocket fanout and command channel
+- `apps/web`: ASCII floor UI and operator console
+- `packages/contracts`: zod schemas and shared types
+- `packages/risk-engine`: deterministic risk checks (hard-gate)
+- `packages/plugin-sdk`: plugin contract and sandbox rules
+- `packages/event-bus`: Redis Streams adapters and replay
+- `packages/agent-sdk`: external agent client utilities
+
+Mandatory constraints for all agent-generated changes:
+- Never bypass risk engine for order execution.
+- Preserve pair-trade invariant: LONG HYPE vs SHORT basket.
+- Preserve equal-notional enforcement and risk circuit breakers.
+- Public responses must expose PnL percent only and obfuscated fields.
+- Any privileged command requires audit reason.
+
+Agent workflow:
+1. Read contracts in `packages/contracts` before editing service code.
+2. Propose changes as typed interfaces first.
+3. Ensure new endpoints/events are reflected in `API.md`.
+4. Add or update threat assumptions in `SECURITY.md` when security-sensitive.
+5. Add runbook steps in `RUNBOOK.md` when operational behavior changes.
+
+Definition of safe completion:
+- Type-safe interfaces updated.
+- Risk and auth boundaries preserved.
+- Audit trail coverage maintained.
+- Docs updated for humans and agents.

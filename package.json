@@ -1,0 +1,24 @@
+{
+  "name": "hlprivateer.xyz",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted, TypeScript-first, agentic Hyperliquid trading platform",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "turbo run format"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "turbo": "^2.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,11 @@
+tunnel: hlprivateer
+credentials-file: /etc/cloudflared/hlprivateer.json
+
+ingress:
+  - hostname: hlprivateer.xyz
+    service: http://127.0.0.1:3000
+  - hostname: api.hlprivateer.xyz
+    service: http://127.0.0.1:4000
+  - hostname: ws.hlprivateer.xyz
+    service: http://127.0.0.1:4100
+  - service: http_status:404
