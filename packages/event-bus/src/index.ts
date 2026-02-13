@@ -39,7 +39,7 @@ export interface RedisEventBusConfig {
 const defaultStreamPrefix = 'hlp'
 
 function normalizeBound(value: string): string {
-  if (/^\d{2,}-\d+$/g.test(value)) {
+  if (/^\d{2,}-\d+$/.test(value)) {
     return value
   }
 
@@ -52,7 +52,7 @@ function normalizeBound(value: string): string {
 }
 
 function normalizeReplayTo(value: string): string {
-  if (/^\d{2,}-\d+$/g.test(value)) {
+  if (/^\d{2,}-\d+$/.test(value)) {
     return value
   }
 
@@ -124,6 +124,18 @@ export class RedisEventBus implements EventBus {
   ): Promise<() => Promise<void>> {
     const streamName = this.stream(stream)
     let running = true
+    let cursor = startId
+
+    // `$` means "new entries only", but polling with `$` can miss messages between calls.
+    // Convert `$` to the current stream tail once, then always advance from concrete IDs.
+    if (cursor === '$') {
+      try {
+        const last = await this.redis.xrevrange(streamName, '+', '-', 'COUNT', 1)
+        cursor = last.length > 0 ? last[0][0] : '0-0'
+      } catch {
+        cursor = '0-0'
+      }
+    }
 
     const loop = async () => {
       while (running) {
@@ -134,7 +146,7 @@ export class RedisEventBus implements EventBus {
           2000,
           'STREAMS',
           streamName,
-          normalizeBound(startId)
+          normalizeBound(cursor)
         )) as RedisReadResult | null
 
         if (!result) {
@@ -144,7 +156,7 @@ export class RedisEventBus implements EventBus {
         const [, rows] = result[0]
         for (const row of rows) {
           const [id, fields] = row
-          startId = id
+          cursor = id
           const payload = fields[1]
           if (!payload) {
             continue
