@@ -1,6 +1,5 @@
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
-import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import {
   AuditEvent,
@@ -16,8 +15,6 @@ import {
   HttpReplayQuerySchema,
   ReplayRangeSchema
 } from '@hl/privateer-contracts'
-import fastifySwagger from '@fastify/swagger'
-import fastifySwaggerUi from '@fastify/swagger-ui'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
 import { env } from './config'
@@ -62,7 +59,6 @@ function recordPromptInjection(route: string, actor: string): void {
   app.log.warn(`prompt injection blocked on ${route} by ${actor}`)
 }
 
-app.register(helmet)
 app.register(cors, {
   origin: [env.PUBLIC_BASE_URL, 'http://localhost:3000', 'https://hlprivateer.xyz'],
   credentials: true
@@ -73,16 +69,6 @@ app.register(rateLimit, {
   timeWindow: env.API_RATE_LIMIT_WINDOW_MS
 })
 
-app.register(fastifySwagger, {
-  openapi: {
-    info: {
-      title: 'HL Privateer API',
-      version: '1.0.0'
-    }
-  }
-})
-app.register(fastifySwaggerUi, { routePrefix: '/docs/ui' })
-
 void initializeTelemetry('hlprivateer-api')
 
 const store = new ApiStore()
@@ -90,7 +76,7 @@ const bus = env.REDIS_URL
   ? new RedisEventBus(env.REDIS_URL, env.REDIS_STREAM_PREFIX)
   : new InMemoryEventBus()
 
-registerAuth(app)
+await registerAuth(app)
 
 void promClient.collectDefaultMetrics()
 
@@ -114,7 +100,8 @@ const securityEventCounter = new promClient.Counter({
 
 app.setErrorHandler(async (error, request, reply) => {
   request.log.error(error)
-  reply.code(500).send({ error: 'INTERNAL', message: error.message })
+  const message = error instanceof Error ? error.message : String(error)
+  reply.code(500).send({ error: 'INTERNAL', message })
 })
 
 const adminUsers = new Set(
@@ -311,6 +298,15 @@ app.addHook('onRequest', async (request, reply) => {
     reply.code(400).send({ error: 'BAD_REQUEST', message: 'invalid request path' })
     return
   }
+})
+
+app.addHook('onSend', async (_request, reply, payload) => {
+  reply.header('x-content-type-options', 'nosniff')
+  reply.header('x-frame-options', 'DENY')
+  reply.header('referrer-policy', 'no-referrer')
+  reply.header('x-xss-protection', '0')
+  reply.header('permissions-policy', 'geolocation=(), microphone=(), camera=()')
+  return payload
 })
 
 app.get('/healthz', routeRateLimit(60, 60_000), async () => ({ status: 'ok' }))
