@@ -59,6 +59,7 @@ See:
 ## Documentation index
 - Product + architecture: `docs/SPEC.md`
 - API contracts: `API.md`
+- Full engineer handover prompt: `docs/HANDOVER_PROMPT.md`
 - Agent navigation: `llms.txt`
 - Agent skill contracts: `skills.md`
 - Security model and reporting: `SECURITY.md`
