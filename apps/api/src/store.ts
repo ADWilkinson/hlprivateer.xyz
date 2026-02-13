@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
-import { AuditEvent, Entitlement, OperatorOrder, OperatorPosition, PublicSnapshot, PublicPnlResponse, TradeState } from '@hl/privateer-contracts'
+import { type Entitlement, type AuditEvent, type OperatorOrder, type OperatorPosition, PublicSnapshot, PublicPnlResponse, TradeState } from '@hl/privateer-contracts'
+import { createApiStore, type ApiPersistence } from './db/persistence'
+import { env } from './config'
 
 export interface ApiRuntimeSnapshot {
   mode: TradeState
@@ -8,11 +10,9 @@ export interface ApiRuntimeSnapshot {
   healthCode: 'GREEN' | 'YELLOW' | 'RED'
 }
 
-const defaultSnapshot: ApiRuntimeSnapshot = {
-  mode: 'INIT',
-  pnlPct: 0,
-  lastUpdateAt: new Date().toISOString(),
-  healthCode: 'GREEN'
+type EntitlementUpdate = {
+  entitlementId: string
+  entitlement: Entitlement
 }
 
 export class ApiStore {
@@ -29,6 +29,63 @@ export class ApiStore {
   public entitlements = new Map<string, Entitlement>()
   public abuses = new Map<string, number>()
   private auditTailHash = createHash('sha256').update('hlprivateer-audit-genesis').digest('hex')
+  private persistence: ApiPersistence = {
+    enabled: false,
+    ready: false,
+    initializeError: 'booting',
+    health: async () => false,
+    close: async () => undefined,
+    getSystemState: async () => null,
+    saveSystemState: async () => undefined,
+    getPositions: async () => [],
+    getOrders: async () => [],
+    savePositions: async () => undefined,
+    saveOrders: async () => undefined,
+    saveAudit: async () => 'unavailable',
+    listAudits: async () => [],
+    queryAuditRange: async () => [],
+    countAudits: async () => 0,
+    getEntitlement: async () => null,
+    saveEntitlement: async () => undefined,
+    saveCommand: async () => undefined,
+    recordPaymentAttempt: async () => undefined
+  }
+  private initialization: Promise<void>
+
+  constructor(databaseUrl = env.DATABASE_URL) {
+    this.initialization = createApiStore(databaseUrl)
+      .then(async (persistence) => {
+        this.persistence = persistence
+        await this.hydrateFromPersistence()
+      })
+      .catch(() => undefined)
+  }
+
+  public async ready(): Promise<void> {
+    await this.initialization
+  }
+
+  private async hydrateFromPersistence(): Promise<void> {
+    const [systemState, persistedPositions, persistedOrders, audits, totalAudits] = await Promise.all([
+      this.persistence.getSystemState(),
+      this.persistence.getPositions(),
+      this.persistence.getOrders(),
+      this.persistence.listAudits(5000, 0),
+      this.persistence.countAudits()
+    ])
+
+    if (systemState) {
+      this.snapshot.mode = systemState.state
+      this.snapshot.lastUpdateAt = systemState.updatedAt
+    }
+
+    this.positions = persistedPositions
+    this.orders = persistedOrders
+    this.audits = audits
+    if (audits[0]?.hash) {
+      this.auditTailHash = audits[0].hash
+    }
+  }
 
   public getPublicPnl(): PublicPnlResponse {
     return {
@@ -48,14 +105,21 @@ export class ApiStore {
       ...snapshot,
       lastUpdateAt: snapshot.lastUpdateAt ?? new Date().toISOString()
     }
+
+    const reason = typeof (snapshot as { reason?: unknown }).reason === 'string' ? String((snapshot as { reason: string }).reason) : 'state update'
+    void this.persistence
+      .saveSystemState(this.snapshot.mode, reason)
+      .catch(() => undefined)
   }
 
   public setPositions(positions: OperatorPosition[]) {
     this.positions = positions
+    void this.persistence.savePositions(positions).catch(() => undefined)
   }
 
   public setOrders(orders: OperatorOrder[]) {
     this.orders = orders
+    void this.persistence.saveOrders(orders).catch(() => undefined)
   }
 
   public addAudit(event: AuditEvent) {
@@ -86,11 +150,80 @@ export class ApiStore {
     this.auditTailHash = hash
     this.audits.unshift(eventWithHash)
     this.audits = this.audits.slice(0, 5000)
+
+    void this.persistence.saveAudit(eventWithHash).catch(() => undefined)
   }
 
   public getAudit(limit: number, cursor?: number): AuditEvent[] {
     const offset = cursor ?? 0
     return this.audits.slice(offset, offset + limit)
+  }
+
+  public async getAuditTotalCount(): Promise<number> {
+    return this.persistence.countAudits()
+  }
+
+  public async getAuditFromPersistence(
+    fromTs: string,
+    toTs: string,
+    correlationId?: string,
+    resource?: string,
+    limit?: number
+  ): Promise<AuditEvent[]> {
+    if (!this.persistence.enabled) {
+      return []
+    }
+
+    return this.persistence.queryAuditRange({ fromTs, toTs, correlationId, resource, limit })
+  }
+
+  public async setEntitlement({ entitlementId, entitlement }: EntitlementUpdate): Promise<void> {
+    this.entitlements.set(entitlementId, entitlement)
+    void this.persistence.saveEntitlement(entitlementId, entitlement).catch(() => undefined)
+  }
+
+  public async getEntitlement(entitlementId: string): Promise<Entitlement | undefined> {
+    const cached = this.entitlements.get(entitlementId)
+    if (cached) {
+      return cached
+    }
+
+    const persisted = await this.persistence.getEntitlement(entitlementId)
+    if (!persisted) {
+      return undefined
+    }
+
+    this.entitlements.set(entitlementId, persisted)
+    return persisted
+  }
+
+  public async recordPaymentAttempt(input: {
+    agentId: string
+    entitlementId?: string
+    challengeId: string
+    status: string
+    provider?: string
+    amountUsd: number
+    txRef?: string
+    verificationPayload?: Record<string, unknown>
+    verifiedAt?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    void this.persistence.recordPaymentAttempt(input).catch(() => undefined)
+  }
+
+  public async persistCommand(input: {
+    command: string
+    actorType: string
+    actorId: string
+    reason: string
+    args: string[]
+  }): Promise<void> {
+    void this.persistence.saveCommand(input).catch(() => undefined)
+  }
+
+  public async close(): Promise<void> {
+    await this.persistence.close()
   }
 }
 

@@ -11,6 +11,7 @@ import {
   DEFAULT_TIER_CAPABILITIES,
   PublicPnlResponseSchema,
   PublicSnapshotSchema,
+  PaymentProofSchema,
   EntitlementSchema,
   EntitlementTierSchema,
   HttpReplayQuerySchema,
@@ -123,7 +124,6 @@ const adminUsers = new Set(
     .filter(Boolean)
 )
 
-const entitlementStore = new Map<string, Entitlement>()
 const bannedActors = new Map<string, number>()
 const agentAbuse = new Map<string, AbuseState>()
 
@@ -208,6 +208,43 @@ function getProofFromRequest(request: any): unknown {
   } catch {
     return undefined
   }
+}
+
+function normalizeAmountUsd(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return 0
+  }
+
+  return Math.max(0, Math.round(parsed))
+}
+
+function issuePaymentRecord(
+  params: {
+    agentId: string
+    entitlementId: string
+    challengeId: string
+    status: string
+    provider?: string
+    amountUsd: number
+    proof?: unknown
+    verifiedAt?: string
+    metadata?: Record<string, unknown>
+    txRef?: string
+  }
+): void {
+  void store.recordPaymentAttempt({
+    agentId: params.agentId,
+    entitlementId: params.entitlementId,
+    challengeId: params.challengeId,
+    status: params.status,
+    provider: params.provider ?? 'x402-mock',
+    amountUsd: params.amountUsd,
+    txRef: params.txRef,
+    verificationPayload: params.proof as Record<string, unknown> | undefined,
+    verifiedAt: params.verifiedAt,
+    metadata: params.metadata
+  })
 }
 
 function requestActor(request: FastifyRequest, entitlementId?: string): string {
@@ -398,7 +435,8 @@ app.get('/v1/operator/audit', { ...routeRateLimit(120, 60_000), preHandler: [app
   const cursor = Number(query.cursor ?? 0)
   const data = store.getAudit(limit, cursor)
   const nextCursor = cursor + data.length
-  reply.send({ data, nextCursor, total: store.audits.length })
+  const total = await store.getAuditTotalCount()
+  reply.send({ data, nextCursor, total })
 })
 
 app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
@@ -436,6 +474,14 @@ app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [a
   }
 
   const sanitizedReason = sanitizeText(reasonInput, { maxLength: 200 })
+  const sanitizedArgs = command.args.map((arg) => sanitizeText(arg, { maxLength: 64 }))
+  await store.persistCommand({
+    command: command.command,
+    actorType: 'human',
+    actorId: claims.sub,
+    reason: sanitizedReason,
+    args: sanitizedArgs
+  })
   await bus.publish('hlp.commands', {
     type: 'operator.command',
     stream: 'hlp.commands',
@@ -445,7 +491,7 @@ app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [a
     actorId: resolveOperatorClaims(request).sub,
     payload: {
       command: command.command,
-      args: command.args.map((arg) => sanitizeText(arg, { maxLength: 64 })),
+      args: sanitizedArgs,
       reason: sanitizedReason,
       actor: {
         actorType: 'human',
@@ -665,6 +711,19 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
 
   const challenge = createChallenge(agentId, '/v1/agent/command', parsedTier)
   if (proof.length < 8) {
+    issuePaymentRecord({
+      agentId,
+      entitlementId: 'pending',
+      challengeId: challenge.challengeId,
+      status: 'handshake.failed',
+      amountUsd: 0,
+      proof,
+      metadata: {
+        route: '/v1/agent/handshake',
+        reason: 'proof too short',
+        requestedTier: parsedTier
+      }
+    })
     reply.code(401).send({ error: 'HANDSHAKE_FAILED', message: 'invalid proof' })
     return
   }
@@ -678,7 +737,24 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
     rateLimitPerMinute: 30
   })
 
-  entitlementStore.set(challenge.challengeId, entitlement)
+  await store.setEntitlement({ entitlementId: challenge.challengeId, entitlement })
+  issuePaymentRecord({
+    agentId,
+    entitlementId: challenge.challengeId,
+    challengeId: challenge.challengeId,
+    status: 'challenge.issued',
+    amountUsd: 0,
+    proof: {
+      route: '/v1/agent/handshake',
+      agentId,
+      tier: parsedTier,
+      challengeId: challenge.challengeId
+    },
+    metadata: {
+      route: '/v1/agent/handshake',
+      requestedTier: parsedTier
+    }
+  })
   reply.send({ challenge, entitlement })
 })
 
@@ -686,8 +762,20 @@ const x402Protected = (requiredCapability?: string) => {
   return async (request: any, reply: any) => {
     const token = String(request.headers['x-agent-token'] ?? '')
     const entitlementId = request.headers['x-agent-entitlement']
-    if (!entitlementId || typeof entitlementId !== 'string') {
+    const normalizedEntitlementId = Array.isArray(entitlementId) ? entitlementId[0] : entitlementId
+    if (!normalizedEntitlementId || typeof normalizedEntitlementId !== 'string') {
       const challenge = createChallenge(token || 'agent', String(request.url), 'tier1')
+      issuePaymentRecord({
+        agentId: token || 'agent',
+        entitlementId: 'pending',
+        challengeId: challenge.challengeId,
+        status: 'challenge.issued',
+        amountUsd: 0,
+        metadata: {
+          route: request.url,
+          reason: 'missing entitlement header'
+        }
+      })
       reply.code(402).send({
         error: 'PAYMENT_REQUIRED',
         reason: 'x402-payment required',
@@ -696,20 +784,43 @@ const x402Protected = (requiredCapability?: string) => {
       return
     }
 
-    if (isEntitlementBanned(entitlementId)) {
+    if (isEntitlementBanned(normalizedEntitlementId)) {
       reply.code(429).send({ error: 'TEMPORARY_BAN', message: 'rate-limited by abuse protection' })
       return
     }
 
-    const entitlement = entitlementStore.get(entitlementId)
+    const entitlement = await store.getEntitlement(normalizedEntitlementId)
     if (!entitlement) {
       const challenge = createChallenge(token || 'agent', String(request.url), 'tier1')
+      issuePaymentRecord({
+        agentId: token || 'agent',
+        entitlementId: normalizedEntitlementId,
+        challengeId: challenge.challengeId,
+        status: 'challenge.issued',
+        amountUsd: 0,
+        metadata: {
+          route: request.url,
+          reason: 'unknown entitlement'
+        }
+      })
       reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'unknown entitlement', challenge })
       return
     }
 
     if (token && entitlement.agentId !== token) {
-      const abuseCount = recordAbuse(entitlementId)
+      const abuseCount = recordAbuse(normalizedEntitlementId)
+      issuePaymentRecord({
+        agentId: token,
+        entitlementId: normalizedEntitlementId,
+        challengeId: normalizedEntitlementId,
+        status: 'failed.invalid_agent',
+        amountUsd: 0,
+        metadata: {
+          route: request.url,
+          abuseCount,
+          entitlementAgentId: entitlement.agentId
+        }
+      })
       if (abuseCount >= ABUSE_BAN_THRESHOLD) {
         reply.code(429).send({ error: 'TEMPORARY_BAN', message: `agent identity mismatch (abuse ${abuseCount})` })
         return
@@ -720,10 +831,29 @@ const x402Protected = (requiredCapability?: string) => {
     }
 
     const proofPayload = getProofFromRequest(request)
-    const verifyResult = verifyChallenge(entitlementId, proofPayload)
+    const parsedProof = PaymentProofSchema.safeParse(proofPayload)
+    const amountUsd = parsedProof.success ? normalizeAmountUsd(parsedProof.data.paidAmountUsd) : 0
+    const proofAgentId = parsedProof.success ? parsedProof.data.agentId : (token || 'agent')
+    const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
     if (!verifyResult.ok) {
-      const reason = verifyResult.challenge ? verifyResult.challenge.challengeId : verifyResult.reason || 'proof verification failed'
-      const abuseCount = recordAbuse(entitlementId)
+      const reason = verifyResult.challenge
+        ? verifyResult.challenge.challengeId
+        : verifyResult.reason || 'proof verification failed'
+      const abuseCount = recordAbuse(normalizedEntitlementId)
+      issuePaymentRecord({
+        agentId: proofAgentId,
+        entitlementId: normalizedEntitlementId,
+        challengeId: normalizedEntitlementId,
+        status: parsedProof.success ? 'failed.verification_rejected' : 'failed.invalid_proof',
+        amountUsd,
+        proof: parsedProof.success ? parsedProof.data : proofPayload,
+        metadata: {
+          route: request.url,
+          reason,
+          abuseCount,
+          paymentEnabled: true
+        }
+      })
       if (abuseCount >= ABUSE_BAN_THRESHOLD) {
         reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
         return
@@ -732,34 +862,104 @@ const x402Protected = (requiredCapability?: string) => {
       reply.code(402).send({
         error: 'PAYMENT_REQUIRED',
         reason,
-        challenge: entitlementId,
+        challenge: normalizedEntitlementId,
         abuseCount
       })
       return
     }
 
     if (new Date(entitlement.expiresAt) < new Date()) {
+      issuePaymentRecord({
+        agentId: entitlement.agentId,
+        entitlementId: normalizedEntitlementId,
+        challengeId: normalizedEntitlementId,
+        status: 'failed.entitlement_expired',
+        amountUsd,
+        proof: proofPayload,
+        metadata: {
+          route: request.url,
+          expiresAt: entitlement.expiresAt
+        }
+      })
       reply.code(410).send({ error: 'EXPIRED', message: 'entitlement expired' })
       return
     }
 
     if (requiredCapability && !entitlement.capabilities.includes(requiredCapability)) {
+      issuePaymentRecord({
+        agentId: entitlement.agentId,
+        entitlementId: normalizedEntitlementId,
+        challengeId: normalizedEntitlementId,
+        status: 'failed.missing_capability',
+        amountUsd,
+        proof: proofPayload,
+        metadata: {
+          route: request.url,
+          requiredCapability
+        }
+      })
       reply.code(403).send({ error: 'FORBIDDEN', message: `missing capability: ${requiredCapability}` })
       return
     }
 
-    const usage = ensureUsageRecord(entitlementId)
+    const usage = ensureUsageRecord(normalizedEntitlementId)
     usage.requestCount += 1
     if (usage.requestCount > entitlement.rateLimitPerMinute) {
+      issuePaymentRecord({
+        agentId: entitlement.agentId,
+        entitlementId: normalizedEntitlementId,
+        challengeId: normalizedEntitlementId,
+        status: 'failed.rate_limited',
+        amountUsd,
+        proof: proofPayload,
+        metadata: {
+          route: request.url,
+          requestCount: usage.requestCount,
+          rateLimitPerMinute: entitlement.rateLimitPerMinute
+        }
+      })
       reply.code(429).send({ error: 'RATE_LIMIT_EXCEEDED', message: 'too many requests for entitlement window' })
       return
     }
 
     const { quotaRemaining, overLimit } = consumeQuota(entitlement)
     if (overLimit || quotaRemaining <= 0) {
+      issuePaymentRecord({
+        agentId: entitlement.agentId,
+        entitlementId: normalizedEntitlementId,
+        challengeId: normalizedEntitlementId,
+        status: 'failed.quota_exhausted',
+        amountUsd,
+        proof: proofPayload,
+        metadata: {
+          route: request.url,
+          quotaRemaining
+        }
+      })
       reply.code(403).send({ error: 'QUOTA_EXHAUSTED', message: 'quota exceeded' })
       return
     }
+
+    await store.setEntitlement({
+      entitlementId: normalizedEntitlementId,
+      entitlement: {
+        ...entitlement,
+        quotaRemaining
+      }
+    })
+    issuePaymentRecord({
+      agentId: entitlement.agentId,
+      entitlementId: normalizedEntitlementId,
+      challengeId: normalizedEntitlementId,
+      status: 'verified',
+      amountUsd,
+      proof: proofPayload,
+      verifiedAt: new Date().toISOString(),
+      metadata: {
+        route: request.url,
+        quotaRemaining
+      }
+    })
 
     ;(request as EntitlementRequest).entitlement = entitlement
   }
@@ -806,16 +1006,25 @@ app.post('/v1/agent/command', { ...routeRateLimit(60, 60_000), preHandler: [x402
 
   const requestId = ulid()
   const sanitizedReason = sanitizeText(reasonInput, { maxLength: 200 })
+  const sanitizedArgs = command.args.map((arg) => sanitizeText(arg, { maxLength: 64 }))
+  const actorId = (request as EntitlementRequest).entitlement?.agentId ?? 'agent'
+  await store.persistCommand({
+    command: command.command,
+    actorType: 'external_agent',
+    actorId,
+    reason: sanitizedReason,
+    args: sanitizedArgs
+  })
   await bus.publish('hlp.commands', {
     type: 'agent.command',
     stream: 'hlp.commands',
     source: 'agent',
     correlationId: requestId,
     actorType: 'external_agent',
-    actorId: (request as EntitlementRequest).entitlement?.agentId ?? 'agent',
+    actorId,
       payload: {
       command: command.command,
-      args: command.args.map((arg) => sanitizeText(arg, { maxLength: 64 })),
+      args: sanitizedArgs,
       reason: sanitizedReason,
       capabilities: requestedCapability
     }
@@ -849,7 +1058,18 @@ app.post('/v1/agent/unlock/:tier', routeRateLimit(30, 60_000), async (request, r
   })
 
   const challenge = createChallenge(entitlement.agentId, String(request.url), tier)
-  entitlementStore.set(challenge.challengeId, entitlement)
+  issuePaymentRecord({
+    agentId: entitlement.agentId,
+    entitlementId: challenge.challengeId,
+    challengeId: challenge.challengeId,
+    status: 'challenge.issued',
+    amountUsd: 0,
+    metadata: {
+      route: '/v1/agent/unlock',
+      tier
+    }
+  })
+  await store.setEntitlement({ entitlementId: challenge.challengeId, entitlement })
   reply.send({ challenge, entitlement })
 })
 
@@ -903,19 +1123,22 @@ bus.consume('hlp.audit.events', '0-0', (envelope) => {
   return Promise.resolve()
 })
 
-app.listen({ port: env.PORT }, (error, address) => {
-  if (error) {
-    app.log.error(error)
-    process.exit(1)
-  }
-
+const start = async () => {
+  await store.ready()
+  const address = await app.listen({ port: env.PORT })
   app.log.info(`api listening on ${address}`)
-})
+}
 
 const shutdown = async () => {
+  await store.close().catch(() => undefined)
   await stopTelemetry()
   process.exit(0)
 }
+
+void start().catch((error) => {
+  app.log.error(error)
+  process.exit(1)
+})
 
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
