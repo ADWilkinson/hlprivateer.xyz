@@ -70,6 +70,15 @@ export const env = z
     AGENT_BASKET_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(120).default(40),
     AGENT_BASKET_REFRESH_MS: z.coerce.number().int().positive().default(30 * 60_000),
 
+    // Basket feature extraction (historical + external metrics).
+    AGENT_FEATURE_WINDOW_MIN: z.coerce.number().int().min(30).max(720).default(240),
+    AGENT_FEATURE_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(6),
+
+    // CoinGecko Pro (optional) for spot/sector context.
+    COINGECKO_API_KEY: z.string().optional(),
+    COINGECKO_BASE_URL: z.string().default('https://pro-api.coingecko.com/api/v3'),
+    COINGECKO_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+
     // LLM settings
     // Claude model name passed to the `claude` CLI.
     CLAUDE_MODEL: z.string().default('opus'),
