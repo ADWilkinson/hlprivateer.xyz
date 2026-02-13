@@ -1,5 +1,6 @@
 import {
   ActorType,
+  AuditEvent,
   commandPolicy,
   OPERATOR_ADMIN_ROLE,
   OPERATOR_VIEW_ROLE,
@@ -18,14 +19,17 @@ import { evaluateRisk, RiskConfig } from '@hl/privateer-risk-engine'
 import { createLiveAdapter, createSimAdapter, ExecutionAdapter } from '../services/oms'
 import { MarketDataAdapter } from '../services/market'
 import { createRuntimePluginManager } from '../services/plugin-manager'
+import { RuntimeStore } from '../db/persistence'
 import { RuntimeEnv } from '../config'
 import { canTransition } from '../state-machine'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
+import type { PluginSignal } from '@hl/privateer-plugin-sdk'
 
 interface LoopConfig {
   env: RuntimeEnv
   bus: EventBus
+  store: RuntimeStore
 }
 
 export interface RuntimeState {
@@ -123,25 +127,37 @@ function setModeGauge(mode: TradeState): void {
   runtimeCycleMode.labels({ mode }).set(1)
 }
 
-export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHandle> {
+export async function createRuntime({ env, bus, store }: LoopConfig): Promise<RuntimeHandle> {
+  if (env.ENABLE_LIVE_OMS && !env.LIVE_MODE_APPROVED) {
+    throw new Error('live mode requires explicit operator approval (set LIVE_MODE_APPROVED=true)')
+  }
+
   const adapter = env.ENABLE_LIVE_OMS ? createLiveAdapter() : createSimAdapter(10, 25)
   const marketAdapter = await createMarketAdapterLazy(env, bus)
   const pluginManager = await createRuntimePluginManager(bus)
+  const persistedState = await store.getSystemState()
+  const persistedPositions = await store.getPositions()
+  const persistedOrders = await store.getOrders()
+
   const state: RuntimeState = {
-    mode: 'INIT',
+    mode: persistedState?.state ?? 'INIT',
     pnlPct: 0,
     driftState: 'IN_TOLERANCE',
     lastUpdateAt: new Date().toISOString(),
     cycle: 0,
-    positions: [],
-    orders: []
+    positions: persistedPositions,
+    orders: persistedOrders
   }
+
+  state.lastUpdateAt = persistedState?.updatedAt ?? state.lastUpdateAt
+  state.driftState = driftFrom(state)
 
   setModeGauge(state.mode)
 
   let stopped = false
   let timer: ReturnType<typeof setInterval> | undefined
   let loopRunning = false
+  let lastUrgentCycleAt = 0
 
   const riskConfig: RiskConfig = {
     maxLeverage: env.RISK_MAX_LEVERAGE,
@@ -169,6 +185,7 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
       lastUpdateAt: state.lastUpdateAt
     }
   })
+  await store.saveSystemState(state.mode, persistedState?.reason ?? 'startup')
 
   await marketAdapter.start()
   await pluginManager.start()
@@ -188,6 +205,30 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     state.lastUpdateAt = new Date().toISOString()
     state.driftState = driftFrom(state)
     setModeGauge(mode)
+    await store.saveSystemState(mode, reason).catch(() => {
+      void bus.publish('hlp.audit.events', {
+        type: 'RUNTIME_CONFIG',
+        stream: 'hlp.audit.events',
+        source: 'runtime',
+        correlationId: ulid(),
+        actorType: 'system',
+        actorId: 'runtime',
+        payload: {
+          id: envelopeId(),
+          ts: new Date().toISOString(),
+          actorType: 'system',
+          actorId: 'runtime',
+          action: 'state.persist_failed',
+          resource: 'runtime.state',
+          correlationId: envelopeId(),
+          details: {
+            from: previousMode,
+            to: mode,
+            reason
+          }
+        }
+      })
+    })
 
     await bus.publish('hlp.ui.events', {
       type: 'STATE_UPDATE',
@@ -208,8 +249,14 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     })
   }
 
-  await setMode('WARMUP', 'startup complete')
-  await setMode('READY', 'runtime ready')
+  if (!persistedState) {
+    await setMode('WARMUP', 'startup complete')
+    await setMode('READY', 'runtime ready')
+  }
+  else if (state.mode === 'INIT') {
+    await setMode('WARMUP', 'startup complete')
+    await setMode('READY', 'runtime ready')
+  }
 
   bus.consume('hlp.commands', '$', async (envelope) => {
     if (!envelope?.type) {
@@ -245,10 +292,16 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
         actorRole,
         actorCapabilities
       )
+
+      const now = Date.now()
+      if (now - lastUrgentCycleAt >= 1_000) {
+        lastUrgentCycleAt = now
+        void runCycle(true)
+      }
     }
   })
 
-  const runCycle = async (_urgency = false) => {
+  const runCycle = async (urgency = false) => {
     if (stopped || loopRunning) {
       return
     }
@@ -262,8 +315,9 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
         return
       }
 
-      const targetNotional = env.BASKET_TARGET_NOTIONAL_USD
-      const proposalCandidate = buildProposal(state, targetNotional, env.BASKET_SYMBOLS)
+      const recentSignals = pluginManager.getSignals()
+      const targetNotional = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, recentSignals)
+      const proposalCandidate = buildProposal(state, targetNotional, env.BASKET_SYMBOLS, recentSignals)
       const parsedProposal = parseStrategyProposal(proposalCandidate)
       if (!parsedProposal.ok) {
         const reasons = parsedProposal.errors.map((error: { code: string; message: string; path?: unknown[] }) => ({
@@ -308,7 +362,8 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
         cycleId: proposal.cycleId,
         actionCount: proposal.actions.length,
         summary: proposal.summary,
-        requestedMode: proposal.requestedMode
+        requestedMode: proposal.requestedMode,
+        urgency: urgency ? 'urgent' : 'scheduled'
       })
 
       const tickSymbols = new Set<string>(['HYPE', ...env.BASKET_SYMBOLS.split(',').map((symbol) => symbol.trim()).filter(Boolean)])
@@ -322,11 +377,13 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
       }
 
       const dependencyHealth = await bus.health()
+      const databaseHealth = await store.health()
+      const dependenciesHealthy = dependencyHealth.ok && databaseHealth
       const risk = evaluateRisk(riskConfig, {
         state: state.mode,
         actorType: 'system',
         accountValueUsd: env.ACCOUNT_VALUE_USD,
-        dependenciesHealthy: dependencyHealth.ok,
+        dependenciesHealthy,
         openPositions: state.positions,
         ticks,
         proposal
@@ -395,6 +452,10 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     const created: OperatorOrder[] = []
 
     for (const leg of action.legs) {
+      if (state.mode === 'HALT') {
+        break
+      }
+
       const tick = await marketAdapter.latest(leg.symbol)
       if (!tick) {
         continue
@@ -424,6 +485,7 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     const snapshot = await adapter.snapshot()
     state.positions = snapshot.positions
     state.orders = snapshot.orders
+    await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
 
     await bus.publish('hlp.execution.commands', {
       type: 'execution.complete',
@@ -474,6 +536,19 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     details: unknown,
     resource = 'runtime'
   ) => {
+    const event: AuditEvent = {
+      id: ulid(),
+      ts: new Date().toISOString(),
+      actorType: 'system',
+      actorId: actor,
+      action,
+      resource,
+      correlationId,
+      details: details as Record<string, unknown>
+    }
+
+    void store.saveAudit(event).catch(() => undefined)
+
     await bus.publish('hlp.audit.events', {
       type: 'RUNTIME_DECISION',
       stream: 'hlp.audit.events',
@@ -481,16 +556,7 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
       correlationId,
       actorType: 'system',
       actorId: actor,
-      payload: {
-        id: ulid(),
-        ts: new Date().toISOString(),
-        actorType: 'system',
-        actorId: actor,
-        action,
-        resource,
-        correlationId,
-        details: details as Record<string, unknown>
-      }
+      payload: event
     })
   }
 
@@ -599,6 +665,14 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     }
 
     const commandAuditId = envelopeId()
+    void store.saveCommand({
+      command: commandName,
+      actorType,
+      actorId,
+      reason,
+      args
+    }).catch(() => undefined)
+
     runtimeCommandCounter.inc({ command, result: 'accepted' })
     await addAudit('command', actorId, commandAuditId, {
       actorType,
@@ -627,9 +701,47 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
         }
       }
 
+      const closeOrders: Array<{ symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number }> = []
+      for (const position of current.positions) {
+        const notionalUsd = Math.abs(position.notionalUsd)
+        if (notionalUsd <= 0) {
+          continue
+        }
+
+        const tick = await marketAdapter.latest(position.symbol)
+        if (!tick) {
+          continue
+        }
+
+        const side: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
+        closeOrders.push({
+          symbol: position.symbol,
+          side,
+          notionalUsd
+        })
+
+        await adapter.place({
+          symbol: position.symbol,
+          side,
+          notionalUsd,
+          idempotencyKey: `flatten:${commandAuditId}:${position.symbol}:${side}`,
+          tick
+        })
+      }
+
+      const snapshot = await adapter.snapshot()
+      state.positions = snapshot.positions
+      state.orders = snapshot.orders
+      await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+
+      await addAudit('flatten.execute', actorId, commandAuditId, {
+        closedLegs: closeOrders,
+        resultingPositions: state.positions.length
+      }, 'runtime.command')
+
       await setMode(state.mode === 'HALT' ? 'HALT' : 'READY', reason)
       runtimeCommandCounter.inc({ command, result: 'executed' })
-      return { ok: true, message: 'flatten executed' }
+      return { ok: true, message: `flatten executed (${closeOrders.length} close legs)` }
     }
 
     if (commandName === '/status') {
@@ -686,9 +798,27 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     setInterval(async () => {
       const report = await adapter.reconcile()
       const mismatches = report.filter((r) => r.status === 'FAILED')
+      const severity = mismatches.length > 0 ? 'CRITICAL' : 'INFO'
+
+      await bus.publish('hlp.execution.fills', {
+        type: 'reconcile.report',
+        stream: 'hlp.execution.fills',
+        source: 'runtime',
+        correlationId: envelopeId(),
+        actorType: 'system',
+        actorId: 'runtime',
+        payload: {
+          generatedAt: new Date().toISOString(),
+          severity,
+          mismatchCount: mismatches.length,
+          totalOrders: report.length
+        }
+      })
+
       if (mismatches.length > 0) {
         await setMode('SAFE_MODE', 'reconciliation mismatch')
         await addAudit('reconcile_mismatch', 'runtime', envelopeId(), {
+          severity,
           mismatches
         })
       }
@@ -702,7 +832,13 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
     }
     await pluginManager.stop()
     await marketAdapter.stop()
+    await store.close()
   }
+
+  await addAudit('execution.mode', 'runtime', envelopeId(), {
+    mode: env.ENABLE_LIVE_OMS ? 'LIVE' : 'SIM',
+    reason: 'runtime startup adapter selection'
+  }, 'runtime.execution')
 
   await startReconcile()
   timer = setInterval(() => void runCycle(), env.CYCLE_MS)
@@ -716,11 +852,39 @@ export async function createRuntime({ env, bus }: LoopConfig): Promise<RuntimeHa
   }
 }
 
-function buildProposal(state: RuntimeState, targetNotional: number, basketSymbolsCsv: string): StrategyProposal {
+function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
+  const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
+  const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
+
+  let scale = 1
+  if (latestVolatility) {
+    const volatilityScale = 1 - Math.min(0.4, Math.abs(latestVolatility.value) / 25)
+    scale *= Math.max(0.6, volatilityScale)
+  }
+
+  if (latestFunding) {
+    scale *= latestFunding.value > 0 ? 0.95 : 1.05
+  }
+
+  return Number(Math.max(100, baseTargetNotional * scale).toFixed(2))
+}
+
+function buildProposal(
+  state: RuntimeState,
+  targetNotional: number,
+  basketSymbolsCsv: string,
+  signals: PluginSignal[]
+): StrategyProposal {
   const basketSymbols = basketSymbolsCsv
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+  const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
+  const latestCorrelation = [...signals].reverse().find((signal) => signal.signalType === 'correlation')
+  const signalSummary = [
+    latestVolatility ? `vol=${latestVolatility.value.toFixed(3)}` : 'vol=na',
+    latestCorrelation ? `corr=${latestCorrelation.value.toFixed(3)}` : 'corr=na'
+  ].join(' ')
 
   const baseLegs = [{ symbol: 'HYPE', side: 'BUY' as const, notionalUsd: targetNotional }]
   const perBasket = basketSymbols.length > 0 ? targetNotional / basketSymbols.length : 0
@@ -744,7 +908,7 @@ function buildProposal(state: RuntimeState, targetNotional: number, basketSymbol
   return {
     proposalId: envelopeId(),
     cycleId: envelopeId(),
-    summary: state.mode === 'READY' ? 'enter pair trade' : `rebalance cycle ${state.cycle}`,
+    summary: state.mode === 'READY' ? `enter pair trade (${signalSummary})` : `rebalance cycle ${state.cycle} (${signalSummary})`,
     confidence: 0.75,
     requestedMode: 'SIM',
     createdBy: 'runtime',

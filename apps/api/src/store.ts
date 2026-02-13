@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { type Entitlement, type AuditEvent, type OperatorOrder, type OperatorPosition, PublicSnapshot, PublicPnlResponse, TradeState } from '@hl/privateer-contracts'
+import { DEFAULT_TIER_CAPABILITIES, type Entitlement, type AuditEvent, type OperatorOrder, type OperatorPosition, type TierCapabilityMap, PublicSnapshot, PublicPnlResponse, TradeState } from '@hl/privateer-contracts'
 import { createApiStore, type ApiPersistence } from './db/persistence'
 import { env } from './config'
 
@@ -28,6 +28,7 @@ export class ApiStore {
   public audits: AuditEvent[] = []
   public entitlements = new Map<string, Entitlement>()
   public abuses = new Map<string, number>()
+  private tierCapabilities: TierCapabilityMap = DEFAULT_TIER_CAPABILITIES
   private auditTailHash = createHash('sha256').update('hlprivateer-audit-genesis').digest('hex')
   private persistence: ApiPersistence = {
     enabled: false,
@@ -47,6 +48,7 @@ export class ApiStore {
     countAudits: async () => 0,
     getEntitlement: async () => null,
     saveEntitlement: async () => undefined,
+    getTierCapabilities: async () => null,
     saveCommand: async () => undefined,
     recordPaymentAttempt: async () => undefined
   }
@@ -66,12 +68,13 @@ export class ApiStore {
   }
 
   private async hydrateFromPersistence(): Promise<void> {
-    const [systemState, persistedPositions, persistedOrders, audits, totalAudits] = await Promise.all([
+    const [systemState, persistedPositions, persistedOrders, audits, totalAudits, tierCapabilities] = await Promise.all([
       this.persistence.getSystemState(),
       this.persistence.getPositions(),
       this.persistence.getOrders(),
       this.persistence.listAudits(5000, 0),
-      this.persistence.countAudits()
+      this.persistence.countAudits(),
+      this.persistence.getTierCapabilities()
     ])
 
     if (systemState) {
@@ -82,9 +85,21 @@ export class ApiStore {
     this.positions = persistedPositions
     this.orders = persistedOrders
     this.audits = audits
+    if (tierCapabilities) {
+      this.tierCapabilities = tierCapabilities
+    }
     if (audits[0]?.hash) {
       this.auditTailHash = audits[0].hash
     }
+  }
+
+  public getCapabilitiesForTier(tier: 'tier0' | 'tier1' | 'tier2' | 'tier3'): string[] {
+    const fromDb = this.tierCapabilities[tier]
+    if (Array.isArray(fromDb)) {
+      return fromDb
+    }
+
+    return DEFAULT_TIER_CAPABILITIES[tier] ?? []
   }
 
   public getPublicPnl(): PublicPnlResponse {

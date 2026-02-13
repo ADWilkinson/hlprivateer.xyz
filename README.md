@@ -3,7 +3,7 @@
 Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with deterministic risk gates, ASCII trade floor UI, and x402-based external agent marketplace.
 
 ## Status
-- Phase: Architecture and implementation planning complete.
+- Phase: Core implementation complete; issue-level hardening and deployment verification active.
 - Primary spec: `docs/SPEC.md`.
 - Issue backlog: `docs/GITHUB_ISSUES.md`.
 
@@ -54,6 +54,7 @@ docs/
 
 Optional Firebase web:
 - `bun run deploy:web:firebase` builds a static Next output and deploys to Firebase Hosting.
+- `NEXT_PUBLIC_FIREBASE_*` env vars enable client analytics bootstrap in the web app.
 
 ## Deployment model
 - Single Linux home server.
@@ -73,6 +74,7 @@ See:
 - Agent skill contracts: `skills.md`
 - Security model and reporting: `SECURITY.md`
 - Ops runbook: `RUNBOOK.md`
+- x402 seller integration notes: `docs/X402_SELLER_QUICKSTART.md`
 
 ## Safety notice
 This repository is for experimental automation and systems research. It is not financial advice software. Operators bear full trading risk.

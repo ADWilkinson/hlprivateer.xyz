@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS entitlements (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS tier_capabilities (
+  tier TEXT PRIMARY KEY,
+  capabilities JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id TEXT NOT NULL UNIQUE,
@@ -115,11 +121,13 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 CREATE INDEX IF NOT EXISTS idx_users_external_id ON users (external_id);
 CREATE INDEX IF NOT EXISTS idx_entitlements_expires ON entitlements (expires_at);
 CREATE INDEX IF NOT EXISTS idx_entitlements_tier ON entitlements (tier);
+CREATE INDEX IF NOT EXISTS idx_tier_capabilities_updated_at ON tier_capabilities (updated_at);
 CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders (symbol);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 CREATE INDEX IF NOT EXISTS idx_orders_source ON orders (source);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_idempotency ON orders (idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency_unique ON orders (idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_fills_order_id ON fills (order_id);
 CREATE INDEX IF NOT EXISTS idx_fills_symbol ON fills (symbol);
 CREATE INDEX IF NOT EXISTS idx_fills_created_at ON fills (created_at);
@@ -137,5 +145,13 @@ CREATE INDEX IF NOT EXISTS idx_payments_agent ON payments (agent_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments (status);
 CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments (created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_entitlement ON payments (entitlement_id);
+
+INSERT INTO tier_capabilities (tier, capabilities)
+VALUES
+  ('tier0', '["stream.read.public","command.status"]'::jsonb),
+  ('tier1', '["stream.read.public","command.status","stream.read.obfuscated.realtime","command.explain.redacted"]'::jsonb),
+  ('tier2', '["stream.read.public","stream.read.obfuscated.realtime","stream.read.full","command.status","command.explain.redacted","command.positions","command.execute","plugin.health.read"]'::jsonb),
+  ('tier3', '["stream.read.public","stream.read.obfuscated.realtime","stream.read.full","command.status","command.explain.redacted","command.positions","command.execute","plugin.health.read","plugin.submit","command.audit"]'::jsonb)
+ON CONFLICT (tier) DO NOTHING;
 
 COMMIT;

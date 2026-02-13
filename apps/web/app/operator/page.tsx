@@ -28,6 +28,7 @@ const COMMANDS = ['/status', '/positions', '/simulate', '/halt', '/resume', '/fl
 export default function OperatorFloor() {
   const [status, setStatus] = useState('INIT')
   const [token, setToken] = useState('')
+  const [roles, setRoles] = useState<string[]>([])
   const [command, setCommand] = useState('/status')
   const [pnl, setPnl] = useState('0.00')
   const [positions, setPositions] = useState<Position[]>([])
@@ -39,6 +40,18 @@ export default function OperatorFloor() {
   }
 
   useEffect(() => {
+    try {
+      const payload = token.split('.')[1]
+      if (!payload) {
+        setRoles([])
+      } else {
+        const parsed = JSON.parse(atob(payload)) as { roles?: string[] }
+        setRoles(Array.isArray(parsed.roles) ? parsed.roles : [])
+      }
+    } catch {
+      setRoles([])
+    }
+
     const fetchStatus = async () => {
       try {
         const snapshot = await fetch(apiUrl('/v1/public/floor-snapshot')).then((res) => res.json())
@@ -86,9 +99,17 @@ export default function OperatorFloor() {
     setLog((current) => [`${command}: ${body}`, ...current].slice(0, 40))
   }
 
+  const modeBannerColor = status === 'HALT' || status === 'SAFE_MODE' ? '#8b1a1a' : '#1b6b42'
+
   return (
     <main style={{ padding: 20 }}>
       <h1>HL PRIVATEER OPERATOR FLOOR</h1>
+      <div style={{ display: 'inline-block', padding: '4px 8px', border: '1px solid #355', background: '#152030', marginBottom: 8 }}>
+        roles: {roles.length > 0 ? roles.join(', ') : 'none'}
+      </div>
+      <div style={{ padding: '6px 10px', background: modeBannerColor, marginBottom: 8 }}>
+        state banner: {status}
+      </div>
       <pre>
 {`mode: ${status}
 pnl: ${pnl}%`}

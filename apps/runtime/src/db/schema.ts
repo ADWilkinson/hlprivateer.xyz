@@ -32,7 +32,7 @@ export const orders = pgTable(
     symbol: text('symbol').notNull(),
     side: text('side').notNull(),
     status: text('status').notNull(),
-    idempotencyKey: text('idempotency_key'),
+    idempotencyKey: text('idempotency_key').unique(),
     notionalUsd: integer('notional_usd').notNull(),
     filledQty: integer('filled_qty').notNull(),
     avgFillPx: integer('avg_fill_px').notNull(),
@@ -131,6 +131,18 @@ export const entitlements = pgTable(
   (table) => ({
     expiresIdx: index('idx_entitlements_expires').on(table.expiresAt),
     tierIdx: index('idx_entitlements_tier').on(table.tier)
+  })
+)
+
+export const tierCapabilities = pgTable(
+  'tier_capabilities',
+  {
+    tier: text('tier').primaryKey(),
+    capabilities: jsonb('capabilities').notNull().$type<string[]>(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    updatedAtIdx: index('idx_tier_capabilities_updated_at').on(table.updatedAt)
   })
 )
 

@@ -92,3 +92,4 @@
 - Kill-switch drill passed.
 - Risk limits reviewed and signed by operator.
 - Latest deployment hash recorded.
+- `ENABLE_LIVE_OMS=true` is set only together with explicit `LIVE_MODE_APPROVED=true`.

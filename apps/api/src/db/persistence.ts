@@ -4,15 +4,17 @@ import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import {
   ActorType,
+  TierCapabilityMapSchema,
   EntitlementSchema,
   TradeStateSchema,
   type AuditEvent,
   type Entitlement,
+  type TierCapabilityMap,
   type OperatorOrder,
   type OperatorPosition,
   type TradeState
 } from '@hl/privateer-contracts'
-import { audits, commands, entitlements, orders, payments, positions, systemState } from './schema'
+import { audits, commands, entitlements, orders, payments, positions, systemState, tierCapabilities } from './schema'
 import * as schema from './schema'
 
 type AuditRow = typeof audits.$inferSelect
@@ -20,6 +22,7 @@ type EntitlementRow = typeof entitlements.$inferSelect
 type OrderRow = typeof orders.$inferSelect
 type PositionRow = typeof positions.$inferSelect
 type SystemStateRow = typeof systemState.$inferSelect
+type TierCapabilitiesRow = typeof tierCapabilities.$inferSelect
 
 type ApiDbStore = {
   db: NodePgDatabase<typeof schema>
@@ -50,6 +53,7 @@ export interface ApiPersistence {
   countAudits(): Promise<number>
   getEntitlement(entitlementId: string): Promise<Entitlement | null>
   saveEntitlement(entitlementId: string, entitlement: Entitlement): Promise<void>
+  getTierCapabilities(): Promise<TierCapabilityMap | null>
   saveCommand(input: {
     command: string
     actorType: string
@@ -206,6 +210,26 @@ function toEntitlement(row: EntitlementRow): Entitlement {
   }
 }
 
+function toTierCapabilityRecord(rows: TierCapabilitiesRow[]): TierCapabilityMap | null {
+  if (rows.length === 0) {
+    return null
+  }
+
+  const candidate = rows.reduce<Record<string, string[]>>((acc, row) => {
+    if (Array.isArray(row.capabilities)) {
+      acc[row.tier] = row.capabilities.filter((entry): entry is string => typeof entry === 'string')
+    }
+    return acc
+  }, {})
+
+  const parsed = TierCapabilityMapSchema.safeParse(candidate)
+  if (!parsed.success) {
+    return null
+  }
+
+  return parsed.data
+}
+
 function computeAuditHash(event: AuditEvent, previousHash: string | null): string {
   return createHash('sha256')
     .update(
@@ -288,6 +312,7 @@ function createDisabledStore(reason: string): ApiPersistence {
     countAudits: async () => 0,
     getEntitlement: async () => null,
     saveEntitlement: async () => undefined,
+    getTierCapabilities: async () => null,
     saveCommand: async () => undefined,
     recordPaymentAttempt: async () => undefined
   }
@@ -498,6 +523,18 @@ async function createPostgresStore(databaseUrl: string): Promise<ApiPersistence>
             expiresAt: new Date(entitlement.expiresAt)
           }
         })
+    },
+    getTierCapabilities: async () => {
+      try {
+        const rows = await store.db
+          .select()
+          .from(tierCapabilities)
+          .orderBy(asc(tierCapabilities.tier))
+
+        return toTierCapabilityRecord(rows)
+      } catch {
+        return null
+      }
     },
     saveCommand: async (input) => {
       await store.db.insert(commands).values({
