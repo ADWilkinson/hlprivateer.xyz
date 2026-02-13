@@ -9,6 +9,17 @@ This repo currently has:
 
 If you need actual x402 v2 interoperability (buyers retry with `PAYMENT-SIGNATURE`, sellers return `PAYMENT-REQUIRED` + `PAYMENT-RESPONSE`), follow the canonical flow below.
 
+## Local repo demo (x402-like gate)
+
+Run against the local API (`http://127.0.0.1:4000`), showing:
+- `402` response with `PAYMENT-REQUIRED`
+- paid retry with `PAYMENT-SIGNATURE`
+- reuse of `x-agent-entitlement` without re-paying until quota/expiry
+
+```bash
+bun scripts/x402/demo.ts
+```
+
 ## Canonical x402 v2 seller shape (Express example)
 
 Install:

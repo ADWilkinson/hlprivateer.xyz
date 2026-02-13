@@ -927,27 +927,37 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
 const x402Protected = (requiredCapability?: string) => {
   return async (request: any, reply: any) => {
     const token = String(request.headers['x-agent-token'] ?? '')
-    const entitlementId = request.headers['x-agent-entitlement']
-    const normalizedEntitlementId = Array.isArray(entitlementId) ? entitlementId[0] : entitlementId
-    if (!normalizedEntitlementId || typeof normalizedEntitlementId !== 'string') {
+    const proofPayload = getProofFromRequest(request)
+    const parsedProof = PaymentProofSchema.safeParse(proofPayload)
+    const amountUsd = parsedProof.success ? normalizeAmountUsd(parsedProof.data.paidAmountUsd) : 0
+    const proofAgentId = parsedProof.success ? parsedProof.data.agentId : (token || 'agent')
+
+    const entitlementHeader = request.headers['x-agent-entitlement']
+    const normalizedEntitlementHeader = Array.isArray(entitlementHeader) ? entitlementHeader[0] : entitlementHeader
+    const entitlementFromProof = parsedProof.success ? parsedProof.data.challengeId : undefined
+    const normalizedEntitlementId =
+      typeof normalizedEntitlementHeader === 'string' && normalizedEntitlementHeader.trim().length > 0
+        ? normalizedEntitlementHeader.trim()
+        : typeof entitlementFromProof === 'string' && entitlementFromProof.trim().length > 0
+          ? entitlementFromProof.trim()
+          : ''
+
+    if (!normalizedEntitlementId) {
       const challenge = createChallenge(token || 'agent', String(request.url), 'tier1')
       issuePaymentRecord({
-        agentId: token || 'agent',
+        agentId: proofAgentId,
         entitlementId: 'pending',
         challengeId: challenge.challengeId,
         status: 'challenge.issued',
-        amountUsd: 0,
+        amountUsd,
+        proof: parsedProof.success ? parsedProof.data : proofPayload,
         metadata: {
           route: request.url,
-          reason: 'missing entitlement header'
+          reason: 'missing entitlement/challenge id'
         }
       })
       reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
-      reply.code(402).send({
-        error: 'PAYMENT_REQUIRED',
-        reason: 'x402-payment required',
-        challenge
-      })
+      reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'x402-payment required', challenge })
       return
     }
 
@@ -956,23 +966,118 @@ const x402Protected = (requiredCapability?: string) => {
       return
     }
 
-    const entitlement = await store.getEntitlement(normalizedEntitlementId)
+    let entitlement = await store.getEntitlement(normalizedEntitlementId)
+
     if (!entitlement) {
-      const challenge = createChallenge(token || 'agent', String(request.url), 'tier1')
-      issuePaymentRecord({
-        agentId: token || 'agent',
-        entitlementId: normalizedEntitlementId,
-        challengeId: challenge.challengeId,
-        status: 'challenge.issued',
-        amountUsd: 0,
-        metadata: {
-          route: request.url,
-          reason: 'unknown entitlement'
+      if (proofPayload) {
+        const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
+        if (!verifyResult.ok) {
+          const reason = verifyResult.reason || 'proof verification failed'
+          const abuseCount = recordAbuse(normalizedEntitlementId)
+          issuePaymentRecord({
+            agentId: proofAgentId,
+            entitlementId: normalizedEntitlementId,
+            challengeId: normalizedEntitlementId,
+            status: parsedProof.success ? 'failed.verification_rejected' : 'failed.invalid_proof',
+            amountUsd,
+            proof: parsedProof.success ? parsedProof.data : proofPayload,
+            metadata: {
+              route: request.url,
+              reason,
+              abuseCount,
+              paymentEnabled: true
+            }
+          })
+          if (abuseCount >= ABUSE_BAN_THRESHOLD) {
+            reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
+            return
+          }
+
+          reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
+          reply.code(402).send({
+            error: 'PAYMENT_REQUIRED',
+            reason,
+            challenge: normalizedEntitlementId,
+            abuseCount
+          })
+          return
         }
-      })
-      reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
-      reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'unknown entitlement', challenge })
-      return
+
+        const tier = parsedProof.success ? parsedProof.data.tier : 'tier0'
+        const minted = EntitlementSchema.parse({
+          agentId: proofAgentId,
+          tier,
+          capabilities: getCapabilitiesForTier(tier),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          quotaRemaining: 1000,
+          rateLimitPerMinute: 30
+        })
+
+        await store.setEntitlement({ entitlementId: normalizedEntitlementId, entitlement: minted })
+        entitlement = minted
+
+        reply.header('PAYMENT-RESPONSE', encodePaymentHeader({
+          ok: true,
+          entitlementId: normalizedEntitlementId,
+          verifiedAt: new Date().toISOString()
+        }))
+      } else {
+        const challenge = createChallenge(token || proofAgentId || 'agent', String(request.url), 'tier1')
+        issuePaymentRecord({
+          agentId: proofAgentId,
+          entitlementId: normalizedEntitlementId,
+          challengeId: challenge.challengeId,
+          status: 'challenge.issued',
+          amountUsd,
+          metadata: {
+            route: request.url,
+            reason: 'unknown entitlement'
+          }
+        })
+        reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
+        reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'unknown entitlement', challenge })
+        return
+      }
+    } else if (proofPayload) {
+      const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
+      if (!verifyResult.ok) {
+        const reason = verifyResult.reason || 'proof verification failed'
+        const abuseCount = recordAbuse(normalizedEntitlementId)
+        issuePaymentRecord({
+          agentId: proofAgentId,
+          entitlementId: normalizedEntitlementId,
+          challengeId: normalizedEntitlementId,
+          status: parsedProof.success ? 'failed.verification_rejected' : 'failed.invalid_proof',
+          amountUsd,
+          proof: parsedProof.success ? parsedProof.data : proofPayload,
+          metadata: {
+            route: request.url,
+            reason,
+            abuseCount,
+            paymentEnabled: true
+          }
+        })
+        if (abuseCount >= ABUSE_BAN_THRESHOLD) {
+          reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
+          return
+        }
+
+        reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
+        reply.code(402).send({
+          error: 'PAYMENT_REQUIRED',
+          reason,
+          challenge: normalizedEntitlementId,
+          abuseCount
+        })
+        return
+      }
+
+      // Provide a settlement-style response header for clients implementing x402 v2 semantics.
+      reply.header('PAYMENT-RESPONSE', encodePaymentHeader({
+        ok: true,
+        entitlementId: normalizedEntitlementId,
+        verifiedAt: new Date().toISOString()
+      }))
     }
 
     if (token && entitlement.agentId !== token) {
@@ -982,7 +1087,7 @@ const x402Protected = (requiredCapability?: string) => {
         entitlementId: normalizedEntitlementId,
         challengeId: normalizedEntitlementId,
         status: 'failed.invalid_agent',
-        amountUsd: 0,
+        amountUsd,
         metadata: {
           route: request.url,
           abuseCount,
@@ -997,50 +1102,6 @@ const x402Protected = (requiredCapability?: string) => {
       reply.code(403).send({ error: 'INVALID_AGENT', message: `agent mismatch (${abuseCount})` })
       return
     }
-
-    const proofPayload = getProofFromRequest(request)
-    const parsedProof = PaymentProofSchema.safeParse(proofPayload)
-    const amountUsd = parsedProof.success ? normalizeAmountUsd(parsedProof.data.paidAmountUsd) : 0
-    const proofAgentId = parsedProof.success ? parsedProof.data.agentId : (token || 'agent')
-    const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
-    if (!verifyResult.ok) {
-      const reason = verifyResult.reason || 'proof verification failed'
-      const abuseCount = recordAbuse(normalizedEntitlementId)
-      issuePaymentRecord({
-        agentId: proofAgentId,
-        entitlementId: normalizedEntitlementId,
-        challengeId: normalizedEntitlementId,
-        status: parsedProof.success ? 'failed.verification_rejected' : 'failed.invalid_proof',
-        amountUsd,
-        proof: parsedProof.success ? parsedProof.data : proofPayload,
-        metadata: {
-          route: request.url,
-          reason,
-          abuseCount,
-          paymentEnabled: true
-        }
-      })
-      if (abuseCount >= ABUSE_BAN_THRESHOLD) {
-        reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
-        return
-      }
-
-      reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
-      reply.code(402).send({
-        error: 'PAYMENT_REQUIRED',
-        reason,
-        challenge: normalizedEntitlementId,
-        abuseCount
-      })
-      return
-    }
-
-    // Provide a settlement-style response header for clients implementing x402 v2 semantics.
-    reply.header('PAYMENT-RESPONSE', encodePaymentHeader({
-      ok: true,
-      entitlementId: normalizedEntitlementId,
-      verifiedAt: new Date().toISOString()
-    }))
 
     if (new Date(entitlement.expiresAt) < new Date()) {
       issuePaymentRecord({
@@ -1125,9 +1186,9 @@ const x402Protected = (requiredCapability?: string) => {
       agentId: entitlement.agentId,
       entitlementId: normalizedEntitlementId,
       challengeId: normalizedEntitlementId,
-      status: 'verified',
+      status: proofPayload ? 'verified' : 'entitlement.usage',
       amountUsd,
-      proof: proofPayload,
+      proof: proofPayload ?? undefined,
       verifiedAt: new Date().toISOString(),
       metadata: {
         route: request.url,

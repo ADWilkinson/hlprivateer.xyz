@@ -70,8 +70,10 @@ Command request example:
 - This repo currently implements a local deterministic “x402-like” payment gate for agent routes (not facilitator-backed settlement).
 - On insufficient entitlement, API returns `402 Payment Required` plus a `PAYMENT-REQUIRED` header (Base64 JSON payload).
 - Client retries with payment proof in `PAYMENT-SIGNATURE` (or `x402-payment` for dev clients).
-- On success, response includes `PAYMENT-RESPONSE` (Base64 JSON payload) and the entitlement/quota is updated.
+- On success, response includes `PAYMENT-RESPONSE` (Base64 JSON payload) with an `entitlementId`.
+  - Subsequent requests can send `x-agent-entitlement: <entitlementId>` without re-sending the payment proof until the entitlement expires or quota is exhausted.
 - For the canonical x402 v2 seller flow, see `docs/X402_SELLER_QUICKSTART.md`.
+- Local demo (runs against `http://127.0.0.1:4000` by default): `bun scripts/x402/demo.ts`
 
 ## Websocket protocol
 
