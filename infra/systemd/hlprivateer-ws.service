@@ -1,0 +1,21 @@
+[Unit]
+Description=HL Privateer WebSocket Gateway
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=hlprivateer
+Group=hlprivateer
+WorkingDirectory=/opt/hlprivateer.xyz
+EnvironmentFile=/opt/hlprivateer.xyz/config/.env
+ExecStart=/usr/bin/node /opt/hlprivateer.xyz/apps/ws-gateway/dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hlprivateer.xyz /var/log/hlprivateer
+
+[Install]
+WantedBy=multi-user.target
