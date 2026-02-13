@@ -17,6 +17,8 @@ secrets
 *.pem
 *.key
 config/secrets.*.plain.yaml
+config/secrets.*.enc.yaml
+.sops.yaml
 *.tsbuildinfo
 *.lockb
 firebase-debug.log

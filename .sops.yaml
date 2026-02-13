@@ -1,4 +1,0 @@
-creation_rules:
-  - path_regex: config/.*\\.enc\\.yaml
-    age: [age1qg...placeholder-for-provisioned-age-recipient]
-    encrypted_regex: '^.*$'

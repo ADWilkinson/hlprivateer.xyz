@@ -6,7 +6,7 @@
 2. Clone repo to `/opt/hlprivateer.xyz`.
 3. Create env file:
    - `cp config/.env.example config/.env`
-   - fill non-secret placeholders (hostname, ports, risk caps)
+   - fill required non-secret values (hostname, ports, risk caps)
 4. Manage secrets with SOPS + age:
    - `cp config/secrets.prod.example.yaml config/secrets.prod.plain.yaml`
    - populate secret values
