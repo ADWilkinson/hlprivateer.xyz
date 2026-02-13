@@ -2,19 +2,30 @@
 
 ## 1. Internal agent skills
 
-### 1.1 research-agent
-Purpose: Generate basket and regime hypotheses.
+### 1.1 floor-agent-runner (implemented)
+Purpose: Propose delta-to-target pair trades and publish public "floor tape" + structured analysis.
 Inputs:
-- Market snapshots
-- Funding/correlation/volatility plugin outputs
-- Strategy state
+- Normalized ticks (`hlp.market.normalized`)
+- Plugin signals (`hlp.plugin.signals`)
+- Current positions/mode (from `hlp.ui.events`)
+Outputs:
+- `StrategyProposal` events to `hlp.strategy.proposals`
+- `FLOOR_TAPE` lines to `hlp.ui.events` (roles: `scout`, `strategist`, `scribe`)
+- Audit analysis records to `hlp.audit.events`
+Forbidden:
+- No direct order placement (runtime executes only after risk approval)
+- No config mutation
+- No secret access (must operate on provided context only)
+
+### 1.2 research-agent (planned)
+Purpose: Generate basket and regime hypotheses.
 Outputs:
 - `StrategyProposal` objects only
 Forbidden:
 - No direct order placement
 - No config mutation
 
-### 1.2 risk-agent
+### 1.3 risk-agent (planned)
 Purpose: Explain risk posture and simulate outcomes.
 Inputs:
 - Current exposure
@@ -25,7 +36,7 @@ Outputs:
 Forbidden:
 - No override of risk decisions
 
-### 1.3 execution-agent
+### 1.4 execution-agent (planned)
 Purpose: Suggest execution tactics under constraints.
 Inputs:
 - Allowed proposals
@@ -35,7 +46,7 @@ Outputs:
 Forbidden:
 - No bypass of OMS/risk gate
 
-### 1.4 ops-agent
+### 1.5 ops-agent (planned)
 Purpose: Detect incidents and suggest remediation steps.
 Inputs:
 - Logs, traces, metrics, service state
@@ -71,23 +82,29 @@ Capabilities:
 import { z } from "zod";
 
 export const StrategyProposalSchema = z.object({
-  proposalId: z.string(),
-  cycleId: z.string(),
+  proposalId: z.string().min(1),
+  cycleId: z.string().min(1),
   summary: z.string().min(1),
   confidence: z.number().min(0).max(1),
+  createdBy: z.string().min(1),
+  requestedMode: z.enum(["SIM", "LIVE"]).default("SIM"),
   actions: z.array(
     z.object({
       type: z.enum(["ENTER", "EXIT", "REBALANCE", "HOLD"]),
+      rationale: z.string().min(3),
+      notionalUsd: z.number().positive(),
+      expectedSlippageBps: z.number().nonnegative().default(0),
+      maxSlippageBps: z.number().nonnegative().optional(),
       legs: z.array(
         z.object({
-          symbol: z.string(),
+          symbol: z.string().min(1),
           side: z.enum(["BUY", "SELL"]),
-          notionalUsd: z.number().positive()
-        })
-      ),
-      rationale: z.string().min(1)
-    })
-  )
+          notionalUsd: z.number().positive(),
+          targetRatio: z.number().min(0).max(1).optional()
+        }).strict()
+      ).min(1)
+    }).strict()
+  ).min(1)
 });
 
 export const AgentHandshakeSchema = z.object({

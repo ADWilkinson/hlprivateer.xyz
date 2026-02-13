@@ -30,9 +30,9 @@
 - HLP-027 Initial feed plugins: DONE — correlation/funding/vol plugins produce normalized signals with tests.
 - HLP-028 Observability stack integration: DONE — OTel, Prometheus, Loki services and metrics hooks in runtime/ws/api.
 - HLP-029 Security baseline: DONE — headers, rate limiting, abuse counters, and injection hardening hooks configured.
-- HLP-030 Secrets management with SOPS+age: DONE — SOPS secret envelope and scripts for decrypt/rotate plus systemd credential flow docs.
-- HLP-031 systemd deployment and Cloudflare tunnel: IN PROGRESS — units/config are committed; clean-VM deployment verification evidence is still pending.
-- HLP-032 End-to-end sim + live readiness checklist: IN PROGRESS — readiness gates are implemented; required 24h sim run and drill evidence are still pending.
+- HLP-030 Secrets management via `*_FILE` + systemd credentials: DONE — services support `*_FILE` env vars, `secrets/` is gitignored, and ops bootstrap scripts exist for Postgres + trading wallet.
+- HLP-031 systemd deployment and Cloudflare tunnel: IN PROGRESS — units/config are committed and validated on the reference home server; clean-VM deployment verification evidence is still pending.
+- HLP-032 End-to-end sim + live readiness checklist: IN PROGRESS — readiness gates/scripts are implemented; a full 24h burn-in and drill evidence is still pending.
 
 ## HLP-001 Repo bootstrap and workspace tooling
 Description: Initialize bun+turborepo monorepo with TypeScript base config and package boundaries.
@@ -266,12 +266,12 @@ Acceptance Criteria:
 - Abuse events can trigger temporary bans.
 Dependencies: HLP-014, HLP-017, HLP-019
 
-## HLP-030 Secrets management with SOPS+age
-Description: Add encrypted config management and runtime secret injection.
+## HLP-030 Secrets management via `*_FILE` + systemd credentials
+Description: Add runtime secret injection without committing secrets to git.
 Acceptance Criteria:
-- Secret files encrypted in repo.
-- Boot-time decryption path documented.
-- Rotation command documented and tested.
+- Services support loading secrets via `*_FILE` env vars (file contents are trimmed, empty rejects).
+- `secrets/` is gitignored and secrets are created with restrictive permissions (`chmod 600`).
+- Operator/deploy docs describe where secrets live and how to rotate.
 Dependencies: HLP-001
 
 ## HLP-031 systemd deployment and Cloudflare tunnel setup

@@ -27,8 +27,8 @@ Attack surfaces:
 - Kill switch and safe mode available via operator admin only.
 - Public surface limited to PnL percent and obfuscated metadata.
 - External agents gated by tier entitlements and x402 verification.
-- Secret material managed via SOPS/age + systemd credentials.
-- Service environment values are loaded from `_FILE` paths first, so secrets stay outside versioned `.env` content.
+- Secret material is loaded via `*_FILE` paths (and can be mounted via systemd credentials).
+- Optional hardening: SOPS/age workflows exist under `scripts/secrets/`, but are not required by the current reference deployment.
 
 ## AuthN/AuthZ
 - Operator auth with MFA and short-lived JWT.
@@ -40,9 +40,11 @@ Attack surfaces:
 - Hyperliquid key: quarterly or immediately on suspicion.
 - API keys: revocable at any time; default max TTL 90 days.
 - Credential rotation process:
-  - create plaintext source at `config/secrets.prod.plain.yaml` from example.
-  - re-encrypt with `bun run secrets:rotate` (requires `SOPS_AGE_RECIPIENT`).
-  - deploy target files with `bun run secrets:decrypt`.
+  - Default (recommended): rotate the `*_FILE` secret files referenced by `config/.env`, then restart services.
+  - Optional (hardened): manage encrypted secret material in git via SOPS/age, and deploy decrypted credentials through systemd:
+    - create plaintext source at `config/secrets.prod.plain.yaml` from example.
+    - re-encrypt with `bun run secrets:rotate` (requires `SOPS_AGE_RECIPIENT`).
+    - deploy target files with `bun run secrets:decrypt`.
 
 ## Security reporting
 If you discover a vulnerability:
