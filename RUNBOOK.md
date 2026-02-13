@@ -22,7 +22,9 @@
    - copy `infra/cloudflared/config.yml.example` to `/etc/cloudflared/config.yml`
    - place tunnel credential at `/etc/cloudflared/hlprivateer.json` with `chmod 600`
    - confirm `config.yml` points `credentials-file` to `/run/credentials/hlprivateer-cloudflared.service/cloudflared-tunnel`
-8. Start services:
+8. Sync Cloudflare DNS (Pages + Tunnel):
+   - `CF_API_TOKEN=<token with Zone:DNS:Edit> bash scripts/cloudflare/sync-dns.sh hlprivateer.xyz`
+9. Start services:
    - `sudo systemctl daemon-reload`
    - `sudo systemctl enable --now hlprivateer-api hlprivateer-runtime hlprivateer-ws hlprivateer-cloudflared`
    - optional Cloudflare Pages web: deploy with
