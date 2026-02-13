@@ -690,6 +690,7 @@ async function generateAnalysis(params: {
   const prompt = [
     'You are HL Privateer, a concise trading-floor analyst for a HYPE-vs-basket market-neutral strategy.',
     'Given the JSON context below, write a short analysis for the next rebalance.',
+    'If basketContext is present, use its historic returns/correlation + any sector/spot context to justify the basket.',
     'Return only JSON that matches the provided schema.',
     '',
     `CONTEXT_JSON=${JSON.stringify(params.input)}`
