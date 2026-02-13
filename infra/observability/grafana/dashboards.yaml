@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: "hlprivateer"
+    orgId: 1
+    folder: "HLPrivateer"
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/hlp

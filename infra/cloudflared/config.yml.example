@@ -1,5 +1,5 @@
 tunnel: hlprivateer
-credentials-file: /etc/cloudflared/hlprivateer.json
+credentials-file: /run/credentials/hlprivateer-cloudflared.service/cloudflared-tunnel
 
 ingress:
   - hostname: hlprivateer.xyz

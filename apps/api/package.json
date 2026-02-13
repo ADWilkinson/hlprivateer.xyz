@@ -1,0 +1,43 @@
+{
+  "name": "@hl/privateer-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "bunx tsx watch src/index.ts",
+    "build": "bunx tsc -p tsconfig.json",
+    "start": "bun run dist/index.js",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bunx vitest run --passWithNoTests",
+    "lint": "bunx vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/helmet": "^12.0.1",
+    "@fastify/jwt": "^10.0.0",
+    "@fastify/rate-limit": "^10.0.1",
+    "@fastify/swagger": "^8.14.0",
+    "@fastify/swagger-ui": "^4.0.1",
+    "@hl/privateer-contracts": "workspace:*",
+    "@hl/privateer-event-bus": "workspace:*",
+    "@hl/privateer-agent-sdk": "workspace:*",
+    "fastify": "^4.29.1",
+    "ioredis": "^5.5.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.55.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.1",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-node": "^0.57.1",
+    "@opentelemetry/semantic-conventions": "^1.30.0",
+    "prom-client": "^15.1.3",
+    "ulid": "^2.3.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8"
+  }
+}

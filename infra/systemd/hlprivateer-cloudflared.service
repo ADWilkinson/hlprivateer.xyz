@@ -1,14 +1,41 @@
 [Unit]
 Description=Cloudflare Tunnel for HL Privateer
-After=network.target
+After=network-online.target hlprivateer-web.service hlprivateer-api.service hlprivateer-ws.service
+Wants=network-online.target hlprivateer-web.service hlprivateer-api.service hlprivateer-ws.service
 
 [Service]
 Type=simple
+User=cloudflared
+Group=cloudflared
+WorkingDirectory=/opt/hlprivateer.xyz
 ExecStart=/usr/local/bin/cloudflared --config /etc/cloudflared/config.yml tunnel run
 Restart=always
 RestartSec=5
-User=cloudflared
-Group=cloudflared
+NoNewPrivileges=true
+PrivateUsers=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
+RestartSteps=3
+RestartMaxDelaySec=30
+StartLimitBurst=5
+StartLimitIntervalSec=60
+LoadCredential=cloudflared-tunnel:/etc/cloudflared/hlprivateer.json
+EnvironmentFile=-/run/credentials/%N/cloudflared-tunnel
+ConditionPathExists=/run/credentials/%N/cloudflared-tunnel
+ConditionPathExists=/etc/cloudflared/config.yml
 
 [Install]
 WantedBy=multi-user.target

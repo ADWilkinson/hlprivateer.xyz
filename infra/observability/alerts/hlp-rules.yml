@@ -1,0 +1,20 @@
+groups:
+  - name: hlprivateer-runtime
+    rules:
+      - alert: hlp_stale_market_data
+        expr: max(hlp_runtime_market_data_age_ms) > 5000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Market data stale for more than 5s
+          description: "hlp_runtime_market_data_age_ms is above 5000ms for 2 minutes."
+
+      - alert: hlp_risk_denied_excess
+        expr: rate(hlp_runtime_risk_decisions_total{decision="DENY"}[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated risk denies
+          description: "Risk engine denies have exceeded 0.05/s over 5m."

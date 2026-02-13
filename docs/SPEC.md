@@ -734,7 +734,7 @@ Secure defaults:
 ## 8) Concrete stack + repo plan (TypeScript-first)
 
 Default choices:
-- Monorepo: `pnpm + turborepo`.
+- Monorepo: `bun + turborepo`.
 - Backend: `Fastify` (high performance, schema-first, low overhead).
 - Web app: `Next.js` for operator/public UI.
 - Websocket: dedicated `ws` gateway service for fanout and isolation.

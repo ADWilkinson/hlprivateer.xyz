@@ -7,8 +7,13 @@ node_modules
 dist
 coverage
 .next
+apps/web/out
 *.log
 .DS_Store
 secrets
 *.pem
 *.key
+config/secrets.*.plain.yaml
+*.tsbuildinfo
+*.lockb
+firebase-debug.log
