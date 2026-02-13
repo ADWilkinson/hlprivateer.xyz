@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
@@ -6,6 +7,7 @@ import {
   ActorType,
   Channel,
   OPERATOR_ADMIN_ROLE,
+  OPERATOR_VIEW_ROLE,
   type Role,
   CommandResultSchema,
   DEFAULT_TIER_CAPABILITIES,
@@ -20,9 +22,13 @@ import { InMemoryEventBus, RedisEventBus } from '@hl/privateer-event-bus'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
 
 const PORT = Number(process.env.WS_PORT ?? 4100)
+const NODE_ENV = process.env.NODE_ENV ?? 'development'
 const REDIS_URL = process.env.REDIS_URL
 const REDIS_STREAM_PREFIX = process.env.REDIS_STREAM_PREFIX ?? 'hlp'
 const METRICS_PATH = '/metrics'
+const JWT_SECRET = process.env.JWT_SECRET
+const WS_ALLOW_INSECURE_TOKENS = parseBooleanEnv(process.env.WS_ALLOW_INSECURE_TOKENS, false)
+const OPERATOR_MFA_REQUIRED = parseBooleanEnv(process.env.OPERATOR_MFA_REQUIRED, true)
 
 type WsActorType = 'public' | 'operator' | 'agent'
 
@@ -34,6 +40,8 @@ interface ClientInfo {
   actorId: string
   actorType: WsActorType
   actorRole?: Role
+  roles: Role[]
+  mfa?: boolean
   capabilities: string[]
 }
 
@@ -54,10 +62,27 @@ const ABUSE_BAN_THRESHOLD = 8
 const ABUSE_BAN_WINDOW_MS = 60_000
 const MAX_WS_BUFFER_BYTES = 1_000_000
 const MAX_WS_MESSAGE_BYTES = 4_096
+const MAX_TOKEN_LENGTH = 4096
 const TOKEN_PATTERN = /^[a-zA-Z0-9._:-]{1,120}$/
 const MAX_CHANNEL_LENGTH = 32
 
 void initializeTelemetry('hlprivateer-ws-gateway')
+
+function parseBooleanEnv(value: string | undefined, defaultValue: boolean): boolean {
+  if (typeof value !== 'string') {
+    return defaultValue
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true
+  }
+  if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
+    return false
+  }
+
+  return defaultValue
+}
 
 const wsCommandCounter = new promClient.Counter({
   name: 'hlp_ws_command_total',
@@ -94,29 +119,184 @@ function getCapabilitiesForToken(tier: string | undefined): string[] {
   return (DEFAULT_TIER_CAPABILITIES as Record<'tier0' | 'tier1' | 'tier2' | 'tier3', string[]>)[normalizedTier]
 }
 
-const roleFromToken = (token?: string): { actorType: WsActorType; actorId: string; capabilities: string[]; actorRole?: Role } => {
-  if (!token) {
-    return { actorType: 'public', actorId: 'anonymous', capabilities: [] }
+interface OperatorJwtClaims {
+  sub?: string
+  roles?: unknown
+  mfa?: unknown
+  iss?: unknown
+  aud?: unknown
+  exp?: unknown
+}
+
+interface ResolvedIdentity {
+  actorType: WsActorType
+  actorId: string
+  actorRole?: Role
+  roles: Role[]
+  mfa?: boolean
+  capabilities: string[]
+}
+
+type IdentityResult =
+  | { ok: true; identity: ResolvedIdentity }
+  | { ok: false; reason: string }
+
+function safeJsonParse(input: string): any | undefined {
+  try {
+    return JSON.parse(input)
+  } catch {
+    return undefined
+  }
+}
+
+function base64UrlDecodeUtf8(value: string): string | undefined {
+  try {
+    return Buffer.from(value, 'base64url').toString('utf8')
+  } catch {
+    return undefined
+  }
+}
+
+function timingSafeEqualString(left: string, right: string): boolean {
+  const leftBuf = Buffer.from(left, 'utf8')
+  const rightBuf = Buffer.from(right, 'utf8')
+  if (leftBuf.length !== rightBuf.length) {
+    return false
+  }
+  return timingSafeEqual(leftBuf, rightBuf)
+}
+
+function verifyHs256Jwt(token: string, secret: string): { ok: true; payload: OperatorJwtClaims } | { ok: false; reason: string } {
+  const parts = token.split('.')
+  if (parts.length !== 3) {
+    return { ok: false, reason: 'invalid token' }
   }
 
-  if (token.startsWith('operator:')) {
-    const actorId = token.replace('operator:', '') || 'operator'
+  const [encodedHeader, encodedPayload, encodedSignature] = parts
+  const headerText = base64UrlDecodeUtf8(encodedHeader)
+  const payloadText = base64UrlDecodeUtf8(encodedPayload)
+  if (!headerText || !payloadText) {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const header = safeJsonParse(headerText)
+  if (!header || typeof header !== 'object' || header.alg !== 'HS256') {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const expectedSignature = createHmac('sha256', secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url')
+  if (!timingSafeEqualString(expectedSignature, encodedSignature)) {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const payload = safeJsonParse(payloadText) as OperatorJwtClaims | undefined
+  if (!payload) {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const expSeconds = typeof payload.exp === 'number' ? payload.exp : Number(payload.exp)
+  if (Number.isFinite(expSeconds) && Date.now() / 1000 >= expSeconds) {
+    return { ok: false, reason: 'token expired' }
+  }
+
+  if (payload.iss !== 'hlprivateer-api') {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const aud = payload.aud
+  const audOk = aud === 'hlprivateer-operator' || (Array.isArray(aud) && aud.includes('hlprivateer-operator'))
+  if (!audOk) {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  return { ok: true, payload }
+}
+
+function resolveIdentity(token?: string): IdentityResult {
+  if (!token) {
     return {
-      actorType: 'operator',
-      actorId,
-      actorRole: OPERATOR_ADMIN_ROLE,
-      capabilities: getCapabilitiesForToken('tier3')
+      ok: true,
+      identity: { actorType: 'public', actorId: 'anonymous', roles: [], capabilities: [] }
     }
   }
 
-  if (token.startsWith('agent:')) {
+  if (token.length > MAX_TOKEN_LENGTH) {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  if (token.startsWith('operator:') || token.startsWith('agent:')) {
+    if (NODE_ENV === 'production' || !WS_ALLOW_INSECURE_TOKENS) {
+      return { ok: false, reason: 'invalid token' }
+    }
+
+    if (!TOKEN_PATTERN.test(token)) {
+      return { ok: false, reason: 'invalid token' }
+    }
+
+    if (token.startsWith('operator:')) {
+      const actorId = token.replace('operator:', '') || 'operator'
+      return {
+        ok: true,
+        identity: {
+          actorType: 'operator',
+          actorId,
+          actorRole: OPERATOR_ADMIN_ROLE,
+          roles: [OPERATOR_ADMIN_ROLE],
+          mfa: true,
+          capabilities: getCapabilitiesForToken('tier3')
+        }
+      }
+    }
+
     const parts = token.split(':')
     const actorId = parts[1] || 'agent'
     const tier = parts[2]
-    return { actorType: 'agent', actorId, capabilities: getCapabilitiesForToken(tier) }
+    return { ok: true, identity: { actorType: 'agent', actorId, roles: [], capabilities: getCapabilitiesForToken(tier) } }
   }
 
-  return { actorType: 'public', actorId: 'anonymous', capabilities: [] }
+  if (!JWT_SECRET || JWT_SECRET === 'replace-me') {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const jwtResult = verifyHs256Jwt(token, JWT_SECRET)
+  if (!jwtResult.ok) {
+    return { ok: false, reason: jwtResult.reason }
+  }
+
+  const claims = jwtResult.payload
+  const roles: Role[] = Array.isArray(claims.roles)
+    ? claims.roles.filter((role): role is Role => role === OPERATOR_ADMIN_ROLE || role === OPERATOR_VIEW_ROLE)
+    : []
+
+  const actorRole = roles.includes(OPERATOR_ADMIN_ROLE)
+    ? OPERATOR_ADMIN_ROLE
+    : roles.includes(OPERATOR_VIEW_ROLE)
+      ? OPERATOR_VIEW_ROLE
+      : undefined
+
+  if (!actorRole) {
+    return { ok: false, reason: 'invalid token' }
+  }
+
+  const actorId = typeof claims.sub === 'string' && claims.sub.trim().length > 0 ? claims.sub.trim() : 'operator'
+  const mfa = Boolean(claims.mfa)
+  const capabilities = actorRole === OPERATOR_ADMIN_ROLE
+    ? getCapabilitiesForToken('tier3')
+    : ['stream.read.public', 'command.status', 'command.positions', 'command.explain.redacted', 'command.audit']
+
+  return {
+    ok: true,
+    identity: {
+      actorType: 'operator',
+      actorId,
+      actorRole,
+      roles,
+      mfa,
+      capabilities
+    }
+  }
 }
 
 function actorKey(actorType: WsActorType, actorId: string): string {
@@ -306,13 +486,14 @@ function send(ws: any, message: WsServerMessage) {
 wss.on('connection', (ws, request) => {
   const socketId = ulid()
   const token = new URL(request.url ?? '/', `http://localhost:${PORT}`).searchParams.get('token') ?? undefined
-  if (token && !isValidToken(token)) {
+  const identityResult = resolveIdentity(token)
+  if (!identityResult.ok) {
     wsSecurityCounter.inc({ reason: 'invalid_token' })
-    ws.close(4401, 'invalid token')
+    ws.close(4401, identityResult.reason)
     return
   }
 
-  const identity = roleFromToken(token)
+  const identity = identityResult.identity
   const auditActorType = toPolicyActorType(identity.actorType)
 
   if (isBanned(identity.actorType, identity.actorId)) {
@@ -329,6 +510,8 @@ wss.on('connection', (ws, request) => {
     actorId: identity.actorId,
     actorType: identity.actorType,
     actorRole: identity.actorRole,
+    roles: identity.roles,
+    mfa: identity.mfa,
     capabilities: identity.capabilities
   }
   clients.set(socketId, client)
@@ -479,6 +662,39 @@ wss.on('connection', (ws, request) => {
         })
         wsCommandCounter.inc({ actorType: identity.actorType, command: command.command, result: 'forbidden' })
         return
+      }
+
+      if (policy.requiredRoles.length > 0) {
+        const hasRequiredRole = policy.requiredRoles.some((requiredRole) => current.roles.includes(requiredRole))
+        if (!hasRequiredRole) {
+          const abuseCount = recordAbuse(identity.actorType, identity.actorId)
+          wsSecurityCounter.inc({ reason: 'forbidden_role' })
+          publishSecurityEvent(actorType, identity.actorId, `forbidden_role:${abuseCount}`)
+          if (abuseCount >= ABUSE_BAN_THRESHOLD) {
+            ws.close(4403, 'abuse threshold exceeded')
+            return
+          }
+
+          send(current.ws, {
+            type: 'error',
+            requestId: ulid(),
+            code: 'FORBIDDEN',
+            message: 'missing required role'
+          })
+          wsCommandCounter.inc({ actorType: identity.actorType, command: command.command, result: 'forbidden' })
+          return
+        }
+
+        if (policy.requiredRoles.includes(OPERATOR_ADMIN_ROLE) && OPERATOR_MFA_REQUIRED && !current.mfa) {
+          send(current.ws, {
+            type: 'error',
+            requestId: ulid(),
+            code: 'MFA_REQUIRED',
+            message: 'mfa required for this command'
+          })
+          wsCommandCounter.inc({ actorType: identity.actorType, command: command.command, result: 'forbidden' })
+          return
+        }
       }
 
       const requestId = ulid()

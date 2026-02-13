@@ -7,6 +7,7 @@
 3. Create env file:
    - `cp config/.env.example config/.env`
    - fill required non-secret values (hostname, ports, risk caps)
+   - set `OPERATOR_LOGIN_SECRET` (required if you want to mint operator JWTs via `/v1/operator/login` in production)
 4. Manage secrets with SOPS + age:
    - `cp config/secrets.prod.example.yaml config/secrets.prod.plain.yaml`
    - populate secret values
@@ -19,14 +20,19 @@
    - `cp infra/systemd/hlprivateer-*.service /etc/systemd/system/`
    - `sudo systemctl daemon-reload`
 7. Configure cloudflared:
-   - copy `infra/cloudflared/config.yml.example` to `/etc/cloudflared/config.yml`
-   - place tunnel credential at `/etc/cloudflared/hlprivateer.json` with `chmod 600`
-   - confirm `config.yml` points `credentials-file` to `/run/credentials/hlprivateer-cloudflared.service/cloudflared-tunnel`
+   - Option A (simplest, if you already run `cloudflared.service` on the host):
+     - add the `api.hlprivateer.xyz` and `ws.hlprivateer.xyz` ingress rules to your existing cloudflared config
+     - `sudo systemctl restart cloudflared`
+   - Option B (dedicated hardened service from this repo):
+     - copy `infra/cloudflared/config.yml.example` to `/etc/cloudflared/config.yml`
+     - place tunnel credential at `/etc/cloudflared/hlprivateer.json` with `chmod 600`
+     - confirm `config.yml` points `credentials-file` to `/run/credentials/hlprivateer-cloudflared.service/cloudflared-tunnel`
 8. Sync Cloudflare DNS (Pages + Tunnel):
    - `CF_API_TOKEN=<token with Zone:DNS:Edit> bash scripts/cloudflare/sync-dns.sh hlprivateer.xyz`
 9. Start services:
    - `sudo systemctl daemon-reload`
-   - `sudo systemctl enable --now hlprivateer-api hlprivateer-runtime hlprivateer-ws hlprivateer-cloudflared`
+   - `sudo systemctl enable --now hlprivateer-api hlprivateer-runtime hlprivateer-ws`
+   - if using Option B tunnel: `sudo systemctl enable --now hlprivateer-cloudflared`
    - optional Cloudflare Pages web: deploy with
      `bun run deploy:web:cloudflare`
 
@@ -45,9 +51,11 @@
 - `curl -sf http://127.0.0.1:4100/metrics` returns websocket gateway metrics.
 - `curl -sf http://127.0.0.1:9400/metrics` exposes runtime scrape metrics.
 - Verify tunnel route checks:
-  - `sudo systemctl status hlprivateer-cloudflared`
+  - `sudo systemctl status cloudflared` (Option A) or `sudo systemctl status hlprivateer-cloudflared` (Option B)
   - `curl -sf https://api.hlprivateer.xyz/v1/public/pnl`
   - `curl -sf https://ws.hlprivateer.xyz/metrics`
+- End-to-end smoke:
+  - `LOCAL=1 bash scripts/readiness/smoke.sh`
 
 ## 3. Key rotation
 1. Generate new key pair (JWT/x402/hyperliquid as needed).

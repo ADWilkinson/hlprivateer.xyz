@@ -43,6 +43,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
   REDIS_STREAM_PREFIX: z.string().default('hlp'),
   JWT_SECRET: z.string().default('replace-me'),
+  OPERATOR_LOGIN_SECRET: z.string().optional(),
   OPERATOR_MFA_REQUIRED: booleanFromEnv.default(true),
   OPERATOR_ADMIN_USERS: z.string().default('admin@local'),
   FIREBASE_PROJECT_ID: z.string().default('privateer-xbt'),
@@ -59,5 +60,6 @@ export const env = envSchema.parse({
   DATABASE_URL: loadEnvValue('DATABASE_URL'),
   REDIS_URL: loadEnvValue('REDIS_URL'),
   JWT_SECRET: loadEnvValue('JWT_SECRET'),
+  OPERATOR_LOGIN_SECRET: loadEnvValue('OPERATOR_LOGIN_SECRET'),
   X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET')
 })

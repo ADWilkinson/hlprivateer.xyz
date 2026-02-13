@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
+import { timingSafeEqual } from 'node:crypto'
 import {
   AuditEvent,
   CommandResultSchema,
@@ -376,6 +377,15 @@ function errorMessages(errors: Array<{ message: string }>): string {
   return errors.map((error) => error.message).join('; ')
 }
 
+function secretsEqual(provided: string, expected: string): boolean {
+  const providedBuf = Buffer.from(provided, 'utf8')
+  const expectedBuf = Buffer.from(expected, 'utf8')
+  if (providedBuf.length !== expectedBuf.length) {
+    return false
+  }
+  return timingSafeEqual(providedBuf, expectedBuf)
+}
+
 const commandCounter = new promClient.Counter({
   name: 'hlp_command_total',
   help: 'Total submitted operator/agent commands',
@@ -441,9 +451,24 @@ app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async (_, repl
 })
 
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
+  const operatorLoginSecret = env.OPERATOR_LOGIN_SECRET?.trim()
+  if (!operatorLoginSecret && env.NODE_ENV === 'production') {
+    reply.code(404).send({ error: 'DISABLED', message: 'operator login disabled in production' })
+    return
+  }
+
+  if (operatorLoginSecret) {
+    const providedSecret = String(request.headers['x-operator-login-secret'] ?? '')
+    if (!providedSecret || !secretsEqual(providedSecret, operatorLoginSecret)) {
+      reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing or invalid operator login secret' })
+      return
+    }
+  }
+
   const body = request.body as any
   const user = String(body.user ?? 'operator')
-  const mfa = Boolean(body.mfa ?? true)
+  // MFA is currently a boolean claim gate. In production, enforce `mfa=true` on issued tokens.
+  const mfa = env.NODE_ENV === 'production' ? true : Boolean(body.mfa ?? true)
   const roles = [OPERATOR_VIEW_ROLE, ...(adminUsers.has(user) ? [OPERATOR_ADMIN_ROLE] : [])]
   const token = await app.jwt.sign({ sub: user, roles, mfa })
   reply.send({ token })

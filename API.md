@@ -10,6 +10,11 @@
 - Operator endpoints: Bearer JWT with role claims.
 - Agent endpoints: API key + entitlement token and/or x402 proof.
 
+## Operator token bootstrap
+- Development: `POST /v1/operator/login` can mint a short-lived JWT.
+- Production: `POST /v1/operator/login` is disabled unless `OPERATOR_LOGIN_SECRET` is configured.
+  - Send `x-operator-login-secret: <secret>` to mint a JWT.
+
 ## REST endpoints
 
 ### Public
@@ -60,9 +65,11 @@ Command request example:
 - `POST /v1/agent/unlock/:tier`
 
 ## x402 behavior
-- If protected resource has insufficient entitlement, API returns `402 Payment Required` with challenge payload.
-- Client submits `x402-payment` proof.
-- On success, entitlement is granted with expiry and quota.
+- This repo currently implements a local deterministic “x402-like” payment gate for agent routes (not facilitator-backed settlement).
+- On insufficient entitlement, API returns `402 Payment Required` plus a `PAYMENT-REQUIRED` header (Base64 JSON payload).
+- Client retries with payment proof in `PAYMENT-SIGNATURE` (or `x402-payment` for dev clients).
+- On success, response includes `PAYMENT-RESPONSE` (Base64 JSON payload) and the entitlement/quota is updated.
+- For the canonical x402 v2 seller flow, see `docs/X402_SELLER_QUICKSTART.md`.
 
 ## Websocket protocol
 
