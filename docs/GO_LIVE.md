@@ -90,9 +90,32 @@ LOCAL=1 bash scripts/readiness/smoke.sh
 ```
 
 ## 5) Fund The Trading Wallet On Hyperliquid
-Deposit funds (margin) for the address in `secrets/hl_trading_address.txt`.
+Fund the trading wallet for the address in `secrets/hl_trading_address.txt`.
 
 Until the wallet is funded, keep the runtime halted (`/halt`).
+
+Hyperliquid supports different account abstraction modes (default is **unified account**). In unified mode, perps collateral lives in the **spot clearinghouse** and class transfers are disabled.
+
+Check the current abstraction mode:
+```bash
+curl -sS -X POST https://api.hyperliquid.xyz/info \\
+  -H 'content-type: application/json' \\
+  -d '{\"type\":\"userAbstraction\",\"user\":\"<WALLET_ADDRESS>\"}'
+```
+
+If this returns `"unifiedAccount"` (most common):
+- Fund the wallet with USDC (Spot). The runtime uses Spot USDC as `accountValueUsd` for funding gates.
+- `usdClassTransfer` is disabled by Hyperliquid in this mode.
+
+If this returns `"disabled"` (non-unified / legacy mode):
+- Fund Spot USDC, then transfer Spot -> Perp using `usdClassTransfer`:
+```bash
+cd /home/dappnode/projects/hlprivateer.xyz
+set -a; source config/.env; set +a
+
+# Example: move $1000 from Spot -> Perp (only works when abstraction mode is disabled)
+bun x tsx scripts/ops/usd-class-transfer.ts --amount 1000 --toPerp true
+```
 
 ## 6) Resume Trading (Operator)
 When funded and ready, issue `/resume` via:

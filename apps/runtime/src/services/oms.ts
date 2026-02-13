@@ -7,6 +7,8 @@ import { PrivateKeySigner } from '@nktkas/hyperliquid/signing'
 import { SymbolConverter, formatPrice, formatSize } from '@nktkas/hyperliquid/utils'
 import type { RuntimeEnv } from '../config'
 
+const DEFAULT_HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
+
 export type OrderState = 'NEW' | 'WORKING' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELLED' | 'FAILED'
 
 export interface OrderInput {
@@ -279,6 +281,7 @@ export function createLiveAdapter(env: RuntimeEnv): ExecutionAdapter {
   })
   const exchange = new ExchangeClient({ transport, wallet })
   const info = new InfoClient({ transport })
+  const infoUrl = env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL
 
   const idempotencyMap = new Map<string, string>() // idempotencyKey -> oid string
   let symbolConverterPromise: Promise<SymbolConverter> | null = null
@@ -286,6 +289,40 @@ export function createLiveAdapter(env: RuntimeEnv): ExecutionAdapter {
   const realizedCache = {
     fetchedAtMs: 0,
     realizedPnlUsd: 0
+  }
+
+  const abstractionCache: { fetchedAtMs: number; value: string } = {
+    fetchedAtMs: 0,
+    value: ''
+  }
+
+  async function postInfo<T>(body: unknown): Promise<T> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), env.HL_REQUEST_TIMEOUT_MS)
+    try {
+      const response = await fetch(infoUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+      if (!response.ok) {
+        throw new Error(`hyperliquid info http ${response.status}`)
+      }
+      return (await response.json()) as T
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  async function userAbstractionCached(nowMs: number): Promise<string> {
+    if (abstractionCache.fetchedAtMs > 0 && nowMs - abstractionCache.fetchedAtMs <= 60_000) {
+      return abstractionCache.value
+    }
+    const next = await postInfo<string>({ type: 'userAbstraction', user: wallet.address })
+    abstractionCache.fetchedAtMs = nowMs
+    abstractionCache.value = typeof next === 'string' ? next : ''
+    return abstractionCache.value
   }
 
   async function ensureConverter(): Promise<SymbolConverter> {
@@ -589,6 +626,18 @@ export function createLiveAdapter(env: RuntimeEnv): ExecutionAdapter {
   const getWalletAddress = () => wallet.address
 
   const getAccountValueUsd = async (): Promise<number> => {
+    const nowMs = Date.now()
+    const abstraction = await userAbstractionCached(nowMs).catch(() => '')
+
+    // In unified/portfolio abstraction, perps collateral is reflected in the spot clearinghouse state.
+    // Per Hyperliquid docs: individual perp dex user states are not meaningful in unified mode.
+    if (abstraction === 'unifiedAccount' || abstraction === 'portfolioMargin' || abstraction === 'default') {
+      const spot = await info.spotClearinghouseState({ user: wallet.address })
+      const usdc = spot.balances.find((b) => b.coin === 'USDC')?.total ?? '0'
+      const parsed = Number(usdc)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+
     const clearinghouse = await info.clearinghouseState({ user: wallet.address })
     const raw = clearinghouse.marginSummary?.accountValue ?? clearinghouse.crossMarginSummary?.accountValue ?? '0'
     const parsed = Number(raw)
