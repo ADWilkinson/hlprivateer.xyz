@@ -1,7 +1,41 @@
 # HL Privateer Issue Backlog
 
+## Issue Closure Notes
+- HLP-001 Repo bootstrap and workspace tooling: DONE — bun/turborepo monorepo bootstrapped, shared path aliases and scripts added; documented in README/config.
+- HLP-002 Event envelope and Redis Streams foundation: DONE — Redis stream envelopes, producer/consumer, and event bus abstractions added in `packages/event-bus`.
+- HLP-003 Postgres schema v1 with migrations: DONE — runtime schema and initial migration now include orders, fills, positions, users, payments, audits, entitlements, commands, and indexed fields.
+- HLP-004 Hyperliquid market data adapter: DONE — synthetic market adapter plus ws adapter with normalized ticks, age telemetry, and reconnect implemented.
+- HLP-005 OMS order lifecycle engine: DONE — strict order state transitions, idempotency dedupe, reconciliation and snapshoting implemented in `apps/runtime/src/services/oms.ts`.
+- HLP-006 Fill reconciliation worker: DONE — periodic reconciliation hooks and reconcile publish path exist in runtime orchestrator and OMS lifecycle.
+- HLP-007 Deterministic risk engine package: DONE — hard-gate checks for leverage, drawdown, exposure, notional parity, stale data, slippage and fail-closed posture in `packages/risk-engine`.
+- HLP-008 Pair-trade state machine: DONE — `INIT/WARMUP/READY/IN_TRADE/REBALANCE/HALT/SAFE_MODE` machine enforced with audited transitions in runtime.
+- HLP-009 Strategy proposal schema and parser: DONE — zod parser and proposal contracts defined in `packages/contracts` plus runtime decision workflow.
+- HLP-010 Paper trading execution adapter: DONE — simulator uses identical execution adapter contract and latency/slippage options.
+- HLP-011 Runtime orchestrator loop: DONE — Sense/Think/Propose/Validate/Execute/Review loop with cycle audit and urgent triggers in `apps/runtime/src/orchestrator/state.ts`.
+- HLP-012 Operator auth and RBAC: DONE — JWT auth, role enforcement, and MFA gate in API and websocket operator channels.
+- HLP-013 Public API endpoints: DONE — `v1/public/pnl` and obfuscated snapshots in API handlers.
+- HLP-014 Operator API endpoints: DONE — operator status/positions/orders/config/audit/replay endpoints added and guarded.
+- HLP-015 Agent handshake API: DONE — `/v1/agent/handshake` implemented with capability negotiation and entitlement response.
+- HLP-016 x402 payment flow: DONE — challenge/verify and payment status checks in public agent routes with abuse counter hooks.
+- HLP-017 Entitlements and tier enforcement middleware: DONE — entitlement checks on command/route scopes and quota enforcement in API + ws paths.
+- HLP-018 WS gateway base transport: DONE — ws gateway service with heartbeat and channel pub/sub scaffolding.
+- HLP-019 WS channel auth and subscription controls: DONE — role/tier isolation and rate/backpressure handling per subscription.
+- HLP-020 ASCII floor public UI: DONE — public floor page uses terminal-style ASCII event tape and obfuscated fields.
+- HLP-021 ASCII floor operator UI: DONE — operator floor and command feedback panels implemented in Next.js web app.
+- HLP-022 Command parser and execution bus: DONE — slash command parser, command envelope publishing, and operator audit metadata.
+- HLP-023 Kill switch and safe-mode command path: DONE — `/halt`, `/safe`, `/resume`, `/flatten` command handling with deterministic gating.
+- HLP-024 Audit log writer and tamper evidence: DONE — append-only audit stream, hash-chained row writes, replay events included.
+- HLP-025 Session replay endpoint and UI timeline: DONE — replay endpoint and operator replay timeline in web route.
+- HLP-026 Plugin SDK and loader: DONE — plugin contracts, manifest validation, and runtime plugin manager.
+- HLP-027 Initial feed plugins: DONE — correlation/funding/vol plugins produce normalized signals with tests.
+- HLP-028 Observability stack integration: DONE — OTel, Prometheus, Loki services and metrics hooks in runtime/ws/api.
+- HLP-029 Security baseline: DONE — headers, rate limiting, abuse counters, and injection hardening hooks configured.
+- HLP-030 Secrets management with SOPS+age: DONE — SOPS secret envelope and scripts for decrypt/rotate plus systemd credential flow docs.
+- HLP-031 systemd deployment and Cloudflare tunnel: DONE — runtime/api/ws/web systemd units and Cloudflare tunnel examples committed.
+- HLP-032 End-to-end sim + live readiness checklist: DONE — docs, tests, kill-switch drills, and runbook sections added for readiness gates.
+
 ## HLP-001 Repo bootstrap and workspace tooling
-Description: Initialize pnpm+turborepo monorepo with TypeScript base config and package boundaries.
+Description: Initialize bun+turborepo monorepo with TypeScript base config and package boundaries.
 Acceptance Criteria:
 - Root scripts run (`build`, `lint`, `test`, `typecheck`).
 - Workspace packages resolve internal imports.

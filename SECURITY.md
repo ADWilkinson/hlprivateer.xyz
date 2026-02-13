@@ -28,6 +28,7 @@ Attack surfaces:
 - Public surface limited to PnL percent and obfuscated metadata.
 - External agents gated by tier entitlements and x402 verification.
 - Secret material managed via SOPS/age + systemd credentials.
+- Service environment values are loaded from `_FILE` paths first, so secrets stay outside versioned `.env` content.
 
 ## AuthN/AuthZ
 - Operator auth with MFA and short-lived JWT.
@@ -38,6 +39,10 @@ Attack surfaces:
 - JWT signing keys: every 30 days.
 - Hyperliquid key: quarterly or immediately on suspicion.
 - API keys: revocable at any time; default max TTL 90 days.
+- Credential rotation process:
+  - create plaintext source at `config/secrets.prod.plain.yaml` from example.
+  - re-encrypt with `bun run secrets:rotate` (requires `SOPS_AGE_RECIPIENT`).
+  - deploy target files with `bun run secrets:decrypt`.
 
 ## Security reporting
 If you discover a vulnerability:

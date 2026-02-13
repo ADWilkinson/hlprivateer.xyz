@@ -38,7 +38,7 @@ Platform and deployment constraints:
 - Postgres + Redis local network only.
 
 Tech defaults to implement:
-- Monorepo: pnpm + turborepo.
+- Monorepo: bun + turborepo.
 - Backend API: Fastify.
 - Web UI: Next.js (ASCII trade floor).
 - WS gateway: ws-based dedicated service.
@@ -122,9 +122,9 @@ Required concrete outputs:
 - prompt injection mitigations wired
 
 Definition of done (must satisfy all):
-- `pnpm typecheck` passes.
-- `pnpm test` passes with strong coverage on risk/state machine/execution.
-- `pnpm build` passes for all apps/packages.
+- `bun run typecheck` passes.
+- `bun run test` passes with strong coverage on risk/state machine/execution.
+- `bun run build` passes for all apps/packages.
 - Sim mode can run 24h without SEV-1/SEV-2 incidents.
 - Kill-switch and safe-mode drills pass.
 - Public endpoints verified to leak no sensitive telemetry.

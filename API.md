@@ -33,6 +33,15 @@ Response example:
 - `POST /v1/operator/command`
 - `PATCH /v1/operator/config/risk`
 - `POST /v1/operator/replay/start`
+- `GET /v1/operator/replay`
+- `GET /v1/operator/replay/export`
+
+Replay endpoint parameters:
+- `from` (ISO datetime)
+- `to` (ISO datetime)
+- `correlationId` (optional)
+- `resource` (optional: audit resource or stream)
+- `limit` (1-5000, default 200)
 
 Command request example:
 ```json

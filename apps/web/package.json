@@ -1,0 +1,26 @@
+{
+  "name": "@hl/privateer-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bunx next dev -p 3000",
+    "build": "bunx next build",
+    "build:firebase": "HLP_FIREBASE_HOSTING=1 bunx next build",
+    "start": "bunx next start -p 3000",
+    "typecheck": "bun tsc --noEmit",
+    "test": "bunx vitest run",
+    "lint": "bunx vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "next": "^15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@hl/privateer-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.10"
+  }
+}

@@ -212,11 +212,13 @@ export type OperatorPosition = z.infer<typeof OperatorPositionSchema>
 export const OperatorCommandNameSchema = z.enum(['/status', '/positions', '/simulate', '/halt', '/resume', '/flatten', '/explain'])
 export type OperatorCommandName = z.infer<typeof OperatorCommandNameSchema>
 
-export const OperatorCommandSchema = z.object({
-  command: OperatorCommandNameSchema,
-  args: z.array(z.string()).default([]),
-  reason: z.string().min(3)
-})
+export const OperatorCommandSchema = z
+  .object({
+    command: OperatorCommandNameSchema,
+    args: z.array(z.string()).default([]),
+    reason: z.string().min(3)
+  })
+  .strict()
 export type OperatorCommand = z.infer<typeof OperatorCommandSchema>
 
 export const AgentCommandSchema = OperatorCommandSchema
@@ -240,30 +242,36 @@ export const CommandParseResultSchema = z.discriminatedUnion('ok', [
 ])
 export type CommandParseResult = z.infer<typeof CommandParseResultSchema>
 
-export const OperatorCommandActorSchema = z.object({
-  actorType: ActorTypeSchema,
-  actorId: z.string().min(1),
-  requestedAt: z.string().datetime().optional(),
-  role: z.enum([OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE]).optional()
-})
+export const OperatorCommandActorSchema = z
+  .object({
+    actorType: ActorTypeSchema,
+    actorId: z.string().min(1),
+    requestedAt: z.string().datetime().optional(),
+    role: z.enum([OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE]).optional()
+  })
+  .strict()
 export type OperatorCommandActor = z.infer<typeof OperatorCommandActorSchema>
 
-export const CommandPolicySchema = z.object({
-  command: OperatorCommandNameSchema,
-  allowedActorTypes: z.array(ActorTypeSchema).default(['human']),
-  requiredRoles: z.array(RoleSchema).default([]),
-  requiredCapabilities: z.array(z.string()).default([])
-})
+export const CommandPolicySchema = z
+  .object({
+    command: OperatorCommandNameSchema,
+    allowedActorTypes: z.array(ActorTypeSchema).default(['human']),
+    requiredRoles: z.array(RoleSchema).default([]),
+    requiredCapabilities: z.array(z.string()).default([])
+  })
+  .strict()
 export type CommandPolicy = z.infer<typeof CommandPolicySchema>
 
-export const CommandEnvelopePayloadSchema = z.object({
-  command: OperatorCommandNameSchema,
-  args: z.array(z.string()).default([]),
-  reason: z.string().min(3),
-  actor: OperatorCommandActorSchema.optional(),
-  actorRole: RoleSchema.optional(),
-  capabilities: z.array(z.string()).default([])
-})
+export const CommandEnvelopePayloadSchema = z
+  .object({
+    command: OperatorCommandNameSchema,
+    args: z.array(z.string()).default([]),
+    reason: z.string().min(3),
+    actor: OperatorCommandActorSchema.optional(),
+    actorRole: RoleSchema.optional(),
+    capabilities: z.array(z.string()).default([])
+  })
+  .strict()
 export type CommandEnvelopePayload = z.infer<typeof CommandEnvelopePayloadSchema>
 
 export const DEFAULT_TIER_CAPABILITIES: TierCapabilityMap = {
@@ -392,19 +400,19 @@ export const WsMessageSchema = z.union([
     type: z.literal('sub.add'),
     channel: ChannelSchema,
     token: z.string().optional()
-  }),
+  }).strict(),
   z.object({
     type: z.literal('sub.remove'),
     channel: ChannelSchema
-  }),
+  }).strict(),
   z.object({
     type: z.literal('cmd.exec'),
     command: z.string(),
     args: z.array(z.string()).default([])
-  }),
+  }).strict(),
   z.object({
     type: z.literal('ping')
-  })
+  }).strict()
 ])
 
 export type WsClientMessage = z.infer<typeof WsMessageSchema>
@@ -414,42 +422,49 @@ export const WsServerMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('sub.ack'),
     channel: ChannelSchema,
     accepted: z.boolean()
-  }),
+  }).strict(),
   z.object({
     type: z.literal('event'),
     channel: ChannelSchema,
     payload: z.unknown()
-  }),
+  }).strict(),
   z.object({
     type: z.literal('cmd.result'),
     requestId: z.string(),
     result: CommandResultSchema
-  }),
+  }).strict(),
   z.object({
     type: z.literal('error'),
     requestId: z.string(),
     code: z.string(),
     message: z.string()
-  }),
+  }).strict(),
   z.object({
     type: z.literal('pong')
-  })
+  }).strict()
 ])
 export type WsServerMessage = z.infer<typeof WsServerMessageSchema>
 
 export const ReplayRequestSchema = z.object({
-  from: z.string(),
-  to: z.string(),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
   correlationId: z.string().optional(),
+  resource: z.string().optional(),
   limit: z.number().int().positive().max(5000).default(500)
+}).strict().refine((value) => Date.parse(value.from) <= Date.parse(value.to), {
+  message: 'from must be before or equal to to',
+  path: ['to']
 })
 
 export const HttpReplayQuerySchema = z.object({
-  from: z.string(),
-  to: z.string(),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
   resource: z.string().optional(),
   correlationId: z.string().optional(),
   limit: z.number().int().positive().max(5000).default(200)
+}).strict().refine((value) => Date.parse(value.from) <= Date.parse(value.to), {
+  message: 'from must be before or equal to to',
+  path: ['to']
 })
 
 export const AuditEventSchema = z.object({
@@ -506,7 +521,11 @@ export function parseCommand(candidate: unknown): CommandParseResult {
 export const ReplayRangeSchema = z.object({
   from: z.string().datetime(),
   to: z.string().datetime(),
+  resource: z.string().optional(),
   correlationId: z.string().optional()
+}).strict().refine((value) => Date.parse(value.from) <= Date.parse(value.to), {
+  message: 'from must be before or equal to to',
+  path: ['to']
 })
 
 export const TierCapabilityMapSchema = z.record(

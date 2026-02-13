@@ -37,14 +37,23 @@ docs/
 ```
 
 ## Quick start (local planning stage)
-1. Install Node.js 22+ and pnpm.
+1. Install Bun 1.2+ (Node.js 22 runtime included via Bun compatibility layer).
 2. Copy env template:
    - `cp config/.env.example config/.env`
 3. Install dependencies:
-   - `pnpm install`
-4. Run workspace tasks:
-   - `pnpm typecheck`
-   - `pnpm test`
+   - `bun install`
+4. Prepare decrypted credentials:
+   - `cp config/secrets.prod.example.yaml config/secrets.prod.plain.yaml`
+   - populate values
+   - `SOPS_AGE_RECIPIENT=<age recipient> bun run secrets:rotate`
+   - `bun run secrets:decrypt`
+5. Run workspace tasks:
+   - `bun run typecheck`
+   - `bun run test`
+   - `bun run deploy:web:firebase` (optional) for Firebase-hosted web
+
+Optional Firebase web:
+- `bun run deploy:web:firebase` builds a static Next output and deploys to Firebase Hosting.
 
 ## Deployment model
 - Single Linux home server.
