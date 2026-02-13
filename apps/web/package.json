@@ -6,14 +6,12 @@
     "dev": "bunx next dev -p 3000",
     "build": "bunx next build",
     "build:static": "HLP_STATIC_EXPORT=1 bunx next build",
-    "build:firebase": "bun run build:static",
     "start": "bunx next start -p 3000",
     "typecheck": "bun tsc --noEmit",
     "test": "bunx vitest run",
     "lint": "bunx vitest run --passWithNoTests"
   },
   "dependencies": {
-    "firebase": "^12.9.0",
     "next": "^15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

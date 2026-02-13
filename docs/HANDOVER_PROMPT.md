@@ -131,18 +131,6 @@ Definition of done (must satisfy all):
 - All 32 issues updated with implementation notes and closed.
 - README/API/SECURITY/RUNBOOK/docs/SPEC remain accurate to implementation.
 
-Firebase context available for optional integrations/alerts:
-const firebaseConfig = {
-  apiKey: "REDACTED_GOOGLE_API_KEY",
-  authDomain: "privateer-xbt.firebaseapp.com",
-  projectId: "privateer-xbt",
-  storageBucket: "privateer-xbt.firebasestorage.app",
-  messagingSenderId: "27673906848",
-  appId: "1:27673906848:web:b6b1db636eca9347c003c5",
-  measurementId: "G-8ST68MBEYW"
-};
-Use Firebase only where it improves monitoring, notifications, or mirrored operator telemetry; Postgres remains primary source of truth.
-
 Final reporting format (required):
 - Architecture deviations (if any) and rationale.
 - Completed issue list with commit SHAs.

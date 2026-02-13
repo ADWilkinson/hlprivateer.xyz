@@ -46,7 +46,6 @@ const envSchema = z.object({
   OPERATOR_LOGIN_SECRET: z.string().optional(),
   OPERATOR_MFA_REQUIRED: booleanFromEnv.default(true),
   OPERATOR_ADMIN_USERS: z.string().default('admin@local'),
-  FIREBASE_PROJECT_ID: z.string().default('privateer-xbt'),
   X402_ENABLED: booleanFromEnv.default(true),
   X402_VERIFIER_SECRET: z.string().default('x402-secret'),
   API_RATE_LIMIT_MAX: z.coerce.number().default(120),
