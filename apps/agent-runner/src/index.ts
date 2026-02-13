@@ -244,7 +244,8 @@ async function generateAnalysis(params: {
       : await runCodexStructured<{ headline: string; thesis: string; risks: string[]; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: env.CODEX_REASONING_EFFORT
       })
 
   const confidence = clamp(Number(raw.confidence), 0, 1)
@@ -301,7 +302,8 @@ async function generateResearchReport(params: {
       : await runCodexStructured<{ headline: string; regime: string; recommendation: string; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: env.CODEX_REASONING_EFFORT
       })
 
   return {
@@ -357,7 +359,8 @@ async function generateRiskReport(params: {
       : await runCodexStructured<{ headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: env.CODEX_REASONING_EFFORT
       })
 
   const posture = raw.posture === 'GREEN' || raw.posture === 'AMBER' || raw.posture === 'RED' ? raw.posture : 'AMBER'

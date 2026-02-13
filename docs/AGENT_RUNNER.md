@@ -52,8 +52,9 @@ LLM:
   - `AGENT_RISK_LLM=claude|codex|none`
   - `AGENT_STRATEGIST_LLM=claude|codex|none`
   - `AGENT_SCRIBE_LLM=claude|codex|none`
-- `CLAUDE_MODEL` (default `sonnet`)
-- `CODEX_MODEL` (default `o3`)
+- `CLAUDE_MODEL` (default `opus`)
+- `CODEX_MODEL` (default `gpt-5.3-codex-spark`)
+- `CODEX_REASONING_EFFORT` (default `xhigh`)
 
 ## Claude CLI Notes
 The runner uses the `claude` CLI in structured output mode:
@@ -68,6 +69,7 @@ The runner uses `codex exec` with:
 - `--ephemeral`
 - `--sandbox read-only`
 - `--output-schema <schema.json>`
+- `-c model_reasoning_effort="<effort>"`
 
 This is designed to be non-interactive automation. If the `codex` binary is missing or not authenticated, the runner falls back to deterministic output and emits a floor-tape warning.
 

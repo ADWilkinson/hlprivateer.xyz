@@ -75,6 +75,7 @@ export async function runCodexStructured<T>(params: {
   prompt: string
   jsonSchema: Record<string, unknown>
   model: string
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   timeoutMs?: number
 }): Promise<T> {
   const timeoutMs = params.timeoutMs ?? 120_000
@@ -84,6 +85,9 @@ export async function runCodexStructured<T>(params: {
   const outPath = path.join(tmpDir, `out-${runId}.txt`)
   try {
     await fs.writeFile(schemaPath, JSON.stringify(params.jsonSchema), 'utf8')
+    const reasoningConfigArg = params.reasoningEffort
+      ? [`model_reasoning_effort="${params.reasoningEffort}"`]
+      : []
     await runCommand(
       'codex',
       [
@@ -93,6 +97,7 @@ export async function runCodexStructured<T>(params: {
         'read-only',
         '--model',
         params.model,
+        ...(reasoningConfigArg.length ? ['-c', ...reasoningConfigArg] : []),
         '--output-schema',
         schemaPath,
         '--output-last-message',
@@ -108,4 +113,3 @@ export async function runCodexStructured<T>(params: {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined)
   }
 }
-
