@@ -776,7 +776,7 @@ hlprivateer.xyz/
 ```
 
 ### 8.2 Service boundaries and ports
-- `apps/web`: 3000 (UI only).
+- `apps/web`: static build for Cloudflare Pages (local dev server 3000).
 - `apps/api`: 4000 (REST, auth, x402 enforcement).
 - `apps/ws-gateway`: 4100 (WS channels).
 - `apps/runtime`: no public port (internal worker).
@@ -785,21 +785,20 @@ hlprivateer.xyz/
 
 ### 8.3 Env var list and config files
 - Source of truth: `config/.env` based on `config/.env.example`.
-- Key groups: core, network, db, redis, auth, hyperliquid, risk, x402, firebase(optional), observability.
+- Key groups: core, network, db, redis, auth, hyperliquid, risk, x402, observability.
 
 ### 8.4 systemd units (preferred)
 - `hlprivateer-api.service`
 - `hlprivateer-runtime.service`
 - `hlprivateer-ws.service`
-- `hlprivateer-web.service`
-- `hlprivateer-cloudflared.service`
+- `cloudflared.service` (or a dedicated `hlprivateer-cloudflared.service` if you prefer per-app tunnel isolation)
 
 ### 8.5 Cloudflare Tunnel config outline
 - Config template at `infra/cloudflared/config.yml.example`.
 - Hostnames:
-  - `hlprivateer.xyz` -> web 3000
-  - `api.hlprivateer.xyz` -> api 4000
-  - `ws.hlprivateer.xyz` -> ws 4100
+  - `hlprivateer.xyz` + `www.hlprivateer.xyz` -> Cloudflare Pages
+  - `api.hlprivateer.xyz` -> api 4000 (Tunnel)
+  - `ws.hlprivateer.xyz` -> ws 4100 (Tunnel)
 
 ---
 

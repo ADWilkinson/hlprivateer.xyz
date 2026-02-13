@@ -56,7 +56,6 @@ Optional Cloudflare Pages web:
 - `bun run deploy:web:cloudflare` builds a static Next output and deploys to Cloudflare Pages.
 - Requires `wrangler` auth (`npx wrangler login`) and a Pages project named `hlprivateer-xyz`.
 - DNS can be synced via `CF_API_TOKEN=<token with Zone:DNS:Edit> bash scripts/cloudflare/sync-dns.sh hlprivateer.xyz`.
-- `NEXT_PUBLIC_FIREBASE_*` env vars enable client analytics bootstrap in the web app.
 
 ## Deployment model
 - Single Linux home server.
