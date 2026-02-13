@@ -60,7 +60,45 @@ function recordPromptInjection(route: string, actor: string): void {
 }
 
 app.register(cors, {
-  origin: [env.PUBLIC_BASE_URL, 'http://localhost:3000', 'https://hlprivateer.xyz'],
+  origin: (origin, callback) => {
+    // Allow non-browser clients (curl, server-to-server) that do not send an Origin header.
+    if (!origin) {
+      callback(null, true)
+      return
+    }
+
+    const explicitAllowed = new Set([
+      env.PUBLIC_BASE_URL,
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'https://hlprivateer.xyz',
+      'https://www.hlprivateer.xyz',
+      'https://hlprivateer-xyz.pages.dev'
+    ])
+    if (explicitAllowed.has(origin)) {
+      callback(null, true)
+      return
+    }
+
+    try {
+      const url = new URL(origin)
+
+      if (url.protocol === 'https:' && (url.hostname === 'hlprivateer.xyz' || url.hostname.endsWith('.hlprivateer.xyz'))) {
+        callback(null, true)
+        return
+      }
+
+      // Allow Cloudflare Pages deployments for this project (preview + production).
+      if (url.protocol === 'https:' && (url.hostname === 'hlprivateer-xyz.pages.dev' || url.hostname.endsWith('.hlprivateer-xyz.pages.dev'))) {
+        callback(null, true)
+        return
+      }
+    } catch {
+      // Ignore parse errors.
+    }
+
+    callback(null, false)
+  },
   credentials: true
 })
 
