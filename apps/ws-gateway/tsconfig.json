@@ -2,11 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "../..",
+    "rootDir": "src",
     "moduleResolution": "Bundler",
     "module": "esnext",
     "declaration": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {}
   },
   "include": ["src"]
 }

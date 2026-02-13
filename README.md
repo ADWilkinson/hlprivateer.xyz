@@ -50,16 +50,18 @@ docs/
 5. Run workspace tasks:
    - `bun run typecheck`
    - `bun run test`
-   - `bun run deploy:web:firebase` (optional) for Firebase-hosted web
+   - `bun run deploy:web:cloudflare` (optional) to deploy the static web UI to Cloudflare Pages
 
-Optional Firebase web:
-- `bun run deploy:web:firebase` builds a static Next output and deploys to Firebase Hosting.
+Optional Cloudflare Pages web:
+- `bun run deploy:web:cloudflare` builds a static Next output and deploys to Cloudflare Pages.
+- Requires `wrangler` auth (`npx wrangler login`) and a Pages project named `hlprivateer-xyz`.
 - `NEXT_PUBLIC_FIREBASE_*` env vars enable client analytics bootstrap in the web app.
 
 ## Deployment model
 - Single Linux home server.
 - Services supervised by systemd.
-- Ingress only through Cloudflare Tunnel.
+- Web UI served by Cloudflare Pages.
+- API + WebSocket ingress through Cloudflare Tunnel.
 
 See:
 - `infra/systemd/`

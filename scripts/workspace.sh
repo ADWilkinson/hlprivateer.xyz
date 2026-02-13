@@ -5,15 +5,15 @@ TASK="$1"
 shift || true
 
 WORKSPACES=(
-  apps/api
-  apps/runtime
-  apps/ws-gateway
-  apps/web
   packages/contracts
   packages/event-bus
   packages/plugin-sdk
   packages/agent-sdk
   packages/risk-engine
+  apps/api
+  apps/runtime
+  apps/ws-gateway
+  apps/web
 )
 
 if [[ "$TASK" == "dev" ]]; then

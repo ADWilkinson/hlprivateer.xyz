@@ -2,8 +2,8 @@ tunnel: hlprivateer
 credentials-file: /run/credentials/hlprivateer-cloudflared.service/cloudflared-tunnel
 
 ingress:
-  - hostname: hlprivateer.xyz
-    service: http://127.0.0.1:3000
+  # Web UI is typically hosted on Cloudflare Pages (apex + www).
+  # If you self-host the web UI instead, add an ingress rule for hlprivateer.xyz here.
   - hostname: api.hlprivateer.xyz
     service: http://127.0.0.1:4000
   - hostname: ws.hlprivateer.xyz

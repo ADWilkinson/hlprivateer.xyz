@@ -4,6 +4,9 @@ node_modules
 .env
 .env.*
 !.env.example
+config/.env
+config/.env.*
+!config/.env.example
 dist
 coverage
 .next

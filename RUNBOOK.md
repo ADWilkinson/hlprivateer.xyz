@@ -24,8 +24,8 @@
 8. Start services:
    - `sudo systemctl daemon-reload`
    - `sudo systemctl enable --now hlprivateer-api hlprivateer-runtime hlprivateer-ws hlprivateer-cloudflared`
-   - optional Firebase-hosted web: skip `hlprivateer-web` and deploy with
-     `bun run deploy:web:firebase`
+   - optional Cloudflare Pages web: deploy with
+     `bun run deploy:web:cloudflare`
 
 ## 2. Startup checks
 - `systemctl status` all services green.
@@ -38,7 +38,7 @@
 - `sudo journalctl -u hlprivateer-api -n 50 --no-pager` shows service logs and no startup secret errors.
 - `curl -sf http://127.0.0.1:4000/v1/public/pnl` returns JSON with `pnlPercent`.
 - `curl -sf http://127.0.0.1:3000` serves the ASCII floor page (self-hosted mode).
-- if using Firebase hosting, verify `https://<firebase-site>.web.app` serves `/` and API calls target `API_BASE_URL`.
+- if using Cloudflare Pages hosting, verify `https://hlprivateer.xyz` serves `/` and API calls target `API_BASE_URL`.
 - `curl -sf http://127.0.0.1:4100/metrics` returns websocket gateway metrics.
 - `curl -sf http://127.0.0.1:9400/metrics` exposes runtime scrape metrics.
 - Verify tunnel route checks:

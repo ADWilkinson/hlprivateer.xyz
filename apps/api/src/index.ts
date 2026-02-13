@@ -199,7 +199,17 @@ function getProofFromRequest(request: any): unknown {
       return JSON.parse(decoded)
     }
   } catch {
-    return undefined
+    // Fall through and try standard base64.
+  }
+
+  // x402 v2 docs refer to Base64-encoded JSON header values; accept both base64url and base64.
+  try {
+    const decoded = Buffer.from(trimmed, 'base64').toString('utf8')
+    if (decoded.startsWith('{')) {
+      return JSON.parse(decoded)
+    }
+  } catch {
+    // Ignore and fall through.
   }
 
   return undefined
@@ -248,6 +258,14 @@ function requestActor(request: FastifyRequest, entitlementId?: string): string {
     entitlementId,
     userId: (request.user as { sub?: string } | undefined)?.sub
   })
+}
+
+function encodePaymentHeader(payload: unknown): string {
+  try {
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
+  } catch {
+    return Buffer.from('{}', 'utf8').toString('base64')
+  }
 }
 
 function parseRouteLabel(request: FastifyRequest): string {
@@ -861,6 +879,7 @@ const x402Protected = (requiredCapability?: string) => {
           reason: 'missing entitlement header'
         }
       })
+      reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
       reply.code(402).send({
         error: 'PAYMENT_REQUIRED',
         reason: 'x402-payment required',
@@ -888,6 +907,7 @@ const x402Protected = (requiredCapability?: string) => {
           reason: 'unknown entitlement'
         }
       })
+      reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
       reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'unknown entitlement', challenge })
       return
     }
@@ -942,6 +962,7 @@ const x402Protected = (requiredCapability?: string) => {
         return
       }
 
+      reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
       reply.code(402).send({
         error: 'PAYMENT_REQUIRED',
         reason,
@@ -950,6 +971,13 @@ const x402Protected = (requiredCapability?: string) => {
       })
       return
     }
+
+    // Provide a settlement-style response header for clients implementing x402 v2 semantics.
+    reply.header('PAYMENT-RESPONSE', encodePaymentHeader({
+      ok: true,
+      entitlementId: normalizedEntitlementId,
+      verifiedAt: new Date().toISOString()
+    }))
 
     if (new Date(entitlement.expiresAt) < new Date()) {
       issuePaymentRecord({

@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bunx next dev -p 3000",
     "build": "bunx next build",
-    "build:firebase": "HLP_FIREBASE_HOSTING=1 bunx next build",
+    "build:static": "HLP_STATIC_EXPORT=1 bunx next build",
+    "build:firebase": "bun run build:static",
     "start": "bunx next start -p 3000",
     "typecheck": "bun tsc --noEmit",
     "test": "bunx vitest run",
