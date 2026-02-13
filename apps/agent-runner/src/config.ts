@@ -63,8 +63,12 @@ export const env = z
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),
 
     // LLM settings
-    CLAUDE_MODEL: z.string().default('sonnet'),
-    CODEX_MODEL: z.string().default('o3')
+    // Claude model name passed to the `claude` CLI.
+    CLAUDE_MODEL: z.string().default('opus'),
+    // Codex model name passed to the `codex` CLI.
+    CODEX_MODEL: z.string().default('gpt-5.3-codex-spark'),
+    // Passed via `codex exec -c model_reasoning_effort="..."`.
+    CODEX_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).default('xhigh')
   })
   .parse({
     ...process.env,
