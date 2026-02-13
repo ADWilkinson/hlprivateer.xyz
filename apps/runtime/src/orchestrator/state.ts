@@ -169,8 +169,41 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let loopRunning = false
   let lastUrgentCycleAt = 0
   let lastLiveAccountValueCheckAtMs = 0
+  let lastLiveAccountValueOkAtMs = 0
   let cachedLiveAccountValueUsd = 0
   let cachedLiveWalletAddress = ''
+
+  const minLiveAccountValueUsd = (): number =>
+    Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
+
+  const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
+    if (!env.ENABLE_LIVE_OMS) {
+      return
+    }
+
+    if (nowMs - lastLiveAccountValueCheckAtMs <= 15_000) {
+      return
+    }
+    lastLiveAccountValueCheckAtMs = nowMs
+
+    try {
+      const getWallet = (adapter as ExecutionAdapter).getWalletAddress
+      if (!cachedLiveWalletAddress && typeof getWallet === 'function') {
+        cachedLiveWalletAddress = String(getWallet())
+      }
+
+      const getAccountValueUsd = (adapter as ExecutionAdapter).getAccountValueUsd
+      if (typeof getAccountValueUsd === 'function') {
+        const next = await getAccountValueUsd()
+        if (Number.isFinite(next) && next >= 0) {
+          cachedLiveAccountValueUsd = next
+          lastLiveAccountValueOkAtMs = nowMs
+        }
+      }
+    } catch {
+      // Keep last known value. Funding gate additionally requires a recent successful fetch.
+    }
+  }
 
   const riskConfig: RiskConfig = {
     maxLeverage: env.RISK_MAX_LEVERAGE,
@@ -375,7 +408,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     const cycleCorrelationId = envelopeId()
     try {
       const nowIso = new Date().toISOString()
+      const nowMs = Date.now()
       state.lastUpdateAt = nowIso
+
+      // Keep cached live account value fresh for risk + pnl calculations.
+      await refreshLiveAccountValue(nowMs)
 
       // In live mode, sync our state from the exchange each cycle (restart-safe).
       if (env.ENABLE_LIVE_OMS) {
@@ -405,7 +442,10 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const mark = markToMarketPositions(state.positions, ticks, nowIso)
       state.positions = mark.positions
       const totalPnlUsd = state.realizedPnlUsd + mark.unrealizedPnlUsd
-      state.pnlPct = env.ACCOUNT_VALUE_USD > 0 ? Number(((totalPnlUsd / env.ACCOUNT_VALUE_USD) * 100).toFixed(3)) : 0
+      const pnlDenominatorUsd = env.ENABLE_LIVE_OMS
+        ? (cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : minLiveAccountValueUsd())
+        : env.ACCOUNT_VALUE_USD
+      state.pnlPct = pnlDenominatorUsd > 0 ? Number(((totalPnlUsd / pnlDenominatorUsd) * 100).toFixed(3)) : 0
       state.driftState = driftFrom(state)
 
       // Keep downstream views live even on no-op cycles.
@@ -420,36 +460,16 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
       // to support the configured target notional under the leverage cap.
       if (env.ENABLE_LIVE_OMS && state.positions.length === 0) {
-        const minAccountValueUsd = Math.max(
-          1,
-          (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE)
-        )
-        const nowMs = Date.now()
+        const minAccountValueUsd = minLiveAccountValueUsd()
+        const hasFreshValue = lastLiveAccountValueOkAtMs > 0 && nowMs - lastLiveAccountValueOkAtMs <= 30_000
+        const effectiveAccountValueUsd = hasFreshValue ? cachedLiveAccountValueUsd : 0
 
-        if (nowMs - lastLiveAccountValueCheckAtMs > 15_000) {
-          lastLiveAccountValueCheckAtMs = nowMs
-          try {
-            const getWallet = (adapter as ExecutionAdapter).getWalletAddress
-            if (!cachedLiveWalletAddress && typeof getWallet === 'function') {
-              cachedLiveWalletAddress = String(getWallet())
-            }
-
-            const getAccountValueUsd = (adapter as ExecutionAdapter).getAccountValueUsd
-            if (typeof getAccountValueUsd === 'function') {
-              cachedLiveAccountValueUsd = await getAccountValueUsd()
-            }
-          } catch {
-            // Fail-closed for opening new exposure: if we cannot confirm funding, keep waiting.
-            cachedLiveAccountValueUsd = 0
-          }
-        }
-
-        if (cachedLiveAccountValueUsd < minAccountValueUsd) {
+        if (effectiveAccountValueUsd < minAccountValueUsd) {
           runtimeProposalCounter.inc({ status: 'awaiting_funding' })
           const walletHint = cachedLiveWalletAddress ? `${cachedLiveWalletAddress.slice(0, 10)}...` : 'unknown'
           await publishStateUpdate(
             cycleCorrelationId,
-            `awaiting Hyperliquid funding (accountValueUsd=${cachedLiveAccountValueUsd.toFixed(2)} < min=${minAccountValueUsd.toFixed(2)} wallet=${walletHint})`
+            `awaiting Hyperliquid funding (accountValueUsd=${effectiveAccountValueUsd.toFixed(2)} < min=${minAccountValueUsd.toFixed(2)} wallet=${walletHint})`
           )
           return
         }
@@ -546,7 +566,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const risk = evaluateRisk(riskConfig, {
         state: state.mode,
         actorType: 'system',
-        accountValueUsd: env.ACCOUNT_VALUE_USD,
+        accountValueUsd: env.ENABLE_LIVE_OMS
+          ? (cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : minLiveAccountValueUsd())
+          : env.ACCOUNT_VALUE_USD,
         dependenciesHealthy,
         openPositions: state.positions,
         ticks,
@@ -574,7 +596,10 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const postMark = markToMarketPositions(state.positions, ticks, postMarkIso)
       state.positions = postMark.positions
       const totalAfterUsd = state.realizedPnlUsd + postMark.unrealizedPnlUsd
-      state.pnlPct = env.ACCOUNT_VALUE_USD > 0 ? Number(((totalAfterUsd / env.ACCOUNT_VALUE_USD) * 100).toFixed(3)) : 0
+      const pnlDenominatorUsdAfter = env.ENABLE_LIVE_OMS
+        ? (cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : minLiveAccountValueUsd())
+        : env.ACCOUNT_VALUE_USD
+      state.pnlPct = pnlDenominatorUsdAfter > 0 ? Number(((totalAfterUsd / pnlDenominatorUsdAfter) * 100).toFixed(3)) : 0
       state.driftState = driftFrom(state)
       await publishPositionsUpdate(proposal.proposalId)
 
