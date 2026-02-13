@@ -20,6 +20,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+function sanitizeLine(value: string, maxLength: number): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+}
+
 function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
   const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
   const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
@@ -208,6 +216,28 @@ async function publishProposal(proposal: StrategyProposal): Promise<void> {
   })
 }
 
+async function publishTape(params: { correlationId: string; role: string; line: string; level?: 'INFO' | 'WARN' | 'ERROR' }): Promise<void> {
+  const line = sanitizeLine(params.line, 240)
+  if (!line) {
+    return
+  }
+
+  await bus.publish('hlp.ui.events', {
+    type: 'FLOOR_TAPE',
+    stream: 'hlp.ui.events',
+    source: 'agent-runner',
+    correlationId: params.correlationId,
+    actorType: 'internal_agent',
+    actorId: env.AGENT_ID,
+    payload: {
+      ts: new Date().toISOString(),
+      role: sanitizeLine(params.role, 32),
+      level: params.level ?? 'INFO',
+      line
+    }
+  })
+}
+
 async function runOnce(): Promise<void> {
   const now = Date.now()
   if (now - lastProposalAt < env.AGENT_PROPOSAL_INTERVAL_MS) {
@@ -226,6 +256,11 @@ async function runOnce(): Promise<void> {
     signals
   })
   if (!proposal) {
+    await publishTape({
+      correlationId: ulid(),
+      role: 'scout',
+      line: `no action (mode=${lastMode} targetNotionalUsd=${targetNotionalUsd})`
+    })
     return
   }
 
@@ -245,7 +280,21 @@ async function runOnce(): Promise<void> {
     return
   }
 
+  const proposalSummary = parsed.proposal.actions[0]?.legs
+    ?.map((leg) => `${leg.side} ${leg.symbol} $${leg.notionalUsd}`)
+    .join(' | ')
+  await publishTape({
+    correlationId: parsed.proposal.proposalId,
+    role: 'scout',
+    line: `proposal ${parsed.proposal.actions[0]?.type ?? 'ACTION'}: ${proposalSummary ?? parsed.proposal.summary}`
+  })
+
   await publishProposal(parsed.proposal)
+  await publishTape({
+    correlationId: parsed.proposal.proposalId,
+    role: 'strategist',
+    line: `${parsed.proposal.summary} (confidence=${parsed.proposal.confidence.toFixed(2)} mode=${parsed.proposal.requestedMode})`
+  })
 
   if (now - lastAnalysisAt < env.AGENT_ANALYSIS_INTERVAL_MS) {
     return
@@ -271,6 +320,12 @@ async function runOnce(): Promise<void> {
     llm,
     model,
     input: analysisInput
+  })
+
+  await publishTape({
+    correlationId: parsed.proposal.proposalId,
+    role: 'scribe',
+    line: `${analysis.headline} (confidence=${analysis.confidence.toFixed(2)})`
   })
 
   const audit: AuditEvent = {

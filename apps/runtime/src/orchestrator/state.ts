@@ -136,8 +136,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   if (env.ENABLE_LIVE_OMS && !env.LIVE_MODE_APPROVED) {
     throw new Error('live mode requires explicit operator approval (set LIVE_MODE_APPROVED=true)')
   }
+  if (env.ENABLE_LIVE_OMS && env.DRY_RUN) {
+    throw new Error('live mode requires DRY_RUN=false')
+  }
 
-  const adapter = env.ENABLE_LIVE_OMS ? createLiveAdapter() : createSimAdapter(10, 25)
+  const adapter = env.ENABLE_LIVE_OMS ? createLiveAdapter(env) : createSimAdapter(10, 25)
   const marketAdapter = await createMarketAdapterLazy(env, bus)
   const pluginManager = await createRuntimePluginManager(bus)
   const l2BookDepthCache = new Map<string, { bidDepthUsd: number; askDepthUsd: number; fetchedAtMs: number }>()
@@ -370,6 +373,15 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     try {
       const nowIso = new Date().toISOString()
       state.lastUpdateAt = nowIso
+
+      // In live mode, sync our state from the exchange each cycle (restart-safe).
+      if (env.ENABLE_LIVE_OMS) {
+        const live = await adapter.snapshot()
+        state.positions = live.positions
+        state.orders = live.orders
+        state.realizedPnlUsd = live.realizedPnlUsd
+        await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+      }
 
       const basketSymbols = env.BASKET_SYMBOLS
         .split(',')

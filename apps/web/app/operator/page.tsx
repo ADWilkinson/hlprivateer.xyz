@@ -4,13 +4,12 @@ import { useEffect } from 'react'
 
 export default function OperatorRedirect() {
   useEffect(() => {
-    window.location.replace('/#operator')
+    window.location.replace('/')
   }, [])
 
   return (
     <main className='deck'>
-      <pre className='logo'>{'redirecting -> /#operator'}</pre>
+      <pre className='logo'>{'redirecting -> /'}</pre>
     </main>
   )
 }
-

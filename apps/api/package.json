@@ -19,6 +19,8 @@
     "@hl/privateer-contracts": "workspace:*",
     "@hl/privateer-event-bus": "workspace:*",
     "@hl/privateer-agent-sdk": "workspace:*",
+    "@x402/core": "^2.3.1",
+    "@x402/evm": "^2.3.1",
     "fastify": "^5.2.1",
     "ioredis": "^5.5.0",
     "@opentelemetry/api": "^1.9.0",

@@ -4,13 +4,12 @@ import { useEffect } from 'react'
 
 export default function ReplayRedirect() {
   useEffect(() => {
-    window.location.replace('/#replay')
+    window.location.replace('/')
   }, [])
 
   return (
     <main className='deck'>
-      <pre className='logo'>{'redirecting -> /#replay'}</pre>
+      <pre className='logo'>{'redirecting -> /'}</pre>
     </main>
   )
 }
-

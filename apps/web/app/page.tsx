@@ -57,7 +57,6 @@ interface ReplayResponse {
 }
 
 type WsState = 'CONNECTING' | 'OPEN' | 'CLOSED'
-type SideTab = 'operator' | 'replay' | 'about'
 
 const COMMANDS = ['/status', '/positions', '/simulate', '/halt', '/resume', '/flatten', '/explain']
 
@@ -86,22 +85,6 @@ function badgeVariantForWs(ws: WsState): 'ok' | 'warn' | 'danger' {
 
 function Badge({ children, variant }: { children: string; variant: 'ok' | 'warn' | 'danger' }) {
   return <span className={`badge ${variant}`}>{children}</span>
-}
-
-function setHash(next: SideTab) {
-  if (typeof window === 'undefined') return
-  const url = new URL(window.location.href)
-  url.hash = next === 'operator' ? '#operator' : next === 'replay' ? '#replay' : '#about'
-  window.history.replaceState({}, '', url.toString())
-}
-
-function tabFromHash(): SideTab | null {
-  if (typeof window === 'undefined') return null
-  const raw = String(window.location.hash ?? '').replace('#', '').trim().toLowerCase()
-  if (raw === 'operator') return 'operator'
-  if (raw === 'replay') return 'replay'
-  if (raw === 'about') return 'about'
-  return null
 }
 
 function asciiLogo(): string {
@@ -292,9 +275,6 @@ function OperatorDeck({
             <button className='btn' onClick={() => void submit()}>
               SEND
             </button>
-            <button className='btn secondary' onClick={() => setHash('replay')}>
-              REPLAY
-            </button>
           </div>
         </div>
       </div>
@@ -464,7 +444,7 @@ The backend is built around Redis Streams events, deterministic risk gates, and 
 
 PUBLIC
 - UI: https://hlprivateer.xyz
-- API: ${apiUrl('/v1/public/pnl')}
+- API: ${apiUrl('/v1/public/floor-snapshot')}
 - WS:  ${wsUrl()}
 
 OPERATOR
@@ -476,7 +456,7 @@ NOTE ON EXCHANGE CONNECTIVITY
         </pre>
       </div>
       <div className='muted'>
-        Tip: append <code>#operator</code>, <code>#replay</code>, or <code>#about</code> to the URL to deep-link tabs.
+        Tip: operator routes require an operator JWT. Replay export is admin-only.
       </div>
     </div>
   )
@@ -492,7 +472,6 @@ export default function DeckPage() {
   }))
   const [events, setEvents] = useState<string[]>(['booting public floor'])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
-  const [sideTab, setSideTab] = useState<SideTab>('operator')
   const [operatorToken, setOperatorToken] = useState('')
 
   const logo = useMemo(() => asciiLogo(), [])
@@ -503,7 +482,7 @@ export default function DeckPage() {
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
     const load = async () => {
-      const res = await fetch(apiUrl('/v1/public/pnl'))
+      const res = await fetch(apiUrl('/v1/public/floor-snapshot'))
       if (res.ok) {
         const snapshot = await res.json()
         setSnapshot(snapshot as Snapshot)
@@ -531,10 +510,24 @@ export default function DeckPage() {
           try {
             const parsed = JSON.parse(event.data as string) as { type: string; payload: any; channel?: string }
             if (parsed.type === 'event' && parsed.channel === 'public') {
-              if (parsed.payload?.type === 'STATE_UPDATE') {
-                setSnapshot(parsed.payload)
+              const payload = parsed.payload ?? {}
+              const payloadType = payload?.type
+
+              if (payloadType === 'STATE_UPDATE') {
+                setSnapshot(payload)
+                const message = typeof payload.message === 'string' ? payload.message : 'state update'
+                setEvents((current) => [`${new Date().toISOString()} ${message}`, ...current].slice(0, 24))
+              } else if (payloadType === 'FLOOR_TAPE') {
+                const ts = typeof payload.ts === 'string' ? payload.ts : new Date().toISOString()
+                const role = typeof payload.role === 'string' ? payload.role : ''
+                const line = typeof payload.line === 'string' ? payload.line : ''
+                const rendered = `${ts} ${role ? `[${role}] ` : ''}${line}`.trim()
+                if (rendered) {
+                  setEvents((current) => [rendered, ...current].slice(0, 24))
+                }
+              } else if (payloadType && payloadType !== 'heartbeat') {
+                setEvents((current) => [`${new Date().toISOString()} ${String(payloadType)}`, ...current].slice(0, 24))
               }
-              setEvents((current) => [`${new Date().toISOString()} ${parsed.payload?.message || parsed.payload?.type || 'event'}`, ...current].slice(0, 24))
             }
           } catch (error) {
             setEvents((current) => [`failed to parse event: ${String(error)}`, ...current].slice(0, 24))
@@ -573,24 +566,6 @@ export default function DeckPage() {
     }
   }, [])
 
-  useEffect(() => {
-    const apply = () => {
-      const fromHash = tabFromHash()
-      if (fromHash) {
-        setSideTab(fromHash)
-      }
-    }
-
-    apply()
-    window.addEventListener('hashchange', apply)
-    return () => window.removeEventListener('hashchange', apply)
-  }, [])
-
-  const setTab = (tab: SideTab) => {
-    setSideTab(tab)
-    setHash(tab)
-  }
-
   return (
     <main className='deck'>
       <header className='hero'>
@@ -607,21 +582,25 @@ export default function DeckPage() {
         <PublicPanel snapshot={snapshot} events={events} wsState={wsState} />
 
         <section className='panel panelAlt'>
-          <div className='tabs' role='tablist' aria-label='deck tabs'>
-            <button className='tab' role='tab' aria-selected={sideTab === 'operator'} onClick={() => setTab('operator')}>
-              OPERATOR
-            </button>
-            <button className='tab' role='tab' aria-selected={sideTab === 'replay'} onClick={() => setTab('replay')}>
-              REPLAY
-            </button>
-            <button className='tab' role='tab' aria-selected={sideTab === 'about'} onClick={() => setTab('about')}>
-              ABOUT
-            </button>
+          <div className='panelHeader'>
+            <div className='panelTitle'>Control Deck</div>
+            <div className='panelBadges'>
+              <Badge variant='ok'>one page</Badge>
+            </div>
           </div>
           <div className='panelBody'>
-            {sideTab === 'operator' && <OperatorDeck token={operatorToken} onTokenChange={setOperatorToken} snapshot={snapshot} />}
-            {sideTab === 'replay' && <ReplayPanel token={operatorToken} />}
-            {sideTab === 'about' && <AboutPanel />}
+            <details className='details' open>
+              <summary className='detailsSummary'>Operator Hatch</summary>
+              <OperatorDeck token={operatorToken} onTokenChange={setOperatorToken} snapshot={snapshot} />
+            </details>
+            <details className='details'>
+              <summary className='detailsSummary'>Replay Timeline</summary>
+              <ReplayPanel token={operatorToken} />
+            </details>
+            <details className='details'>
+              <summary className='detailsSummary'>About</summary>
+              <AboutPanel />
+            </details>
           </div>
         </section>
       </div>

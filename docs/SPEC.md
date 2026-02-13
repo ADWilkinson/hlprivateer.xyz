@@ -159,7 +159,6 @@
 External:
 - Hyperliquid API/WebSocket
 - x402 Verifier / chain RPC
-- Optional Firebase mirror/alerts
 ```
 
 ### 3.2 Event-driven design (Redis Streams default)

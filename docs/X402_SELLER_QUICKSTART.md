@@ -6,6 +6,10 @@ This repo currently has:
    - `apps/api/src/index.ts` + `apps/api/src/x402.ts`
    - deterministic proof checks, quota, abuse controls, audit + payment-attempt writes
 2. Reference notes for the **canonical x402 v2 seller flow** (middleware + facilitator) as documented by x402.
+3. A **canonical x402 v2 facilitator-backed gate** (optional, enabled by config):
+   - `apps/api/src/x402-facilitator.ts`
+   - `X402_PROVIDER=facilitator` to enforce canonical `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` / `PAYMENT-RESPONSE`
+   - Paid routes (currently): `GET /v1/agent/stream/snapshot`, `GET /v1/agent/analysis/latest`, `GET /v1/agent/analysis`, `GET /v1/agent/positions`, `GET /v1/agent/orders`
 
 If you need actual x402 v2 interoperability (buyers retry with `PAYMENT-SIGNATURE`, sellers return `PAYMENT-REQUIRED` + `PAYMENT-RESPONSE`), follow the canonical flow below.
 
@@ -18,6 +22,27 @@ Run against the local API (`http://127.0.0.1:4000`), showing:
 
 ```bash
 bun scripts/x402/demo.ts
+```
+
+## Canonical repo demo (facilitator-backed)
+
+This uses the real x402 client libraries to:
+- fetch a paid agent route
+- receive `402` + `PAYMENT-REQUIRED`
+- create a signed payment payload
+- retry with `PAYMENT-SIGNATURE`
+- read the `PAYMENT-RESPONSE` settlement header
+
+Prereqs:
+- API configured with `X402_PROVIDER=facilitator` and `X402_PAYTO` set.
+- Payer EVM wallet funded with the required stablecoin on the configured `X402_NETWORK` (default `eip155:84532` / Base Sepolia).
+
+Run:
+
+```bash
+API_BASE_URL=http://127.0.0.1:4000 \\
+X402_PAYER_PRIVATE_KEY=0x... \\
+bun scripts/x402/facilitator-demo.ts
 ```
 
 ## Canonical x402 v2 seller shape (Express example)

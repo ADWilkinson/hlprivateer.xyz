@@ -407,28 +407,52 @@ function sendSafe(ws: any, message: WsServerMessage) {
   send(ws, message)
 }
 
-function sanitizeForPublic(statePayload: unknown): Record<string, unknown> {
-  if (!statePayload || typeof statePayload !== 'object') {
-    return { type: 'STATE_UPDATE', ts: new Date().toISOString() }
+function sanitizeForPublic(type: string, rawPayload: unknown): Record<string, unknown> {
+  if (type === 'STATE_UPDATE') {
+    if (!rawPayload || typeof rawPayload !== 'object') {
+      return { type: 'STATE_UPDATE', ts: new Date().toISOString() }
+    }
+
+    const payload = rawPayload as Record<string, unknown>
+    const message = typeof payload.message === 'string' ? payload.message : undefined
+    return {
+      // Keep public payload shape compatible with the web UI client which expects `type`.
+      type: 'STATE_UPDATE',
+      mode: payload.mode,
+      driftState: payload.driftState,
+      healthCode: payload.healthCode,
+      pnlPct: payload.pnlPct,
+      lastUpdateAt: payload.lastUpdateAt,
+      ...(message ? { message: sanitizeText(message, 180) } : {}),
+      ts: new Date().toISOString()
+    }
   }
 
-  const payload = statePayload as Record<string, unknown>
-  const message = typeof payload.message === 'string' ? payload.message : undefined
-  return {
-    // Keep public payload shape compatible with the web UI client which expects `type`.
-    type: 'STATE_UPDATE',
-    mode: payload.mode,
-    driftState: payload.driftState,
-    healthCode: payload.healthCode,
-    pnlPct: payload.pnlPct,
-    lastUpdateAt: payload.lastUpdateAt,
-    ...(message ? { message } : {}),
-    ts: new Date().toISOString()
+  if (type === 'FLOOR_TAPE') {
+    if (!rawPayload || typeof rawPayload !== 'object') {
+      return { type: 'FLOOR_TAPE', ts: new Date().toISOString(), line: '' }
+    }
+
+    const payload = rawPayload as Record<string, unknown>
+    const lineRaw = typeof payload.line === 'string' ? payload.line : typeof payload.message === 'string' ? payload.message : ''
+    const roleRaw = typeof payload.role === 'string' ? payload.role : undefined
+    const levelRaw = typeof payload.level === 'string' ? payload.level : undefined
+    const ts = typeof payload.ts === 'string' ? payload.ts : new Date().toISOString()
+
+    return {
+      type: 'FLOOR_TAPE',
+      ts,
+      line: sanitizeText(lineRaw, 240),
+      ...(roleRaw ? { role: sanitizeText(roleRaw, 32) } : {}),
+      ...(levelRaw ? { level: sanitizeText(levelRaw, 16) } : {})
+    }
   }
+
+  return { type: 'event', ts: new Date().toISOString() }
 }
 
 function broadcastChannelForType(type: string): Channel {
-  if (type === 'STATE_UPDATE') {
+  if (type === 'STATE_UPDATE' || type === 'FLOOR_TAPE') {
     return 'public'
   }
 
@@ -744,7 +768,7 @@ wss.on('connection', (ws, request) => {
 bus.consume('hlp.ui.events', '0-0', (envelope) => {
   const eventChannel: Channel = broadcastChannelForType(envelope.type)
   const payload = eventChannel === 'public'
-    ? sanitizeForPublic(envelope.payload)
+    ? sanitizeForPublic(envelope.type, envelope.payload)
     : envelope.payload
   const event: { type: 'event'; channel: Channel; payload: unknown } = {
     type: 'event',
