@@ -41,7 +41,7 @@ export const env = z
 
     AGENT_ID: z.string().min(1).default('agent-runner'),
     // Global/default LLM choice for all internal agents.
-    AGENT_LLM: z.enum(['claude', 'codex', 'none']).default('claude'),
+    AGENT_LLM: z.enum(['claude', 'codex', 'none']).default('codex'),
     // Optional per-role overrides (defaults to AGENT_LLM).
     AGENT_RESEARCH_LLM: z.enum(['claude', 'codex', 'none']).optional(),
     AGENT_RISK_LLM: z.enum(['claude', 'codex', 'none']).optional(),

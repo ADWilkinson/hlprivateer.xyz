@@ -6,8 +6,8 @@
 - structured analysis records written to `hlp.audit.events`.
 
 It can run with:
+- `AGENT_LLM=codex` (default; calls the local `codex` CLI, falls back to Claude if Codex fails), or
 - `AGENT_LLM=claude` (calls the local `claude` CLI), or
-- `AGENT_LLM=codex` (calls the local `codex` CLI), or
 - `AGENT_LLM=none` (no LLM calls; still proposes deterministically).
 
 ## Data Flow
@@ -71,7 +71,7 @@ The runner uses `codex exec` with:
 - `--output-schema <schema.json>`
 - `-c model_reasoning_effort="<effort>"`
 
-This is designed to be non-interactive automation. If the `codex` binary is missing or not authenticated, the runner falls back to deterministic output and emits a floor-tape warning.
+This is designed to be non-interactive automation. If Codex fails (missing binary, auth, transient error), the runner retries via Claude (Opus) and emits a floor-tape warning; if Claude also fails, it falls back to deterministic output.
 
 ## Development Workflow
 1. Run the stack locally in SIM:

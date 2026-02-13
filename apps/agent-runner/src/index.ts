@@ -579,14 +579,34 @@ async function runResearchAgent(): Promise<void> {
   let report: { headline: string; regime: string; recommendation: string; confidence: number }
   try {
     report = await generateResearchReport({ llm, model, input })
-  } catch (error) {
-    report = await generateResearchReport({ llm: 'none', model, input })
-    await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level: 'WARN',
-      line: `research llm unavailable: ${String(error).slice(0, 140)}`
-    })
+  } catch (primaryError) {
+    if (llm === 'codex') {
+      try {
+        report = await generateResearchReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: `research codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+        })
+      } catch (fallbackError) {
+        report = await generateResearchReport({ llm: 'none', model, input })
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: `research codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+        })
+      }
+    } else {
+      report = await generateResearchReport({ llm: 'none', model, input })
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: `research llm unavailable: ${String(primaryError).slice(0, 140)}`
+      })
+    }
   }
 
   await publishTape({
@@ -636,14 +656,34 @@ async function runRiskAgent(): Promise<void> {
   let report: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number }
   try {
     report = await generateRiskReport({ llm, model, input })
-  } catch (error) {
-    report = await generateRiskReport({ llm: 'none', model, input })
-    await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level: 'WARN',
-      line: `risk llm unavailable: ${String(error).slice(0, 140)}`
-    })
+  } catch (primaryError) {
+    if (llm === 'codex') {
+      try {
+        report = await generateRiskReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: `risk codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+        })
+      } catch (fallbackError) {
+        report = await generateRiskReport({ llm: 'none', model, input })
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: `risk codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+        })
+      }
+    } else {
+      report = await generateRiskReport({ llm: 'none', model, input })
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: `risk llm unavailable: ${String(primaryError).slice(0, 140)}`
+      })
+    }
   }
 
   await publishTape({
@@ -772,14 +812,34 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { signals:
   let analysis: { headline: string; thesis: string; risks: string[]; confidence: number }
   try {
     analysis = await generateAnalysis({ llm, model, input: analysisInput })
-  } catch (error) {
-    analysis = await generateAnalysis({ llm: 'none', model, input: analysisInput })
-    await publishTape({
-      correlationId: proposal.proposalId,
-      role: 'ops',
-      level: 'WARN',
-      line: `scribe llm unavailable: ${String(error).slice(0, 140)}`
-    })
+  } catch (primaryError) {
+    if (llm === 'codex') {
+      try {
+        analysis = await generateAnalysis({ llm: 'claude', model: env.CLAUDE_MODEL, input: analysisInput })
+        await publishTape({
+          correlationId: proposal.proposalId,
+          role: 'ops',
+          level: 'WARN',
+          line: `scribe codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+        })
+      } catch (fallbackError) {
+        analysis = await generateAnalysis({ llm: 'none', model, input: analysisInput })
+        await publishTape({
+          correlationId: proposal.proposalId,
+          role: 'ops',
+          level: 'WARN',
+          line: `scribe codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+        })
+      }
+    } else {
+      analysis = await generateAnalysis({ llm: 'none', model, input: analysisInput })
+      await publishTape({
+        correlationId: proposal.proposalId,
+        role: 'ops',
+        level: 'WARN',
+        line: `scribe llm unavailable: ${String(primaryError).slice(0, 140)}`
+      })
+    }
   }
 
   await publishTape({
