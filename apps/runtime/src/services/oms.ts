@@ -72,7 +72,7 @@ function clampFilled(qty: number, targetQty: number): number {
 export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAdapter {
   const orders = new Map<string, InternalOrder>()
   const idempotencyMap = new Map<string, string>()
-  const positions = new Map<string, OperatorPosition>()
+  const positions = new Map<string, InternalPosition>()
   let realizedPnlUsd = 0
 
   async function place(input: OrderInput): Promise<PlacedOrder> {
@@ -169,8 +169,23 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
   async function snapshot() {
     return {
       orders: [...orders.values()].map((order) => OperatorOrderSchema.parse(order)),
-      positions: [...positions.values()],
+      positions: [...positions.values()].map(toOperatorPosition),
       realizedPnlUsd
+    }
+  }
+
+  function toOperatorPosition(position: InternalPosition): OperatorPosition {
+    const side: OperatorPosition['side'] = position.qtySigned >= 0 ? 'LONG' : 'SHORT'
+    const qty = Math.abs(position.qtySigned)
+    return {
+      symbol: position.symbol,
+      side,
+      qty,
+      notionalUsd: qty * position.markPx,
+      avgEntryPx: position.avgEntryPx,
+      markPx: position.markPx,
+      pnlUsd: 0,
+      updatedAt: position.updatedAt
     }
   }
 
@@ -180,7 +195,7 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
     const key = order.symbol
 
     const prior = positions.get(key)
-    const priorQty = prior?.qty ?? 0
+    const priorQty = prior?.qtySigned ?? 0
     const priorAvg = prior?.avgEntryPx ?? fillPx
 
     // Realize PnL only when we trade against an existing position.
@@ -214,13 +229,9 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
     const now = new Date().toISOString()
     positions.set(key, {
       symbol: order.symbol,
-      side: nextQty > 0 ? 'LONG' : 'SHORT',
-      qty: nextQty,
-      // Use mark as the latest known trade price until runtime marks it to market.
-      notionalUsd: nextQty * fillPx,
+      qtySigned: nextQty,
       avgEntryPx,
       markPx: fillPx,
-      pnlUsd: 0,
       updatedAt: now
     })
   }
@@ -236,6 +247,14 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
   }
 
   return { place, cancel, modify, reconcile, snapshot }
+}
+
+interface InternalPosition {
+  symbol: string
+  qtySigned: number
+  avgEntryPx: number
+  markPx: number
+  updatedAt: string
 }
 
 export function createLiveAdapter(): ExecutionAdapter {

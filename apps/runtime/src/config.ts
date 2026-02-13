@@ -43,6 +43,7 @@ export const runtimeEnv = z
     DRY_RUN: booleanFromEnv.default(true),
     DATABASE_URL: z.string().optional(),
     HL_WS_URL: z.string().optional(),
+    HL_INFO_URL: z.string().optional(),
     RISK_MAX_LEVERAGE: z.coerce.number().default(2),
     RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(5),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
@@ -63,6 +64,7 @@ export const runtimeEnv = z
     ...process.env,
     DATABASE_URL: loadEnvValue('DATABASE_URL'),
     HL_WS_URL: loadEnvValue('HL_WS_URL'),
+    HL_INFO_URL: loadEnvValue('HL_INFO_URL'),
     LIVE_OMS_API_KEY: loadEnvValue('LIVE_OMS_API_KEY')
   })
 
