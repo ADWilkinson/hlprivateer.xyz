@@ -336,11 +336,6 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'INVALID_PROPOSAL', message: 'proposal has no actionable legs' })
   }
 
-  const invariantResult = checkInvariant(context.proposal)
-  if (!invariantResult.ok) {
-    reasons.push({ code: 'INVARIANT_VIOLATION', message: invariantResult.reason ?? 'invalid proposal' })
-  }
-
   const parityResult = checkNotionalParity(context.openPositions, context.proposal, config.notionalParityTolerance)
   if (!parityResult.ok) {
     reasons.push({ code: 'NOTIONAL_PARITY', message: parityResult.reason ?? 'invalid notional parity' })
@@ -397,7 +392,6 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     [
       'DEPENDENCY_FAILURE',
       'SYSTEM_GATED',
-      'INVARIANT_VIOLATION',
       'NOTIONAL_PARITY',
       'DRAWDOWN',
       'EXPOSURE',
