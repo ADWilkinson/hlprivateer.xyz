@@ -497,14 +497,12 @@ app.addHook('onRequest', async (request, _reply) => {
 
 app.get('/health', routeRateLimit(180, 60_000), async () => ({ status: 'ok', service: 'api' }))
 
-app.get('/v1/public/pnl', routeRateLimit(180, 60_000), async (_, reply) => {
-  const payload = PublicPnlResponseSchema.parse(store.getPublicPnl())
-  reply.send(payload)
+app.get('/v1/public/pnl', routeRateLimit(180, 60_000), async () => {
+  return PublicPnlResponseSchema.parse(store.getPublicPnl())
 })
 
-app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async (_, reply) => {
-  const payload = PublicSnapshotSchema.parse(store.getPublicSnapshot())
-  reply.send(payload)
+app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async () => {
+  return PublicSnapshotSchema.parse(store.getPublicSnapshot())
 })
 
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
