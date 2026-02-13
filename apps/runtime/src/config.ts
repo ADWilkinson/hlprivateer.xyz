@@ -44,6 +44,10 @@ export const runtimeEnv = z
     DATABASE_URL: z.string().optional(),
     HL_WS_URL: z.string().optional(),
     HL_INFO_URL: z.string().optional(),
+    HL_IS_TESTNET: booleanFromEnv.default(false),
+    HL_API_URL: z.string().optional(),
+    HL_PRIVATE_KEY: z.string().optional(),
+    HL_REQUEST_TIMEOUT_MS: z.coerce.number().default(10_000),
     RISK_MAX_LEVERAGE: z.coerce.number().default(2),
     RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(5),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
@@ -58,13 +62,16 @@ export const runtimeEnv = z
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),
     LIVE_MODE_APPROVED: booleanFromEnv.default(false),
     LIVE_OMS_API_URL: z.string().optional(),
-    LIVE_OMS_API_KEY: z.string().optional()
+    LIVE_OMS_API_KEY: z.string().optional(),
+    LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS: z.coerce.number().default(60_000)
   })
   .parse({
     ...process.env,
     DATABASE_URL: loadEnvValue('DATABASE_URL'),
     HL_WS_URL: loadEnvValue('HL_WS_URL'),
     HL_INFO_URL: loadEnvValue('HL_INFO_URL'),
+    HL_API_URL: loadEnvValue('HL_API_URL'),
+    HL_PRIVATE_KEY: loadEnvValue('HL_PRIVATE_KEY'),
     LIVE_OMS_API_KEY: loadEnvValue('LIVE_OMS_API_KEY')
   })
 

@@ -21,6 +21,9 @@ import promClient from 'prom-client'
 import { env } from './config'
 import { RedisEventBus, InMemoryEventBus } from '@hl/privateer-event-bus'
 import { createChallenge, verifyChallenge } from './x402'
+import type { RouteConfig } from '@x402/core/server'
+import type { Network } from '@x402/core/types'
+import { createX402FacilitatorGate } from './x402-facilitator'
 import { registerAuth, OPERATOR_ADMIN_ROLE, OPERATOR_VIEW_ROLE } from './middleware'
 import { ApiStore } from './store'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
@@ -142,6 +145,60 @@ app.setErrorHandler(async (error, request, reply) => {
   const message = error instanceof Error ? error.message : String(error)
   reply.code(500).send({ error: 'INTERNAL', message })
 })
+
+let x402Facilitator: Awaited<ReturnType<typeof createX402FacilitatorGate>> | null = null
+if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
+  const payTo = String(env.X402_PAYTO ?? '').trim()
+  if (!payTo) {
+    throw new Error('X402_PROVIDER=facilitator requires X402_PAYTO')
+  }
+
+  const network = env.X402_NETWORK as Network
+  const acceptExact = (price: string) => ({
+    scheme: 'exact',
+    price,
+    network,
+    payTo,
+    maxTimeoutSeconds: 120
+  })
+
+  const routes: Record<string, RouteConfig> = {
+    'GET /v1/agent/stream/snapshot': {
+      accepts: acceptExact(env.X402_PRICE_STREAM_SNAPSHOT),
+      description: 'HL Privateer public floor snapshot (agent access)',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/analysis/latest': {
+      accepts: acceptExact(env.X402_PRICE_ANALYSIS_LATEST),
+      description: 'Latest HL Privateer agent analysis',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/analysis': {
+      accepts: acceptExact(env.X402_PRICE_ANALYSIS_HISTORY),
+      description: 'HL Privateer agent analysis history',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/positions': {
+      accepts: acceptExact(env.X402_PRICE_POSITIONS),
+      description: 'Current HL Privateer positions',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/orders': {
+      accepts: acceptExact(env.X402_PRICE_ORDERS),
+      description: 'Current HL Privateer orders',
+      mimeType: 'application/json'
+    }
+  }
+
+  x402Facilitator = await createX402FacilitatorGate({
+    apiBaseUrl: env.API_BASE_URL,
+    facilitatorUrl: env.X402_FACILITATOR_URL,
+    routes
+  })
+
+  app.addHook('preSerialization', x402Facilitator.preSerialization)
+  app.log.info(`x402 facilitator gate enabled network=${network} payTo=${payTo.slice(0, 10)}...`)
+}
 
 const adminUsers = new Set(
   env.OPERATOR_ADMIN_USERS.split(',')
@@ -1203,13 +1260,20 @@ const x402Protected = (requiredCapability?: string) => {
   }
 }
 
-app.get('/v1/agent/stream/snapshot', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected('stream.read.public')] }, async (request, reply) => {
+const x402AgentReadGate = (requiredCapability?: string) => {
+  if (x402Facilitator) {
+    return x402Facilitator.preHandler
+  }
+  return x402Protected(requiredCapability)
+}
+
+app.get('/v1/agent/stream/snapshot', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('stream.read.public')] }, async (request, reply) => {
   const token = request.headers['x-agent-token']
   const snapshot = store.getPublicSnapshot()
   reply.send({ ...snapshot, source: token ? 'agent' : 'public' })
 })
 
-app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected('analysis.read')] }, async (_request, reply) => {
+app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
   const latest = store.audits.find((event) => event.resource === 'agent.analysis')
   if (!latest) {
     reply.code(404).send({ error: 'NOT_FOUND', message: 'no analysis available' })
@@ -1219,7 +1283,7 @@ app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandle
   reply.send(latest)
 })
 
-app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected('analysis.read')] }, async (request, reply) => {
+app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (request, reply) => {
   const query = request.query as any
   const limitRaw = Number(query?.limit ?? 20)
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 20
@@ -1231,6 +1295,14 @@ app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x40
     .slice(0, limit)
 
   reply.send({ count: items.length, items })
+})
+
+app.get('/v1/agent/positions', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+  reply.send(store.positions)
+})
+
+app.get('/v1/agent/orders', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+  reply.send(store.orders)
 })
 
 app.get('/v1/agent/entitlement', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected()] }, async (request, reply) => {

@@ -63,17 +63,26 @@ Command request example:
 - `GET /v1/agent/stream/snapshot`
 - `GET /v1/agent/analysis/latest`
 - `GET /v1/agent/analysis`
+- `GET /v1/agent/positions`
+- `GET /v1/agent/orders`
 - `POST /v1/agent/command`
 - `POST /v1/agent/unlock/:tier`
 
 ## x402 behavior
-- This repo currently implements a local deterministic “x402-like” payment gate for agent routes (not facilitator-backed settlement).
-- On insufficient entitlement, API returns `402 Payment Required` plus a `PAYMENT-REQUIRED` header (Base64 JSON payload).
-- Client retries with payment proof in `PAYMENT-SIGNATURE` (or `x402-payment` for dev clients).
-- On success, response includes `PAYMENT-RESPONSE` (Base64 JSON payload) with an `entitlementId`.
-  - Subsequent requests can send `x-agent-entitlement: <entitlementId>` without re-sending the payment proof until the entitlement expires or quota is exhausted.
-- For the canonical x402 v2 seller flow, see `docs/X402_SELLER_QUICKSTART.md`.
-- Local demo (runs against `http://127.0.0.1:4000` by default): `bun scripts/x402/demo.ts`
+- This repo supports two x402 modes (configured via `X402_PROVIDER`):
+- `X402_PROVIDER=mock`:
+  - A local deterministic “x402-like” payment gate for agent routes.
+  - On insufficient entitlement, API returns `402 Payment Required` plus a `PAYMENT-REQUIRED` header (Base64 JSON payload).
+  - Client retries with payment proof in `PAYMENT-SIGNATURE` (or `x402-payment` for dev clients).
+  - On success, response includes `PAYMENT-RESPONSE` (Base64 JSON payload) with an `entitlementId`.
+    - Subsequent requests can send `x-agent-entitlement: <entitlementId>` without re-sending the payment proof until the entitlement expires or quota is exhausted.
+  - Local demo (runs against `http://127.0.0.1:4000` by default): `bun scripts/x402/demo.ts`
+- `X402_PROVIDER=facilitator`:
+  - Canonical x402 v2 seller flow with facilitator-backed settlement (per x402 docs).
+  - `402` returns `PAYMENT-REQUIRED` (PaymentRequired payload) and paid retries use `PAYMENT-SIGNATURE`.
+  - Successful responses include `PAYMENT-RESPONSE` (settlement response).
+  - Demo client: `bun scripts/x402/facilitator-demo.ts`
+- Notes + seller quickstart reference: `docs/X402_SELLER_QUICKSTART.md`.
 
 ## Websocket protocol
 

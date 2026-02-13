@@ -47,14 +47,23 @@ const envSchema = z.object({
   OPERATOR_MFA_REQUIRED: booleanFromEnv.default(true),
   OPERATOR_ADMIN_USERS: z.string().default('admin@local'),
   X402_ENABLED: booleanFromEnv.default(true),
+  X402_PROVIDER: z.enum(['mock', 'facilitator']).default('mock'),
   X402_VERIFIER_SECRET: z.string().default('x402-secret'),
+  X402_FACILITATOR_URL: z.string().url().default('https://x402.org/facilitator'),
+  X402_NETWORK: z.string().default('eip155:84532'),
+  X402_PAYTO: z.string().optional(),
+  X402_PRICE_STREAM_SNAPSHOT: z.string().default('$0.001'),
+  X402_PRICE_ANALYSIS_LATEST: z.string().default('$0.005'),
+  X402_PRICE_ANALYSIS_HISTORY: z.string().default('$0.01'),
+  X402_PRICE_POSITIONS: z.string().default('$0.01'),
+  X402_PRICE_ORDERS: z.string().default('$0.01'),
   API_RATE_LIMIT_MAX: z.coerce.number().default(120),
   API_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000)
 })
 
 export type Env = z.infer<typeof envSchema>
 
-export const env = envSchema.parse({
+const parsed = envSchema.parse({
   ...process.env,
   DATABASE_URL: loadEnvValue('DATABASE_URL'),
   REDIS_URL: loadEnvValue('REDIS_URL'),
@@ -62,3 +71,16 @@ export const env = envSchema.parse({
   OPERATOR_LOGIN_SECRET: loadEnvValue('OPERATOR_LOGIN_SECRET'),
   X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET')
 })
+
+if (parsed.X402_PROVIDER === 'facilitator') {
+  if (!parsed.X402_ENABLED) {
+    throw new Error('X402_PROVIDER=facilitator requires X402_ENABLED=true')
+  }
+
+  const payTo = parsed.X402_PAYTO?.trim()
+  if (!payTo) {
+    throw new Error('X402_PROVIDER=facilitator requires X402_PAYTO (merchant receiving address)')
+  }
+}
+
+export const env = parsed

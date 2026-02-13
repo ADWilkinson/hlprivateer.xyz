@@ -17,6 +17,7 @@
     "@hl/privateer-event-bus": "workspace:*",
     "@hl/privateer-plugin-sdk": "workspace:*",
     "@hl/privateer-risk-engine": "workspace:*",
+    "@nktkas/hyperliquid": "0.31.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.55.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.1",
