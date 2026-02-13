@@ -18,8 +18,10 @@ Reference documents (read first, then execute):
 3) API.md
 4) SECURITY.md
 5) RUNBOOK.md
-6) llms.txt
-7) skills.md
+6) docs/GO_LIVE.md
+7) docs/AGENT_RUNNER.md
+8) llms.txt
+9) skills.md
 
 Non-negotiable invariants:
 - Strategy invariant: LONG HYPE vs SHORT basket only.
@@ -45,7 +47,7 @@ Tech defaults to implement:
 - DB: PostgreSQL + Drizzle.
 - Event bus: Redis Streams.
 - Observability: OpenTelemetry + Prometheus + Grafana + Loki.
-- Secrets: SOPS + age + systemd credential mounts.
+- Secrets: `*_FILE` pattern + systemd credentials (optional: SOPS/age workflows).
 
 Execution requirements:
 - Execute the full backlog in docs/GITHUB_ISSUES.md (HLP-001 through HLP-032).

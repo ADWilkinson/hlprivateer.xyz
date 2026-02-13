@@ -35,7 +35,9 @@ This uses the real x402 client libraries to:
 
 Prereqs:
 - API configured with `X402_PROVIDER=facilitator` and `X402_PAYTO` set.
-- Payer EVM wallet funded with the required stablecoin on the configured `X402_NETWORK` (default `eip155:84532` / Base Sepolia).
+- Payer EVM wallet funded with the required stablecoin on the configured `X402_NETWORK`.
+  - Repo defaults are `eip155:84532` (Base Sepolia) + `https://x402.org/facilitator` (testnet).
+  - Production can run on Base mainnet (`eip155:8453`) with a mainnet facilitator (verify with `GET /supported` on the facilitator URL).
 
 Run:
 
@@ -114,5 +116,7 @@ app.listen(4021, () => {
 
 ## Notes For This Repo
 
-- The current `apps/api` flow is **not** a full facilitator-backed x402 settlement implementation; it is a local deterministic verifier intended for internal agent SDK testing.
-- If/when we switch to canonical x402 for paid agent routes, the local entitlement/quota checks can remain as a second stage after payment verification.
+- This repo supports two modes:
+  - `X402_PROVIDER=mock`: local deterministic verifier intended for development only (not real settlement).
+  - `X402_PROVIDER=facilitator`: canonical facilitator-backed x402 v2 flow using `@x402/*` libraries.
+- Even in facilitator mode, local entitlement/quota checks can remain as a second stage after payment verification.

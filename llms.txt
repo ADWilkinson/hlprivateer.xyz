@@ -8,6 +8,8 @@ Primary entrypoints:
 - API contracts: `API.md`
 - Security policies: `SECURITY.md`
 - Operations: `RUNBOOK.md`
+- Go-live checklist: `docs/GO_LIVE.md`
+- Agent runner dev: `docs/AGENT_RUNNER.md`
 - Agent capabilities: `skills.md`
 
 Repository map for agents:
