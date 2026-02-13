@@ -41,6 +41,7 @@ export const runtimeEnv = z
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().default(1000),
     RUNTIME_METRICS_PORT: z.coerce.number().default(9400),
     ENABLE_LIVE_OMS: z.coerce.boolean().default(false),
+    LIVE_MODE_APPROVED: z.coerce.boolean().default(false),
     LIVE_OMS_API_URL: z.string().optional(),
     LIVE_OMS_API_KEY: z.string().optional()
   })

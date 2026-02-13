@@ -17,7 +17,8 @@ export default function PublicFloor() {
 
   useEffect(() => {
     let running = true
-    let socket: WebSocket
+    let socket: WebSocket | undefined
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
     const load = async () => {
       const res = await fetch(apiUrl('/v1/public/pnl'))
@@ -27,36 +28,59 @@ export default function PublicFloor() {
       }
     }
 
-    load()
-
-    try {
-      socket = new WebSocket(wsUrl())
-      socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'sub.add', channel: 'public' }))
+    const connect = () => {
+      if (!running) {
+        return
       }
-      socket.onmessage = (event) => {
-        if (!running) {
-          return
-        }
 
-        try {
-          const parsed = JSON.parse(event.data as string) as { type: string; payload: any; channel?: string }
-          if (parsed.type === 'event' && parsed.channel === 'public') {
-            if (parsed.payload?.type === 'STATE_UPDATE') {
-              setSnapshot(parsed.payload)
-            }
-            setEvents((current) => [`${new Date().toISOString()} ${parsed.payload?.message || parsed.payload?.type || 'event'}`, ...current].slice(0, 20))
+      try {
+        socket = new WebSocket(wsUrl())
+        socket.onopen = () => {
+          socket?.send(JSON.stringify({ type: 'sub.add', channel: 'public' }))
+          setEvents((current) => ['ws connected', ...current].slice(0, 20))
+        }
+        socket.onmessage = (event) => {
+          if (!running) {
+            return
           }
-        } catch (error) {
-          setEvents((current) => [`failed to parse event: ${String(error)}`, ...current].slice(0, 20))
+
+          try {
+            const parsed = JSON.parse(event.data as string) as { type: string; payload: any; channel?: string }
+            if (parsed.type === 'event' && parsed.channel === 'public') {
+              if (parsed.payload?.type === 'STATE_UPDATE') {
+                setSnapshot(parsed.payload)
+              }
+              setEvents((current) => [`${new Date().toISOString()} ${parsed.payload?.message || parsed.payload?.type || 'event'}`, ...current].slice(0, 20))
+            }
+          } catch (error) {
+            setEvents((current) => [`failed to parse event: ${String(error)}`, ...current].slice(0, 20))
+          }
         }
+        socket.onclose = () => {
+          if (!running) {
+            return
+          }
+
+          setEvents((current) => ['ws disconnected, reconnecting', ...current].slice(0, 20))
+          reconnectTimer = setTimeout(connect, 1500)
+        }
+        socket.onerror = () => {
+          socket?.close()
+        }
+      } catch (error) {
+        setEvents((current) => [`ws connect failed: ${String(error)}`, ...current].slice(0, 20))
+        reconnectTimer = setTimeout(connect, 1500)
       }
-    } catch (error) {
-      console.error(error)
     }
+
+    void load()
+    connect()
 
     return () => {
       running = false
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+      }
       if (socket && socket.readyState < 2) {
         socket.close()
       }

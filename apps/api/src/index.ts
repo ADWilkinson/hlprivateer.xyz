@@ -8,7 +8,6 @@ import {
   Entitlement,
   parseCommand,
   commandPolicy,
-  DEFAULT_TIER_CAPABILITIES,
   PublicPnlResponseSchema,
   PublicSnapshotSchema,
   PaymentProofSchema,
@@ -161,7 +160,7 @@ function consumeQuota(entitlement: Entitlement): { quotaRemaining: number; overL
   }
 
   entitlement.quotaRemaining -= 1
-  return { quotaRemaining: entitlement.quotaRemaining, overLimit: entitlement.quotaRemaining < 0 }
+  return { quotaRemaining: entitlement.quotaRemaining, overLimit: false }
 }
 
 function ensureUsageRecord(entitlementId: string): EntitlementUsage {
@@ -188,7 +187,7 @@ function recordAbuse(entitlementId: string): number {
 }
 
 function getProofFromRequest(request: any): unknown {
-  const header = request.headers['x402-payment'] ?? request.headers['x-agent-proof']
+  const header = request.headers['x402-payment'] ?? request.headers['x-agent-proof'] ?? request.headers['x-payment'] ?? request.headers['payment-signature']
   if (!header) {
     return undefined
   }
@@ -199,15 +198,24 @@ function getProofFromRequest(request: any): unknown {
   }
 
   const trimmed = raw.trim()
-  if (!trimmed.startsWith('{')) {
-    return undefined
+  if (trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      return undefined
+    }
   }
 
   try {
-    return JSON.parse(trimmed)
+    const decoded = Buffer.from(trimmed, 'base64url').toString('utf8')
+    if (decoded.startsWith('{')) {
+      return JSON.parse(decoded)
+    }
   } catch {
     return undefined
   }
+
+  return undefined
 }
 
 function normalizeAmountUsd(value: unknown): number {
@@ -309,7 +317,7 @@ app.get('/healthz', routeRateLimit(60, 60_000), async () => ({ status: 'ok' }))
 
 function getCapabilitiesForTier(tier: string | undefined): string[] {
   const normalizedTier = tier === 'tier0' || tier === 'tier1' || tier === 'tier2' || tier === 'tier3' ? tier : 'tier0'
-  return (DEFAULT_TIER_CAPABILITIES as Record<'tier0' | 'tier1' | 'tier2' | 'tier3', string[]>)[normalizedTier]
+  return store.getCapabilitiesForTier(normalizedTier)
 }
 
 function errorMessages(errors: Array<{ message: string }>): string {
@@ -389,6 +397,28 @@ app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply
   reply.send({ token })
 })
 
+app.post('/v1/operator/refresh', { ...routeRateLimit(30, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
+  const claims = resolveOperatorClaims(request)
+  if (!claims.sub) {
+    reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing subject claim' })
+    return
+  }
+
+  const refreshedToken = await app.jwt.sign({
+    sub: claims.sub,
+    roles: claims.roles,
+    mfa: claims.mfa ?? false
+  })
+  addAudit(store, claims.sub, 'operator.session.refresh', {
+    roles: claims.roles,
+    mfa: claims.mfa ?? false
+  })
+  reply.send({
+    token: refreshedToken,
+    expiresIn: '8h'
+  })
+})
+
 app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
   if (!hasAnyRole(request, [OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE])) {
     reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
@@ -421,7 +451,20 @@ app.get('/v1/operator/orders', { ...routeRateLimit(120, 60_000), preHandler: [ap
     reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
     return
   }
-  reply.send(store.orders)
+
+  const query = request.query as { limit?: string; cursor?: string }
+  const hasPagination = typeof query.limit !== 'undefined' || typeof query.cursor !== 'undefined'
+  if (!hasPagination) {
+    reply.send(store.orders)
+    return
+  }
+
+  const limit = Math.min(200, Number(query.limit ?? 100))
+  const cursor = Number(query.cursor ?? 0)
+  const offset = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100
+  const data = store.orders.slice(offset, offset + safeLimit)
+  reply.send({ data, nextCursor: offset + data.length, total: store.orders.length })
 })
 
 app.get('/v1/operator/audit', { ...routeRateLimit(120, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
@@ -528,8 +571,23 @@ app.patch('/v1/operator/config/risk', { ...routeRateLimit(30, 60_000), preHandle
   }
 
   const body = request.body as Record<string, unknown>
+  const reason = sanitizeText(String(body.reason ?? ''), { maxLength: 200 })
+  if (reason.length < 3) {
+    reply.code(400).send({ error: 'INVALID_REASON', message: 'mutating config updates require a reason' })
+    return
+  }
+
+  if (isPromptInjection(reason)) {
+    recordPromptInjection('/v1/operator/config/risk', resolveOperatorClaims(request).sub)
+    reply.code(400).send({ error: 'INVALID_REASON', message: 'reason blocked by prompt policy' })
+    return
+  }
+
   store.setSnapshot({ driftState: 'IN_TOLERANCE', healthCode: 'GREEN' })
-  addAudit(store, resolveOperatorClaims(request).sub, 'operator.config.risk', body)
+  addAudit(store, resolveOperatorClaims(request).sub, 'operator.config.risk', {
+    ...body,
+    reason
+  })
   reply.send({ ok: true })
 })
 
@@ -703,14 +761,38 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
 
   const agentId = String(body.agentId ?? '')
   const parsedTier = requestedTier.data
+  const capabilityRequestRaw = Array.isArray(body.requestedCapabilities)
+    ? body.requestedCapabilities
+    : Array.isArray(body.capabilities)
+      ? body.capabilities
+      : []
+  const requestedCapabilities = capabilityRequestRaw
+    .filter((entry: unknown): entry is string => typeof entry === 'string')
+    .map((entry: string) => sanitizeText(entry, { maxLength: 64 }))
+    .filter((entry: string): entry is string => entry.length > 0)
+  const tierCapabilities = getCapabilitiesForTier(parsedTier)
+  const unsupportedCapabilities = requestedCapabilities.filter((entry: string) => !tierCapabilities.includes(entry))
 
   if (!agentId || !proof) {
     reply.code(400).send({ error: 'INVALID_HANDSHAKE', message: 'agentId and proof required' })
     return
   }
 
+  if (unsupportedCapabilities.length > 0) {
+    reply.code(400).send({
+      error: 'INVALID_HANDSHAKE',
+      message: `unsupported capabilities for ${parsedTier}: ${unsupportedCapabilities.join(',')}`
+    })
+    return
+  }
+
   const challenge = createChallenge(agentId, '/v1/agent/command', parsedTier)
   if (proof.length < 8) {
+    addAgentAudit(store, agentId, 'agent.handshake.failed', {
+      reason: 'proof_too_short',
+      requestedTier: parsedTier,
+      requestedCapabilities
+    })
     issuePaymentRecord({
       agentId,
       entitlementId: 'pending',
@@ -728,10 +810,11 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
     return
   }
 
+  const grantedCapabilities = requestedCapabilities.length > 0 ? requestedCapabilities : tierCapabilities
   const entitlement: Entitlement = EntitlementSchema.parse({
     agentId,
     tier: parsedTier,
-    capabilities: getCapabilitiesForTier(parsedTier),
+    capabilities: grantedCapabilities,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     quotaRemaining: 1000,
     rateLimitPerMinute: 30
@@ -754,6 +837,12 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
       route: '/v1/agent/handshake',
       requestedTier: parsedTier
     }
+  })
+  addAgentAudit(store, agentId, 'agent.handshake', {
+    tier: parsedTier,
+    requestedCapabilities,
+    grantedCapabilities,
+    entitlementId: challenge.challengeId
   })
   reply.send({ challenge, entitlement })
 })
@@ -836,9 +925,7 @@ const x402Protected = (requiredCapability?: string) => {
     const proofAgentId = parsedProof.success ? parsedProof.data.agentId : (token || 'agent')
     const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
     if (!verifyResult.ok) {
-      const reason = verifyResult.challenge
-        ? verifyResult.challenge.challengeId
-        : verifyResult.reason || 'proof verification failed'
+      const reason = verifyResult.reason || 'proof verification failed'
       const abuseCount = recordAbuse(normalizedEntitlementId)
       issuePaymentRecord({
         agentId: proofAgentId,
@@ -923,7 +1010,7 @@ const x402Protected = (requiredCapability?: string) => {
     }
 
     const { quotaRemaining, overLimit } = consumeQuota(entitlement)
-    if (overLimit || quotaRemaining <= 0) {
+    if (overLimit) {
       issuePaymentRecord({
         agentId: entitlement.agentId,
         entitlementId: normalizedEntitlementId,
@@ -961,7 +1048,10 @@ const x402Protected = (requiredCapability?: string) => {
       }
     })
 
-    ;(request as EntitlementRequest).entitlement = entitlement
+    ;(request as EntitlementRequest).entitlement = {
+      ...entitlement,
+      quotaRemaining
+    }
   }
 }
 
@@ -1164,6 +1254,32 @@ function addAudit(storeRef: ApiStore, actor: string, action: string, details: Re
     correlationId: event.id,
     actorType: 'human',
     actorId: actor,
+    payload: event
+  })
+}
+
+function addAgentAudit(storeRef: ApiStore, agentId: string, action: string, details: Record<string, unknown>) {
+  const safeActor = sanitizeText(agentId, { maxLength: 120 })
+  const event: AuditEvent = {
+    id: ulid(),
+    ts: new Date().toISOString(),
+    actorType: 'external_agent',
+    actorId: safeActor,
+    action,
+    resource: 'api.agent',
+    correlationId: ulid(),
+    details,
+    hash: 'pending'
+  }
+
+  storeRef.addAudit(event)
+  void bus.publish('hlp.audit.events', {
+    type: 'AUDIT_EVENT',
+    stream: 'hlp.audit.events',
+    source: 'api',
+    correlationId: event.id,
+    actorType: 'external_agent',
+    actorId: safeActor,
     payload: event
   })
 }

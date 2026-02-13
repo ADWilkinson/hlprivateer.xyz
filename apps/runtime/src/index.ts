@@ -3,6 +3,7 @@ import promClient from 'prom-client'
 import { runtimeEnv as env } from './config'
 import { createRuntime } from './orchestrator/state'
 import { RedisEventBus, InMemoryEventBus } from '@hl/privateer-event-bus'
+import { createRuntimeStore } from './db/persistence'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
 
 const METRICS_PATH = '/metrics'
@@ -34,7 +35,8 @@ const bus = env.REDIS_URL
   ? new RedisEventBus(env.REDIS_URL, env.REDIS_STREAM_PREFIX)
   : new InMemoryEventBus()
 
-void createRuntime({ env, bus })
+void createRuntimeStore(env.DATABASE_URL)
+  .then((runtimeStore) => createRuntime({ env, bus, store: runtimeStore }))
   .then(async (runtime) => {
     await initializeTelemetry('hlprivateer-runtime')
     console.log(`runtime started mode=READY`) // eslint-disable-line no-console

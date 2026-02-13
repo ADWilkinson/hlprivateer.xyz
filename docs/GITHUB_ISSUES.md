@@ -31,8 +31,8 @@
 - HLP-028 Observability stack integration: DONE — OTel, Prometheus, Loki services and metrics hooks in runtime/ws/api.
 - HLP-029 Security baseline: DONE — headers, rate limiting, abuse counters, and injection hardening hooks configured.
 - HLP-030 Secrets management with SOPS+age: DONE — SOPS secret envelope and scripts for decrypt/rotate plus systemd credential flow docs.
-- HLP-031 systemd deployment and Cloudflare tunnel: DONE — runtime/api/ws/web systemd units and Cloudflare tunnel examples committed.
-- HLP-032 End-to-end sim + live readiness checklist: DONE — docs, tests, kill-switch drills, and runbook sections added for readiness gates.
+- HLP-031 systemd deployment and Cloudflare tunnel: IN PROGRESS — units/config are committed; clean-VM deployment verification evidence is still pending.
+- HLP-032 End-to-end sim + live readiness checklist: IN PROGRESS — readiness gates are implemented; required 24h sim run and drill evidence are still pending.
 
 ## HLP-001 Repo bootstrap and workspace tooling
 Description: Initialize bun+turborepo monorepo with TypeScript base config and package boundaries.
