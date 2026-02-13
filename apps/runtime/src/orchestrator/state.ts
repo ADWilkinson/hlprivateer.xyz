@@ -7,6 +7,7 @@ import {
   Role,
   OperatorCommandNameSchema,
   RoleSchema,
+  NormalizedTick,
   OperatorOrder,
   OperatorPosition,
   parseStrategyProposal,
@@ -143,7 +144,10 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   const adapter = env.ENABLE_LIVE_OMS ? createLiveAdapter(env) : createSimAdapter(10, 25)
   const marketAdapter = await createMarketAdapterLazy(env, bus)
   const pluginManager = await createRuntimePluginManager(bus)
-  const l2BookDepthCache = new Map<string, { bidDepthUsd: number; askDepthUsd: number; fetchedAtMs: number }>()
+  const l2BookDepthCache = new Map<
+    string,
+    { bidPx: number; askPx: number; bidDepthUsd: number; askDepthUsd: number; fetchedAtMs: number; updatedAtIso: string }
+  >()
   const persistedState = await store.getSystemState()
   const persistedPositions = await store.getPositions()
   const persistedOrders = await store.getOrders()
@@ -172,6 +176,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let lastLiveAccountValueOkAtMs = 0
   let cachedLiveAccountValueUsd = 0
   let cachedLiveWalletAddress = ''
+  let agentWatchlistSymbols: string[] = []
 
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
@@ -350,6 +355,25 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     }
   })
 
+  bus.consume('hlp.market.watchlist', '$', (envelope) => {
+    if (envelope?.type !== 'MARKET_WATCHLIST') {
+      return
+    }
+
+    const payload = envelope.payload as any
+    const symbols = Array.isArray(payload?.symbols) ? payload.symbols : []
+    const normalized = symbols
+      .map((symbol: unknown) => String(symbol ?? '').trim())
+      .filter(Boolean)
+      .slice(0, 25)
+
+    if (normalized.length === 0) {
+      return
+    }
+
+    agentWatchlistSymbols = normalized
+  })
+
   let pendingAgentProposal: StrategyProposal | null = null
   let pendingAgentProposalReceivedAt = 0
 
@@ -429,13 +453,48 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         .filter(Boolean)
 
       // Pull latest ticks for any symbol we might touch this cycle.
-      const tickSymbols = new Set<string>(['HYPE', ...basketSymbols, ...state.positions.map((position) => position.symbol)])
-      const ticks: Record<string, { symbol: string; px: number; bid: number; ask: number; bidSize?: number; askSize?: number; updatedAt: string }> = {}
+      const tickSymbols = new Set<string>([
+        'HYPE',
+        ...basketSymbols,
+        ...agentWatchlistSymbols,
+        ...state.positions.map((position) => position.symbol)
+      ])
+      const ticks: Record<string, NormalizedTick> = {}
 
       for (const symbol of tickSymbols) {
         const tick = await marketAdapter.latest(symbol)
         if (tick) {
           ticks[symbol] = tick
+          continue
+        }
+
+        // On-demand fallback for symbols outside the WS subscription set (dynamic baskets).
+        const snapshot = await fetchHyperliquidL2BookSnapshotCached({
+          infoUrl: env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL,
+          coin: symbol,
+          cache: l2BookDepthCache
+        })
+        if (snapshot) {
+          const derivedTick = {
+            symbol,
+            px: snapshot.px,
+            bid: snapshot.bidPx,
+            ask: snapshot.askPx,
+            bidSize: snapshot.bidPx > 0 ? snapshot.bidDepthUsd / snapshot.bidPx : 0,
+            askSize: snapshot.askPx > 0 ? snapshot.askDepthUsd / snapshot.askPx : 0,
+            updatedAt: snapshot.updatedAtIso,
+            source: 'runtime.market.l2book'
+          }
+          ticks[symbol] = derivedTick
+          void bus.publish('hlp.market.normalized', {
+            type: 'MARKET_TICK',
+            stream: 'hlp.market.normalized',
+            source: 'runtime.market.l2book',
+            correlationId: cycleCorrelationId,
+            actorType: 'system',
+            actorId: 'market-l2book',
+            payload: derivedTick
+          }).catch(() => undefined)
         }
       }
 
@@ -587,7 +646,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
 
       const previousMode = state.mode
-      await execute(proposal, risk.decision)
+      await execute(proposal, risk.decision, ticks)
       runtimeProposalCounter.inc({ status: 'executed' })
 
       // Re-mark after execution so operator/public views show updated PnL.
@@ -690,7 +749,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     }
   })
 
-  const execute = async (proposal: StrategyProposal, decision: RiskDecision): Promise<void> => {
+  const execute = async (
+    proposal: StrategyProposal,
+    decision: RiskDecision,
+    ticks: Record<string, NormalizedTick>
+  ): Promise<void> => {
     const action = proposal.actions[0]
     const created: OperatorOrder[] = []
 
@@ -699,7 +762,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         break
       }
 
-      const tick = await marketAdapter.latest(leg.symbol)
+      const tick = ticks[leg.symbol] ?? (await marketAdapter.latest(leg.symbol))
       if (!tick) {
         continue
       }
@@ -1233,17 +1296,19 @@ const DEFAULT_L2_BOOK_CACHE_TTL_MS = 2500
 const DEFAULT_L2_BOOK_LEVELS = 20
 const DEFAULT_L2_BOOK_TIMEOUT_MS = 1200
 
-type TickLike = {
-  symbol: string
+type L2BookSnapshot = {
+  bidPx: number
+  askPx: number
   px: number
-  bid: number
-  ask: number
-  bidSize?: number
-  askSize?: number
-  updatedAt: string
+  bidDepthUsd: number
+  askDepthUsd: number
+  updatedAtIso: string
 }
 
-type L2BookDepthCache = Map<string, { bidDepthUsd: number; askDepthUsd: number; fetchedAtMs: number }>
+type L2BookDepthCache = Map<
+  string,
+  { bidPx: number; askPx: number; bidDepthUsd: number; askDepthUsd: number; fetchedAtMs: number; updatedAtIso: string }
+>
 
 interface HyperliquidL2Level {
   px: string
@@ -1260,7 +1325,7 @@ interface HyperliquidL2BookResponse {
 async function augmentTicksWithL2BookDepth(params: {
   infoUrl: string
   proposal: StrategyProposal
-  ticks: Record<string, TickLike>
+  ticks: Record<string, NormalizedTick>
   cache: L2BookDepthCache
   ttlMs?: number
   levels?: number
@@ -1275,38 +1340,46 @@ async function augmentTicksWithL2BookDepth(params: {
 
   await Promise.all(
     [...symbols].map(async (symbol) => {
-      const tick = params.ticks[symbol]
-      if (!tick) {
+      const snapshot = await fetchHyperliquidL2BookSnapshotCached({
+        infoUrl: params.infoUrl,
+        coin: symbol,
+        cache: params.cache,
+        ttlMs,
+        levels,
+        timeoutMs,
+        nowMs
+      })
+      if (!snapshot) {
         return
       }
 
-      const cached = params.cache.get(symbol)
-      if (cached && nowMs - cached.fetchedAtMs < ttlMs) {
-        applyDepthToTick(tick, cached.bidDepthUsd, cached.askDepthUsd)
-        return
+      const tick: NormalizedTick = params.ticks[symbol] ?? {
+        symbol,
+        px: snapshot.px,
+        bid: snapshot.bidPx,
+        ask: snapshot.askPx,
+        bidSize: 0,
+        askSize: 0,
+        updatedAt: snapshot.updatedAtIso,
+        source: 'runtime.market.l2book'
       }
 
-      const depth = await fetchHyperliquidL2BookDepthUsd(params.infoUrl, symbol, levels, timeoutMs)
-      if (!depth) {
-        return
-      }
-
-      params.cache.set(symbol, { ...depth, fetchedAtMs: nowMs })
-      applyDepthToTick(tick, depth.bidDepthUsd, depth.askDepthUsd)
+      applyL2BookSnapshotToTick(tick, snapshot)
+      params.ticks[symbol] = tick
     })
   )
 }
 
-function applyDepthToTick(tick: TickLike, bidDepthUsd: number, askDepthUsd: number): void {
-  if (Number.isFinite(bidDepthUsd) && bidDepthUsd > 0 && Number.isFinite(tick.bid) && tick.bid > 0) {
-    tick.bidSize = bidDepthUsd / tick.bid
-  }
-  if (Number.isFinite(askDepthUsd) && askDepthUsd > 0 && Number.isFinite(tick.ask) && tick.ask > 0) {
-    tick.askSize = askDepthUsd / tick.ask
-  }
+function applyL2BookSnapshotToTick(tick: NormalizedTick, snapshot: L2BookSnapshot): void {
+  tick.bid = snapshot.bidPx
+  tick.ask = snapshot.askPx
+  tick.px = snapshot.px
+  tick.updatedAt = snapshot.updatedAtIso
+  tick.bidSize = snapshot.bidPx > 0 ? snapshot.bidDepthUsd / snapshot.bidPx : 0
+  tick.askSize = snapshot.askPx > 0 ? snapshot.askDepthUsd / snapshot.askPx : 0
 }
 
-async function fetchHyperliquidL2BookDepthUsd(infoUrl: string, coin: string, levels: number, timeoutMs: number): Promise<{ bidDepthUsd: number; askDepthUsd: number } | null> {
+async function fetchHyperliquidL2BookSnapshot(infoUrl: string, coin: string, levels: number, timeoutMs: number): Promise<L2BookSnapshot | null> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
@@ -1331,15 +1404,72 @@ async function fetchHyperliquidL2BookDepthUsd(infoUrl: string, coin: string, lev
     const bids = Array.isArray(book.levels[0]) ? book.levels[0] : []
     const asks = Array.isArray(book.levels[1]) ? book.levels[1] : []
 
+    const bestBid = parseFiniteNumber(bids[0]?.px) ?? 0
+    const bestAsk = parseFiniteNumber(asks[0]?.px) ?? 0
+    const px = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : Math.max(bestBid, bestAsk)
+    if (!Number.isFinite(px) || px <= 0) {
+      return null
+    }
+
     return {
+      bidPx: bestBid > 0 ? bestBid : px,
+      askPx: bestAsk > 0 ? bestAsk : px,
+      px,
       bidDepthUsd: sumLevelsUsd(bids, levels),
-      askDepthUsd: sumLevelsUsd(asks, levels)
+      askDepthUsd: sumLevelsUsd(asks, levels),
+      updatedAtIso: isoFromEpoch(book.time)
     }
   } catch {
     return null
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function fetchHyperliquidL2BookSnapshotCached(params: {
+  infoUrl: string
+  coin: string
+  cache: L2BookDepthCache
+  ttlMs?: number
+  levels?: number
+  timeoutMs?: number
+  nowMs?: number
+}): Promise<L2BookSnapshot | null> {
+  const ttlMs = params.ttlMs ?? DEFAULT_L2_BOOK_CACHE_TTL_MS
+  const levels = params.levels ?? DEFAULT_L2_BOOK_LEVELS
+  const timeoutMs = params.timeoutMs ?? DEFAULT_L2_BOOK_TIMEOUT_MS
+  const nowMs = params.nowMs ?? Date.now()
+
+  const cached = params.cache.get(params.coin)
+  if (cached && nowMs - cached.fetchedAtMs < ttlMs) {
+    const px = cached.bidPx > 0 && cached.askPx > 0 ? (cached.bidPx + cached.askPx) / 2 : Math.max(cached.bidPx, cached.askPx)
+    if (!Number.isFinite(px) || px <= 0) {
+      return null
+    }
+    return {
+      bidPx: cached.bidPx,
+      askPx: cached.askPx,
+      px,
+      bidDepthUsd: cached.bidDepthUsd,
+      askDepthUsd: cached.askDepthUsd,
+      updatedAtIso: cached.updatedAtIso
+    }
+  }
+
+  const snapshot = await fetchHyperliquidL2BookSnapshot(params.infoUrl, params.coin, levels, timeoutMs)
+  if (!snapshot) {
+    return null
+  }
+
+  params.cache.set(params.coin, {
+    bidPx: snapshot.bidPx,
+    askPx: snapshot.askPx,
+    bidDepthUsd: snapshot.bidDepthUsd,
+    askDepthUsd: snapshot.askDepthUsd,
+    updatedAtIso: snapshot.updatedAtIso,
+    fetchedAtMs: nowMs
+  })
+  return snapshot
 }
 
 function coerceL2BookResponse(payload: Partial<HyperliquidL2BookResponse>): HyperliquidL2BookResponse | null {
@@ -1389,6 +1519,15 @@ function parseFiniteNumber(value: unknown): number | null {
   }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function isoFromEpoch(value: number): string {
+  const ms = value < 10_000_000_000 ? value * 1000 : value
+  const date = new Date(ms)
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString()
+  }
+  return date.toISOString()
 }
 
 async function createMarketAdapterLazy(env: RuntimeEnv, bus: EventBus): Promise<MarketDataAdapter> {

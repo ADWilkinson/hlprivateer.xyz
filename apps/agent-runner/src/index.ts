@@ -4,6 +4,7 @@ import type { EventEnvelope, AuditEvent, OperatorPosition, StrategyProposal } fr
 import { parseStrategyProposal } from '@hl/privateer-contracts'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
 import { env } from './config'
+import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliquid'
 import { runClaudeStructured, runCodexStructured } from './llm'
 
 type Tick = {
@@ -117,6 +118,284 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
   return { expectedSlippageBps: expected, maxSlippageBps: max }
 }
 
+const BASE_LONG_SYMBOL = 'HYPE'
+
+type BasketCandidate = {
+  symbol: string
+  maxLeverage: number
+  dayNtlVlmUsd: number
+  openInterest: number
+  openInterestUsd: number
+  funding: number
+  premium: number
+  markPx: number
+}
+
+type BasketSelection = {
+  basketSymbols: string[]
+  rationale: string
+  selectedAt: string
+}
+
+function defaultBasketFromEnv(): string[] {
+  return env.BASKET_SYMBOLS
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && s.toUpperCase() !== BASE_LONG_SYMBOL)
+}
+
+let activeBasket: BasketSelection = {
+  basketSymbols: defaultBasketFromEnv(),
+  rationale: 'seeded from env',
+  selectedAt: new Date(0).toISOString()
+}
+let basketSelectInFlight = false
+let cachedUniverse: { assets: HyperliquidUniverseAsset[]; fetchedAtMs: number } = { assets: [], fetchedAtMs: 0 }
+
+async function fetchUniverseAssetsCached(nowMs: number): Promise<HyperliquidUniverseAsset[]> {
+  // Keep a short cache to avoid hammering the info endpoint.
+  if (cachedUniverse.assets.length > 0 && nowMs - cachedUniverse.fetchedAtMs < 60_000) {
+    return cachedUniverse.assets
+  }
+
+  const assets = await fetchMetaAndAssetCtxs(env.HL_INFO_URL)
+  cachedUniverse = { assets, fetchedAtMs: nowMs }
+  return assets
+}
+
+function buildBasketCandidates(params: {
+  assets: HyperliquidUniverseAsset[]
+  perLegShortNotionalUsd: number
+  basketSize: number
+}): BasketCandidate[] {
+  const all = params.assets
+    .filter((asset) => asset.symbol && !asset.isDelisted)
+    .filter((asset) => asset.symbol.toUpperCase() !== BASE_LONG_SYMBOL)
+    .map((asset) => ({
+      symbol: asset.symbol,
+      maxLeverage: asset.maxLeverage,
+      dayNtlVlmUsd: asset.dayNtlVlmUsd,
+      openInterest: asset.openInterest,
+      openInterestUsd: asset.openInterest > 0 && asset.markPx > 0 ? asset.openInterest * asset.markPx : 0,
+      funding: asset.funding,
+      premium: asset.premium,
+      markPx: asset.markPx
+    }))
+    .filter((asset) => Number.isFinite(asset.dayNtlVlmUsd) && asset.dayNtlVlmUsd > 0)
+    .sort((a, b) => b.dayNtlVlmUsd - a.dayNtlVlmUsd)
+
+  const minDayNtlVlmUsd = Math.max(0, params.perLegShortNotionalUsd) * 100
+  const filtered = minDayNtlVlmUsd > 0 ? all.filter((asset) => asset.dayNtlVlmUsd >= minDayNtlVlmUsd) : all
+
+  // If we filter too aggressively for the configured size, fall back to the raw top-of-book list.
+  const pool = filtered.length >= params.basketSize ? filtered : all
+  return pool.slice(0, env.AGENT_BASKET_CANDIDATE_LIMIT)
+}
+
+function deterministicBasketFallback(candidates: BasketCandidate[], size: number): string[] {
+  return candidates
+    .filter((candidate) => candidate.symbol.toUpperCase() !== BASE_LONG_SYMBOL)
+    .slice(0, Math.max(1, size))
+    .map((candidate) => candidate.symbol)
+}
+
+async function generateBasketSelection(params: {
+  llm: LlmChoice
+  model: string
+  input: Record<string, unknown>
+}): Promise<{ basketSymbols: string[]; rationale: string }> {
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      basketSymbols: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 12 },
+      rationale: { type: 'string' }
+    },
+    required: ['basketSymbols', 'rationale']
+  } as const
+
+  if (params.llm === 'none') {
+    return {
+      basketSymbols: [],
+      rationale: 'llm disabled'
+    }
+  }
+
+  const prompt = [
+    'You are HL Privateer basket-selector.',
+    'Pick the short basket symbols to trade against HYPE for a market-neutral relative value trade.',
+    'Constraints:',
+    '- Choose ONLY from the provided candidate symbols.',
+    '- Do NOT include HYPE.',
+    '- Prefer high liquidity (day notional volume, open interest).',
+    '- Prefer shorts with positive funding (we earn it), all else equal.',
+    '- Keep it diversified; avoid selecting extremely illiquid long-tail.',
+    'Return only JSON that matches the provided schema.',
+    '',
+    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+  ].join('\n')
+
+  const raw =
+    params.llm === 'claude'
+      ? await runClaudeStructured<{ basketSymbols: string[]; rationale: string }>({
+        prompt,
+        jsonSchema: schema as unknown as Record<string, unknown>,
+        model: params.model
+      })
+      : await runCodexStructured<{ basketSymbols: string[]; rationale: string }>({
+        prompt,
+        jsonSchema: schema as unknown as Record<string, unknown>,
+        model: params.model,
+        reasoningEffort: env.CODEX_REASONING_EFFORT
+      })
+
+  return {
+    basketSymbols: Array.isArray(raw.basketSymbols) ? raw.basketSymbols.map((s) => String(s)).slice(0, 12) : [],
+    rationale: String(raw.rationale ?? '').slice(0, 600)
+  }
+}
+
+function validateBasketSelection(params: { requested: string[]; allowed: BasketCandidate[]; size: number }): string[] {
+  const allowedByUpper = new Map<string, string>()
+  for (const candidate of params.allowed) {
+    allowedByUpper.set(candidate.symbol.toUpperCase(), candidate.symbol)
+  }
+
+  const picked: string[] = []
+  for (const raw of params.requested) {
+    const upper = String(raw).trim().toUpperCase()
+    if (!upper || upper === BASE_LONG_SYMBOL) {
+      continue
+    }
+    const canonical = allowedByUpper.get(upper)
+    if (!canonical) {
+      continue
+    }
+    if (picked.some((sym) => sym.toUpperCase() === canonical.toUpperCase())) {
+      continue
+    }
+    picked.push(canonical)
+    if (picked.length >= params.size) {
+      break
+    }
+  }
+
+  return picked
+}
+
+async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: PluginSignal[]; positions: OperatorPosition[] }): Promise<void> {
+  const nowMs = Date.now()
+  if (basketSelectInFlight) {
+    return
+  }
+  if (params.positions.length > 0) {
+    return
+  }
+
+  const needsRefresh =
+    activeBasket.basketSymbols.length !== env.AGENT_BASKET_SIZE ||
+    nowMs - Date.parse(activeBasket.selectedAt) > env.AGENT_BASKET_REFRESH_MS
+  if (!needsRefresh) {
+    return
+  }
+
+  basketSelectInFlight = true
+  try {
+    const universe = await fetchUniverseAssetsCached(nowMs)
+    const perLegShortNotionalUsd = Number((params.targetNotionalUsd / Math.max(1, env.AGENT_BASKET_SIZE)).toFixed(2))
+    const candidates = buildBasketCandidates({
+      assets: universe,
+      perLegShortNotionalUsd,
+      basketSize: env.AGENT_BASKET_SIZE
+    })
+    const fallback = deterministicBasketFallback(candidates, env.AGENT_BASKET_SIZE)
+
+    const input = {
+      ts: new Date().toISOString(),
+      mode: lastMode,
+      basketSize: env.AGENT_BASKET_SIZE,
+      targetNotionalUsd: params.targetNotionalUsd,
+      perLegShortNotionalUsd,
+      candidateFilter: {
+        // Pre-filter candidates by daily notional volume as a rough proxy for tradability at size.
+        minDayNtlVlmUsd: Number((Math.max(0, perLegShortNotionalUsd) * 100).toFixed(2))
+      },
+      candidates,
+      signals: {
+        // Provide the latest global signals as hints (these are primarily about HYPE, but still useful context).
+        volatility: [...params.signals].reverse().find((s) => s.signalType === 'volatility')?.value ?? null,
+        correlation: [...params.signals].reverse().find((s) => s.signalType === 'correlation')?.value ?? null,
+        funding: [...params.signals].reverse().find((s) => s.signalType === 'funding')?.value ?? null
+      }
+    }
+
+    const llm = llmForRole('strategist')
+    const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+
+    let chosen: { basketSymbols: string[]; rationale: string }
+    try {
+      chosen = await generateBasketSelection({ llm, model, input })
+    } catch (primaryError) {
+      if (llm === 'codex') {
+        try {
+          chosen = await generateBasketSelection({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `basket codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+          })
+        } catch (fallbackError) {
+          chosen = { basketSymbols: fallback, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}` }
+        }
+      } else {
+        chosen = { basketSymbols: fallback, rationale: `deterministic fallback: ${String(primaryError).slice(0, 120)}` }
+      }
+    }
+
+    const validated = validateBasketSelection({ requested: chosen.basketSymbols, allowed: candidates, size: env.AGENT_BASKET_SIZE })
+    const finalBasket = validated.length === env.AGENT_BASKET_SIZE ? validated : fallback
+    activeBasket = {
+      basketSymbols: finalBasket,
+      rationale: chosen.rationale || 'selected',
+      selectedAt: new Date().toISOString()
+    }
+
+    void maybePublishWatchlist({ symbols: [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols], reason: 'basket selected' }).catch(() => undefined)
+
+    await publishTape({
+      correlationId: ulid(),
+      role: 'strategist',
+      line: `basket selected: ${activeBasket.basketSymbols.join(',')} (size=${activeBasket.basketSymbols.length})`
+    })
+
+    await publishAudit({
+      id: ulid(),
+      ts: new Date().toISOString(),
+      actorType: 'internal_agent',
+      actorId: roleActorId('strategist'),
+      action: 'basket.selected',
+      resource: 'agent.basket',
+      correlationId: ulid(),
+      details: {
+        basketSymbols: activeBasket.basketSymbols,
+        rationale: activeBasket.rationale,
+        targetNotionalUsd: params.targetNotionalUsd,
+        candidateCount: candidates.length
+      }
+    })
+  } catch (error) {
+    await publishTape({
+      correlationId: ulid(),
+      role: 'ops',
+      level: 'WARN',
+      line: `basket selection failed: ${String(error).slice(0, 140)}`
+    })
+  } finally {
+    basketSelectInFlight = false
+  }
+}
+
 function buildDeltaProposal(params: {
   createdBy: string
   basketSymbolsCsv: string
@@ -136,7 +415,7 @@ function buildDeltaProposal(params: {
   }
 
   const desiredBySymbol = new Map<string, number>()
-  desiredBySymbol.set('HYPE', params.targetNotionalUsd)
+  desiredBySymbol.set(BASE_LONG_SYMBOL, params.targetNotionalUsd)
   const perBasket = params.targetNotionalUsd / basketSymbols.length
   for (const symbol of basketSymbols) {
     desiredBySymbol.set(symbol, -perBasket)
@@ -434,6 +713,52 @@ async function publishTape(params: { correlationId: string; role: string; line: 
   })
 }
 
+let lastWatchlistKey = ''
+let lastWatchlistPublishedAtMs = 0
+
+function normalizeSymbolList(symbols: string[]): string[] {
+  return symbols
+    .map((symbol) => String(symbol).trim())
+    .filter(Boolean)
+}
+
+function watchlistKey(symbols: string[]): string {
+  return normalizeSymbolList(symbols)
+    .map((symbol) => symbol.toUpperCase())
+    .join(',')
+}
+
+async function maybePublishWatchlist(params: { symbols: string[]; reason: string }): Promise<void> {
+  const normalized = normalizeSymbolList(params.symbols)
+  if (normalized.length === 0) {
+    return
+  }
+
+  const nowMs = Date.now()
+  const key = watchlistKey(normalized)
+  const changed = key !== lastWatchlistKey
+  const stale = nowMs - lastWatchlistPublishedAtMs > 30_000
+  if (!changed && !stale) {
+    return
+  }
+
+  lastWatchlistKey = key
+  lastWatchlistPublishedAtMs = nowMs
+  await bus.publish('hlp.market.watchlist', {
+    type: 'MARKET_WATCHLIST',
+    stream: 'hlp.market.watchlist',
+    source: 'agent-runner',
+    correlationId: ulid(),
+    actorType: 'internal_agent',
+    actorId: roleActorId('ops'),
+    payload: {
+      ts: new Date().toISOString(),
+      symbols: normalized,
+      reason: sanitizeLine(params.reason, 120)
+    }
+  })
+}
+
 async function publishAgentCommand(params: {
   command: '/halt'
   reason: string
@@ -520,8 +845,7 @@ async function runOpsAgent(): Promise<void> {
   }
   lastOpsAt = now
 
-  const basket = env.BASKET_SYMBOLS.split(',').map((s) => s.trim()).filter(Boolean)
-  const universe = ['HYPE', ...basket]
+  const universe = [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols]
   const { maxAgeMs, missing } = tickStalenessMs(universe)
 
   const level: 'INFO' | 'WARN' | 'ERROR' = maxAgeMs > 15000 || missing.length > 0 ? 'WARN' : 'INFO'
@@ -531,6 +855,9 @@ async function runOpsAgent(): Promise<void> {
     level,
     line: `deck status mode=${lastMode} feedAgeMs=${Math.round(maxAgeMs)} missing=${missing.length}`
   })
+
+  // Runtime can source ticks for dynamic basket symbols on-demand via l2Book snapshots.
+  void maybePublishWatchlist({ symbols: universe, reason: 'ops heartbeat' }).catch(() => undefined)
 
   if (env.OPS_AUTO_HALT && lastMode !== 'HALT' && (maxAgeMs > 30000 || missing.length > 0)) {
     await publishTape({
@@ -564,7 +891,7 @@ async function runResearchAgent(): Promise<void> {
   const input = {
     ts: new Date().toISOString(),
     mode: lastMode,
-    basketSymbols: env.BASKET_SYMBOLS,
+    basketSymbols: activeBasket.basketSymbols.join(','),
     signals: {
       vol: latestVol?.value ?? null,
       corr: latestCorr?.value ?? null,
@@ -729,9 +1056,11 @@ async function runStrategistCycle(): Promise<void> {
   const targetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
   const tactics = computeExecutionTactics({ signals })
 
+  await maybeSelectBasket({ targetNotionalUsd, signals, positions: lastPositions })
+
   const proposal = buildDeltaProposal({
     createdBy: roleActorId('strategist'),
-    basketSymbolsCsv: env.BASKET_SYMBOLS,
+    basketSymbolsCsv: activeBasket.basketSymbols.join(','),
     targetNotionalUsd,
     positions: lastPositions,
     signals,
@@ -794,13 +1123,13 @@ async function runStrategistCycle(): Promise<void> {
 }
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { signals: PluginSignal[]; targetNotionalUsd: number }): Promise<void> {
-  const universe = new Set<string>(['HYPE', ...env.BASKET_SYMBOLS.split(',').map((s) => s.trim()).filter(Boolean)])
+  const universe = new Set<string>([BASE_LONG_SYMBOL, ...activeBasket.basketSymbols])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
   const analysisInput = {
     ts: new Date().toISOString(),
     mode: lastMode,
     targetNotionalUsd: context.targetNotionalUsd,
-    basketSymbols: env.BASKET_SYMBOLS,
+    basketSymbols: activeBasket.basketSymbols.join(','),
     signals: context.signals,
     ticks: tickSnapshot,
     positions: lastPositions,

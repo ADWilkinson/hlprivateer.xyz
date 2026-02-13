@@ -33,6 +33,7 @@ export type Channel = z.infer<typeof ChannelSchema>
 export const StreamNameSchema = z.enum([
   'hlp.market.raw',
   'hlp.market.normalized',
+  'hlp.market.watchlist',
   'hlp.strategy.proposals',
   'hlp.plugin.signals',
   'hlp.risk.decisions',
