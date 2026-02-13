@@ -23,4 +23,15 @@ describe('api config', () => {
 
     expect(env.JWT_SECRET).toBe('from_file_secret')
   })
+
+  it('parses false-like booleans from environment strings', async () => {
+    process.env.OPERATOR_MFA_REQUIRED = 'false'
+    process.env.X402_ENABLED = 'false'
+
+    vi.resetModules()
+    const { env } = await import('./config')
+
+    expect(env.OPERATOR_MFA_REQUIRED).toBe(false)
+    expect(env.X402_ENABLED).toBe(false)
+  })
 })

@@ -19,6 +19,20 @@ function loadEnvValue(name: string, env: NodeJS.ProcessEnv = process.env): strin
   return env[name]
 }
 
+const booleanFromEnv = z.preprocess((value) => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true
+    }
+    if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
+      return false
+    }
+  }
+
+  return value
+}, z.boolean())
+
 export const runtimeEnv = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -26,7 +40,7 @@ export const runtimeEnv = z
     REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
     REDIS_STREAM_PREFIX: z.string().default('hlp'),
     CYCLE_MS: z.coerce.number().default(5000),
-    DRY_RUN: z.coerce.boolean().default(true),
+    DRY_RUN: booleanFromEnv.default(true),
     DATABASE_URL: z.string().optional(),
     HL_WS_URL: z.string().optional(),
     RISK_MAX_LEVERAGE: z.coerce.number().default(2),
@@ -40,8 +54,8 @@ export const runtimeEnv = z
     BASKET_SYMBOLS: z.string().default('BTC,ETH'),
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().default(1000),
     RUNTIME_METRICS_PORT: z.coerce.number().default(9400),
-    ENABLE_LIVE_OMS: z.coerce.boolean().default(false),
-    LIVE_MODE_APPROVED: z.coerce.boolean().default(false),
+    ENABLE_LIVE_OMS: booleanFromEnv.default(false),
+    LIVE_MODE_APPROVED: booleanFromEnv.default(false),
     LIVE_OMS_API_URL: z.string().optional(),
     LIVE_OMS_API_KEY: z.string().optional()
   })

@@ -23,4 +23,15 @@ describe('runtime config', () => {
 
     expect(runtimeEnv.DATABASE_URL).toBe('postgres://from-file')
   })
+
+  it('parses false-like booleans from environment strings', async () => {
+    process.env.ENABLE_LIVE_OMS = 'false'
+    process.env.LIVE_MODE_APPROVED = 'false'
+
+    vi.resetModules()
+    const { runtimeEnv } = await import('./config')
+
+    expect(runtimeEnv.ENABLE_LIVE_OMS).toBe(false)
+    expect(runtimeEnv.LIVE_MODE_APPROVED).toBe(false)
+  })
 })

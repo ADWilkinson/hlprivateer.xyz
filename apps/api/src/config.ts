@@ -19,6 +19,20 @@ function loadEnvValue(name: string, env: NodeJS.ProcessEnv = process.env): strin
   return env[name]
 }
 
+const booleanFromEnv = z.preprocess((value) => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true
+    }
+    if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
+      return false
+    }
+  }
+
+  return value
+}, z.boolean())
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
@@ -29,10 +43,10 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
   REDIS_STREAM_PREFIX: z.string().default('hlp'),
   JWT_SECRET: z.string().default('replace-me'),
-  OPERATOR_MFA_REQUIRED: z.coerce.boolean().default(true),
+  OPERATOR_MFA_REQUIRED: booleanFromEnv.default(true),
   OPERATOR_ADMIN_USERS: z.string().default('admin@local'),
   FIREBASE_PROJECT_ID: z.string().default('privateer-xbt'),
-  X402_ENABLED: z.coerce.boolean().default(true),
+  X402_ENABLED: booleanFromEnv.default(true),
   X402_VERIFIER_SECRET: z.string().default('x402-secret'),
   API_RATE_LIMIT_MAX: z.coerce.number().default(120),
   API_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000)
