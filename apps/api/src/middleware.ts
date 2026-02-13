@@ -23,7 +23,10 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     try {
       await request.jwtVerify()
     } catch {
-      void reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing or invalid token' })
+      // Important: stop the request lifecycle here, otherwise the route handler will continue
+      // and attempt to send a second response (Fastify will warn and Bun can crash).
+      reply.code(401)
+      return reply.send({ error: 'UNAUTHORIZED', message: 'missing or invalid token' })
     }
   })
 
@@ -51,7 +54,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       }
 
       if (roles.includes(OPERATOR_ADMIN_ROLE) && env.OPERATOR_MFA_REQUIRED && !claims?.mfa) {
-        void reply.code(403).send({ error: 'MFA_REQUIRED', message: 'MFA required for admin action' })
+        reply.code(403)
+        return reply.send({ error: 'MFA_REQUIRED', message: 'MFA required for admin action' })
       }
     }
   })
