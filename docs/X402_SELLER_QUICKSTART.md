@@ -5,7 +5,7 @@ This repo currently has:
 1. A **local/dev payment-gate** used by the agent SDK:
    - `apps/api/src/index.ts` + `apps/api/src/x402.ts`
    - deterministic proof checks, quota, abuse controls, audit + payment-attempt writes
-2. The **canonical x402 v2 seller flow** (middleware + facilitator) as documented by x402.
+2. Reference notes for the **canonical x402 v2 seller flow** (middleware + facilitator) as documented by x402.
 
 If you need actual x402 v2 interoperability (buyers retry with `PAYMENT-SIGNATURE`, sellers return `PAYMENT-REQUIRED` + `PAYMENT-RESPONSE`), follow the canonical flow below.
 
