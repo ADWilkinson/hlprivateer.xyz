@@ -13,14 +13,15 @@ const baseTick = {
 }
 
 describe('sim adapter', () => {
-  const randomMock = vi.spyOn(Math, 'random')
+  let randomMock: ReturnType<typeof vi.spyOn> | null = null
 
   afterEach(() => {
-    randomMock.mockRestore()
+    randomMock?.mockRestore()
+    randomMock = null
   })
 
   beforeEach(() => {
-    randomMock.mockReturnValue(0.99)
+    randomMock = vi.spyOn(Math, 'random').mockReturnValue(0.99)
   })
 
   it('applies idempotent placement keys', async () => {

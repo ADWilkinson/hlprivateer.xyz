@@ -5,7 +5,7 @@ Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with determi
 ## What It Does
 - Runs a continuous pair-trade strategy: `LONG HYPE` vs `SHORT basket` (basket configurable).
 - Streams a public ASCII "trading floor" UI (mode/health/drift/PnL + event tape).
-- Provides operator controls via JWT: `/halt`, `/resume`, `/flatten`, `/status`, etc.
+- Provides operator controls via JWT API: `/halt`, `/resume`, `/flatten`, `/status`, etc.
 - Runs an internal `agent-runner` that proposes rebalances + publishes structured analysis (Claude/Codex CLIs optional).
 - Exposes x402 paywalled agent endpoints (facilitator-backed).
 

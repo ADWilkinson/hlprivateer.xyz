@@ -10,48 +10,51 @@ Inputs:
 - Current positions/mode (from `hlp.ui.events`)
 Outputs:
 - `StrategyProposal` events to `hlp.strategy.proposals`
-- `FLOOR_TAPE` lines to `hlp.ui.events` (roles: `scout`, `strategist`, `scribe`)
+- `FLOOR_TAPE` lines to `hlp.ui.events` (roles: `scout`, `research`, `strategist`, `execution`, `risk`, `scribe`, `ops`)
 - Audit analysis records to `hlp.audit.events`
 Forbidden:
 - No direct order placement (runtime executes only after risk approval)
 - No config mutation
 - No secret access (must operate on provided context only)
 
-### 1.2 research-agent (planned)
-Purpose: Generate basket and regime hypotheses.
+### 1.2 research-agent (implemented)
+Purpose: Generate regime hypotheses and strategist guidance (non-executing).
 Outputs:
-- `StrategyProposal` objects only
+- `FLOOR_TAPE` lines (role: `research`)
+- `hlp.audit.events` entries (action: `research.report`)
 Forbidden:
 - No direct order placement
 - No config mutation
 
-### 1.3 risk-agent (planned)
-Purpose: Explain risk posture and simulate outcomes.
+### 1.3 risk-agent (implemented)
+Purpose: Explain risk posture (non-authoritative; runtime risk engine is source of truth).
 Inputs:
 - Current exposure
 - Candidate proposals
-- Risk config
 Outputs:
-- `RiskExplanation` and simulation summaries
+- `FLOOR_TAPE` lines (role: `risk`)
+- `hlp.audit.events` entries (action: `risk.report`)
 Forbidden:
 - No override of risk decisions
 
-### 1.4 execution-agent (planned)
-Purpose: Suggest execution tactics under constraints.
+### 1.4 execution-agent (implemented)
+Purpose: Suggest execution tactics under constraints and annotate proposals with slippage expectations.
 Inputs:
 - Allowed proposals
 - Orderbook state
 Outputs:
-- Child-order plan suggestions
+- Adjusted `expectedSlippageBps`/`maxSlippageBps` in emitted `StrategyProposal`
+- `FLOOR_TAPE` lines (role: `execution`)
 Forbidden:
 - No bypass of OMS/risk gate
 
-### 1.5 ops-agent (planned)
-Purpose: Detect incidents and suggest remediation steps.
+### 1.5 ops-agent (implemented)
+Purpose: Detect feed staleness and service posture.
 Inputs:
 - Logs, traces, metrics, service state
 Outputs:
-- Incident summaries + runbook action recommendations
+- `FLOOR_TAPE` lines (role: `ops`)
+- Optional `/halt` publication to `hlp.commands` when `OPS_AUTO_HALT=true` (fail-safe only)
 Forbidden:
 - No secret access beyond required diagnostics
 

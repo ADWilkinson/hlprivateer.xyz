@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { apiUrl, wsUrl } from '../lib/endpoints'
 
 interface Snapshot {
@@ -11,59 +11,26 @@ interface Snapshot {
   lastUpdateAt: string
 }
 
-interface Position {
-  symbol: string
-  side: string
-  qty: number
-  pnlUsd: number
-  notionalUsd: number
-  avgEntryPx: number
-  markPx: number
-  updatedAt: string
-}
-
-interface Order {
-  orderId: string
-  symbol: string
-  side: string
-  status: string
-  notionalUsd: number
-  filledQty: number
-}
-
-interface ReplayEvent {
-  id: string
-  ts: string
-  actorType: string
-  actorId: string
-  action: string
-  resource: string
-  correlationId: string
-  details: Record<string, unknown>
-  stream?: string
-  type?: string
-  source?: string
-  payload?: unknown
-}
-
-interface ReplayResponse {
-  events: ReplayEvent[]
-  count?: number
-  from: string
-  to: string
-  correlationId?: string
-  resource?: string
-  ok?: boolean
-}
-
 type WsState = 'CONNECTING' | 'OPEN' | 'CLOSED'
+type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 
-const COMMANDS = ['/status', '/positions', '/simulate', '/halt', '/resume', '/flatten', '/explain']
+type CrewRole =
+  | 'scout'
+  | 'research'
+  | 'strategist'
+  | 'execution'
+  | 'risk'
+  | 'scribe'
+  | 'ops'
 
-const nowInputValue = (): string => {
-  const now = new Date()
-  return now.toISOString().slice(0, 16)
+type TapeEntry = {
+  ts: string
+  role?: string
+  level?: TapeLevel
+  line: string
 }
+
+const CREW: CrewRole[] = ['scout', 'research', 'strategist', 'execution', 'risk', 'scribe', 'ops']
 
 function badgeVariantForHealth(code: string): 'ok' | 'warn' | 'danger' {
   if (code === 'GREEN') return 'ok'
@@ -87,379 +54,63 @@ function Badge({ children, variant }: { children: string; variant: 'ok' | 'warn'
   return <span className={`badge ${variant}`}>{children}</span>
 }
 
+function crewLabel(role: CrewRole): string {
+  if (role === 'scout') return 'SCOUT'
+  if (role === 'research') return 'RESEARCH'
+  if (role === 'strategist') return 'STRATEGIST'
+  if (role === 'execution') return 'EXECUTION'
+  if (role === 'risk') return 'RISK'
+  if (role === 'scribe') return 'SCRIBE'
+  return 'OPS'
+}
+
 function asciiLogo(): string {
   return [
-    'HL PRIVATEER // PUBLIC FLOOR',
-    '┌───────────────────────────────────────────────┐',
-    '│   _   _ _         _      _                    │',
-    '│  | | | | |  ___  | |    (_) ___  _ __         │',
-    '│  | |_| | | / _ \\ | |    | |/ _ \\| \\u0027__|        │',
-    '│  |  _  | || (_) || |___ | | (_) | |           │',
-    '│  |_| |_|_| \\___/ |_____||_|\\___/|_|           │',
-    '│                                               │',
-    '│  Signals: PnL | Mode | Drift | Event Tape     │',
-    '│  Deck:    Operator | Replay | About           │',
-    '└───────────────────────────────────────────────┘'
-  ].join('\\n')
+    'HL PRIVATEER // TRADING FLOOR',
+    '┌───────────────────────────────────────────────────────────────┐',
+    '│  "We do not predict. We hard-gate."                             │',
+    '│                                                                 │',
+    '│  CREW: scout | research | strategist | execution | risk | ops   │',
+    '│  EXCHANGE: Hyperliquid (HYPE vs basket)                         │',
+    '│  PAYMENTS: x402 (facilitator-backed)                            │',
+    '└───────────────────────────────────────────────────────────────┘'
+  ].join('\n')
 }
 
-function PublicPanel({
-  snapshot,
-  events,
-  wsState
-}: {
-  snapshot: Snapshot
-  events: string[]
-  wsState: WsState
-}) {
-  const pnl = Number.isFinite(snapshot.pnlPct) ? snapshot.pnlPct : 0
+function renderAsciiChart(values: number[], width: number, height: number): { chart: string; min: number; max: number } {
+  const trimmed = values.filter((v) => Number.isFinite(v)).slice(-Math.max(width, 2))
+  if (trimmed.length < 2) {
+    return { chart: '(warming up)', min: 0, max: 0 }
+  }
 
-  return (
-    <section className='panel'>
-      <div className='panelHeader'>
-        <div className='panelTitle'>Public Floor</div>
-        <div className='panelBadges'>
-          <Badge variant={badgeVariantForHealth(snapshot.healthCode)}>{`health:${snapshot.healthCode}`}</Badge>
-          <Badge variant={badgeVariantForDrift(snapshot.driftState)}>{`drift:${snapshot.driftState}`}</Badge>
-          <Badge variant={badgeVariantForWs(wsState)}>{`ws:${wsState}`}</Badge>
-        </div>
-      </div>
-      <div className='panelBody'>
-        <div className='kv'>
-          <div className='kvLabel'>mode</div>
-          <div className='kvValue'>{snapshot.mode}</div>
-          <div className='kvLabel'>pnl</div>
-          <div className='kvValue'>{pnl.toFixed(3)}%</div>
-          <div className='kvLabel'>updated</div>
-          <div className='kvValue'>{snapshot.lastUpdateAt}</div>
-        </div>
-        <div className='tape' aria-label='event tape'>
-          {events.map((entry, index) => (
-            <span className={`tapeLine ${index === 0 ? 'hot' : ''}`} key={`${index}-${entry.slice(0, 24)}`}>
-              {`#${index} ${entry}`}
-            </span>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
+  let min = Math.min(...trimmed)
+  let max = Math.max(...trimmed)
+  if (min === max) {
+    min -= 0.5
+    max += 0.5
+  }
 
-function OperatorDeck({
-  token,
-  onTokenChange,
-  snapshot
-}: {
-  token: string
-  onTokenChange: (value: string) => void
-  snapshot: Snapshot
-}) {
-  const [roles, setRoles] = useState<string[]>([])
-  const [command, setCommand] = useState(COMMANDS[0] ?? '/status')
-  const [positions, setPositions] = useState<Position[]>([])
-  const [orders, setOrders] = useState<Order[]>([])
-  const [log, setLog] = useState<string[]>([])
-  const [error, setError] = useState<string>('')
-
-  const operatorHeaders = useMemo(() => {
-    return {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
-  }, [token])
-
-  useEffect(() => {
-    try {
-      const payload = token.split('.')[1]
-      if (!payload) {
-        setRoles([])
-      } else {
-        const parsed = JSON.parse(atob(payload)) as { roles?: string[] }
-        setRoles(Array.isArray(parsed.roles) ? parsed.roles : [])
-      }
-    } catch {
-      setRoles([])
-    }
-  }, [token])
-
-  useEffect(() => {
-    let running = true
-    setError('')
-
-    const fetchOperator = async () => {
-      if (!token) {
-        setPositions([])
-        setOrders([])
-        return
-      }
-
-      try {
-        const positionsResponse = await fetch(apiUrl('/v1/operator/positions'), {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (positionsResponse.ok && running) {
-          setPositions(await positionsResponse.json())
-        }
-      } catch (err) {
-        if (running) setError(`positions load failed: ${String(err)}`)
-      }
-
-      try {
-        const ordersResponse = await fetch(apiUrl('/v1/operator/orders'), {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (ordersResponse.ok && running) {
-          setOrders(await ordersResponse.json())
-        }
-      } catch (err) {
-        if (running) setError(`orders load failed: ${String(err)}`)
-      }
-    }
-
-    const interval = setInterval(() => void fetchOperator(), 5000)
-    void fetchOperator()
-
-    return () => {
-      running = false
-      clearInterval(interval)
-    }
-  }, [token])
-
-  const submit = async () => {
-    setError('')
-    try {
-      const response = await fetch(apiUrl('/v1/operator/command'), {
-        method: 'POST',
-        headers: operatorHeaders,
-        body: JSON.stringify({ command, args: [], reason: 'operator ui' })
-      })
-
-      const body = await response.text()
-      setLog((current) => [`${command}: ${body}`, ...current].slice(0, 40))
-      if (!response.ok) {
-        setError(body)
-      }
-    } catch (err) {
-      setError(String(err))
+  const grid: string[][] = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '))
+  for (let x = 0; x < width; x += 1) {
+    const idx = Math.floor((x * (trimmed.length - 1)) / Math.max(1, width - 1))
+    const v = trimmed[idx] ?? 0
+    const t = (v - min) / (max - min)
+    const y = height - 1 - Math.round(t * (height - 1))
+    if (grid[y] && grid[y]![x]) {
+      grid[y]![x] = '*'
     }
   }
 
-  const modeVariant = snapshot.mode === 'HALT' || snapshot.mode === 'SAFE_MODE' ? 'danger' : snapshot.mode === 'IN_TRADE' ? 'warn' : 'ok'
-
-  return (
-    <div className='form'>
-      <div className='panelBadges'>
-        <Badge variant={modeVariant}>{`mode:${snapshot.mode}`}</Badge>
-        <Badge variant='ok'>{`roles:${roles.length > 0 ? roles.join(',') : 'none'}`}</Badge>
-      </div>
-
-      <label className='label'>
-        operator jwt
-        <input className='input' value={token} onChange={(event) => onTokenChange(event.target.value)} placeholder='paste operator token (JWT)' />
-      </label>
-
-      <div className='row'>
-        <label className='label'>
-          command
-          <select className='select' value={command} onChange={(event) => setCommand(event.target.value)}>
-            {COMMANDS.map((entry) => (
-              <option value={entry} key={entry}>
-                {entry}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className='label'>
-          execute
-          <div className='btnRow'>
-            <button className='btn' onClick={() => void submit()}>
-              SEND
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {error && <div className='dangerText'>{error}</div>}
-
-      <div className='monoBox'>
-        <div className='muted'>{`positions=${positions.length} orders=${orders.length}`}</div>
-        <pre style={{ margin: 0 }}>{JSON.stringify({ positions, orders }, null, 2)}</pre>
-      </div>
-
-      <div className='monoBox'>
-        <div className='muted'>operator log</div>
-        <pre style={{ margin: 0 }}>{log.join('\n')}</pre>
-      </div>
-    </div>
-  )
-}
-
-function ReplayPanel({ token }: { token: string }) {
-  const [from, setFrom] = useState<string>(() => new Date(Date.now() - 60 * 60 * 1000).toISOString().slice(0, 16))
-  const [to, setTo] = useState<string>(nowInputValue)
-  const [correlationId, setCorrelationId] = useState('')
-  const [resource, setResource] = useState('')
-  const [limit, setLimit] = useState(200)
-  const [events, setEvents] = useState<ReplayEvent[]>([])
-  const [summary, setSummary] = useState('')
-  const [error, setError] = useState('')
-
-  async function load() {
-    setError('')
-    const q = new URLSearchParams({
-      from: from ? new Date(from).toISOString() : nowInputValue(),
-      to: to ? new Date(to).toISOString() : nowInputValue(),
-      limit: String(limit)
-    })
-
-    if (correlationId) {
-      q.set('correlationId', correlationId)
-    }
-
-    if (resource) {
-      q.set('resource', resource)
-    }
-
-    const response = await fetch(`${apiUrl('/v1/operator/replay')}?${q.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-
-    if (!response.ok) {
-      setError(await response.text())
-      return
-    }
-
-    const raw = (await response.json()) as ReplayResponse
-    setEvents(Array.isArray(raw.events) ? raw.events : [])
-    setSummary(
-      `from ${raw.from} to ${raw.to} ${raw.resource ? `resource ${raw.resource}` : ''} ${raw.correlationId ? `correlation ${raw.correlationId}` : ''}`
-    )
+  const lines = grid.map((row) => row.join(''))
+  const top = `max ${max.toFixed(3)}%`
+  const bottom = `min ${min.toFixed(3)}%`
+  return {
+    chart: [`+${'-'.repeat(width)}+`, ...lines.map((line) => `|${line}|`), `+${'-'.repeat(width)}+`, `${top}  ${bottom}`].join(
+      '\n'
+    ),
+    min,
+    max
   }
-
-  const exportBundle = async () => {
-    setError('')
-    const q = new URLSearchParams({
-      from: from ? new Date(from).toISOString() : nowInputValue(),
-      to: to ? new Date(to).toISOString() : nowInputValue(),
-      limit: String(limit)
-    })
-
-    if (correlationId) {
-      q.set('correlationId', correlationId)
-    }
-
-    if (resource) {
-      q.set('resource', resource)
-    }
-
-    const response = await fetch(`${apiUrl('/v1/operator/replay/export')}?${q.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-
-    if (!response.ok) {
-      setError(await response.text())
-      return
-    }
-
-    const blob = await response.blob()
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    link.href = url
-    link.download = `replay-${stamp}.json`
-    link.click()
-    window.URL.revokeObjectURL(url)
-  }
-
-  return (
-    <div className='form'>
-      <div className='muted'>
-        This is admin-only. If you get 403, your operator JWT needs the admin role.
-      </div>
-
-      <div className='row'>
-        <label className='label'>
-          from (utc)
-          <input className='input' type='datetime-local' value={from} onChange={(event) => setFrom(event.target.value)} />
-        </label>
-        <label className='label'>
-          to (utc)
-          <input className='input' type='datetime-local' value={to} onChange={(event) => setTo(event.target.value)} />
-        </label>
-      </div>
-
-      <label className='label'>
-        correlation id (optional)
-        <input className='input' value={correlationId} onChange={(event) => setCorrelationId(event.target.value)} />
-      </label>
-
-      <label className='label'>
-        resource/stream (optional)
-        <input className='input' value={resource} onChange={(event) => setResource(event.target.value)} placeholder='hlp.audit.events' />
-      </label>
-
-      <label className='label'>
-        limit
-        <input className='input' type='number' min={1} max={5000} value={limit} onChange={(event) => setLimit(Number(event.target.value))} />
-      </label>
-
-      <div className='btnRow'>
-        <button className='btn secondary' onClick={() => void load()}>
-          LOAD
-        </button>
-        <button className='btn' onClick={() => void exportBundle()}>
-          EXPORT
-        </button>
-      </div>
-
-      {summary && <div className='muted'>{summary}</div>}
-      {error && <div className='dangerText'>{error}</div>}
-
-      <div className='monoBox'>
-        <div className='muted'>{`events=${events.length}`}</div>
-        <pre style={{ margin: 0 }}>
-          {events
-            .map((entry) => `${entry.ts} ${entry.action} ${entry.resource} ${entry.actorType}:${entry.actorId}`)
-            .join('\n')}
-        </pre>
-      </div>
-
-      <div className='monoBox'>
-        <div className='muted'>payloads</div>
-        <pre style={{ margin: 0 }}>{JSON.stringify(events, null, 2)}</pre>
-      </div>
-    </div>
-  )
-}
-
-function AboutPanel() {
-  return (
-    <div className='form'>
-      <div className='monoBox'>
-        <pre style={{ margin: 0 }}>
-{`WHAT IS THIS
-
-HL Privateer is a public-facing "trading floor" UI plus an operator-controlled runtime.
-The backend is built around Redis Streams events, deterministic risk gates, and an audit/replay trail.
-
-PUBLIC
-- UI: https://hlprivateer.xyz
-- API: ${apiUrl('/v1/public/floor-snapshot')}
-- WS:  ${wsUrl()}
-
-OPERATOR
-- Paste an operator JWT to use /halt /resume /flatten and inspect positions/orders.
-
-NOTE ON EXCHANGE CONNECTIVITY
-- Market data comes from Hyperliquid (live WS) when configured; otherwise a synthetic feed is used.
-- Execution is paper/sim by default. Live execution requires explicit operator approval.`}
-        </pre>
-      </div>
-      <div className='muted'>
-        Tip: operator routes require an operator JWT. Replay export is admin-only.
-      </div>
-    </div>
-  )
 }
 
 export default function DeckPage() {
@@ -470,22 +121,76 @@ export default function DeckPage() {
     driftState: 'IN_TOLERANCE',
     lastUpdateAt: new Date().toISOString()
   }))
-  const [events, setEvents] = useState<string[]>(['booting public floor'])
+  const [tape, setTape] = useState<TapeEntry[]>([
+    { ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'booting floor' }
+  ])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
-  const [operatorToken, setOperatorToken] = useState('')
+  const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
+  const [crewLast, setCrewLast] = useState<Record<CrewRole, TapeEntry | null>>(() => ({
+    scout: null,
+    research: null,
+    strategist: null,
+    execution: null,
+    risk: null,
+    scribe: null,
+    ops: null
+  }))
 
   const logo = useMemo(() => asciiLogo(), [])
+  const tapeRef = useRef<HTMLDivElement | null>(null)
+  const lastPnlSampleAtRef = useRef<number>(0)
+
+  const pnl = Number.isFinite(snapshot.pnlPct) ? snapshot.pnlPct : 0
+
+  const chart = useMemo(() => {
+    const values = pnlSeries.map((point) => point.pnlPct)
+    return renderAsciiChart(values, 64, 12).chart
+  }, [pnlSeries])
+
+  useEffect(() => {
+    // keep "top" newest line visible on small viewports
+    tapeRef.current?.scrollTo({ top: 0 })
+  }, [tape])
 
   useEffect(() => {
     let running = true
     let socket: WebSocket | undefined
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
+    const pushTape = (entry: TapeEntry) => {
+      setTape((current) => [entry, ...current].slice(0, 64))
+      if (entry.role && (CREW as string[]).includes(entry.role)) {
+        const role = entry.role as CrewRole
+        setCrewLast((current) => ({ ...current, [role]: entry }))
+      }
+    }
+
+    const samplePnl = (payload: { pnlPct?: unknown; lastUpdateAt?: unknown }) => {
+      const pnlPct = Number(payload.pnlPct)
+      if (!Number.isFinite(pnlPct)) {
+        return
+      }
+
+      const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
+      const now = Date.now()
+      if (now - lastPnlSampleAtRef.current < 8000) {
+        return
+      }
+      lastPnlSampleAtRef.current = now
+
+      setPnlSeries((current) => [...current, { ts, pnlPct }].slice(-240))
+    }
+
     const load = async () => {
-      const res = await fetch(apiUrl('/v1/public/floor-snapshot'))
-      if (res.ok) {
-        const snapshot = await res.json()
-        setSnapshot(snapshot as Snapshot)
+      try {
+        const res = await fetch(apiUrl('/v1/public/floor-snapshot'))
+        if (res.ok) {
+          const next = (await res.json()) as Snapshot
+          setSnapshot(next)
+          samplePnl(next)
+        }
+      } catch {
+        // ignore
       }
     }
 
@@ -497,11 +202,13 @@ export default function DeckPage() {
       try {
         setWsState('CONNECTING')
         socket = new WebSocket(wsUrl())
+
         socket.onopen = () => {
           socket?.send(JSON.stringify({ type: 'sub.add', channel: 'public' }))
           setWsState('OPEN')
-          setEvents((current) => ['ws connected', ...current].slice(0, 24))
+          pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'ws connected' })
         }
+
         socket.onmessage = (event) => {
           if (!running) {
             return
@@ -509,45 +216,55 @@ export default function DeckPage() {
 
           try {
             const parsed = JSON.parse(event.data as string) as { type: string; payload: any; channel?: string }
-            if (parsed.type === 'event' && parsed.channel === 'public') {
-              const payload = parsed.payload ?? {}
-              const payloadType = payload?.type
+            if (parsed.type !== 'event' || parsed.channel !== 'public') {
+              return
+            }
 
-              if (payloadType === 'STATE_UPDATE') {
-                setSnapshot(payload)
-                const message = typeof payload.message === 'string' ? payload.message : 'state update'
-                setEvents((current) => [`${new Date().toISOString()} ${message}`, ...current].slice(0, 24))
-              } else if (payloadType === 'FLOOR_TAPE') {
-                const ts = typeof payload.ts === 'string' ? payload.ts : new Date().toISOString()
-                const role = typeof payload.role === 'string' ? payload.role : ''
-                const line = typeof payload.line === 'string' ? payload.line : ''
-                const rendered = `${ts} ${role ? `[${role}] ` : ''}${line}`.trim()
-                if (rendered) {
-                  setEvents((current) => [rendered, ...current].slice(0, 24))
-                }
-              } else if (payloadType && payloadType !== 'heartbeat') {
-                setEvents((current) => [`${new Date().toISOString()} ${String(payloadType)}`, ...current].slice(0, 24))
+            const payload = parsed.payload ?? {}
+            const payloadType = payload?.type
+
+            if (payloadType === 'STATE_UPDATE') {
+              setSnapshot(payload as Snapshot)
+              samplePnl(payload)
+              const message = typeof payload.message === 'string' ? payload.message : ''
+              if (message) {
+                pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: message })
               }
+              return
+            }
+
+            if (payloadType === 'FLOOR_TAPE') {
+              const ts = typeof payload.ts === 'string' ? payload.ts : new Date().toISOString()
+              const role = typeof payload.role === 'string' ? payload.role : undefined
+              const level = payload.level === 'WARN' || payload.level === 'ERROR' ? payload.level : ('INFO' as const)
+              const line = typeof payload.line === 'string' ? payload.line : ''
+              if (!line) {
+                return
+              }
+
+              pushTape({ ts, role, level, line })
+              return
             }
           } catch (error) {
-            setEvents((current) => [`failed to parse event: ${String(error)}`, ...current].slice(0, 24))
+            pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: `ws parse error: ${String(error).slice(0, 120)}` })
           }
         }
+
         socket.onclose = () => {
           if (!running) {
             return
           }
-
           setWsState('CLOSED')
-          setEvents((current) => ['ws disconnected, reconnecting', ...current].slice(0, 24))
+          pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: 'ws disconnected, reconnecting' })
           reconnectTimer = setTimeout(connect, 1500)
         }
+
         socket.onerror = () => {
           socket?.close()
         }
       } catch (error) {
         setWsState('CLOSED')
-        setEvents((current) => [`ws connect failed: ${String(error)}`, ...current].slice(0, 24))
+        pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: `ws connect failed: ${String(error).slice(0, 120)}` })
         reconnectTimer = setTimeout(connect, 1500)
       }
     }
@@ -566,44 +283,116 @@ export default function DeckPage() {
     }
   }, [])
 
+  const crewNow = Date.now()
+
   return (
     <main className='deck'>
       <header className='hero'>
         <div className='heroTop'>
-          <pre className='logo'>{logo}</pre>
-          <div>
-            <div className='subline'>Public floor. Operator deck. Replay timeline.</div>
+          <pre className='logo' aria-label='HL Privateer logo'>
+            {logo}
+          </pre>
+          <div className='heroAside'>
+            <div className='subline'>Public-only floor. Strategy execution is autonomous and hard-gated.</div>
             <div className='subline'>{`api=${apiUrl('')} ws=${wsUrl()}`}</div>
           </div>
         </div>
       </header>
 
-      <div className='grid'>
-        <PublicPanel snapshot={snapshot} events={events} wsState={wsState} />
+      <section className='panel'>
+        <div className='panelHeader'>
+          <div className='panelTitle'>Bridge</div>
+          <div className='panelBadges'>
+            <Badge variant={badgeVariantForHealth(snapshot.healthCode)}>{`health:${snapshot.healthCode}`}</Badge>
+            <Badge variant={badgeVariantForDrift(snapshot.driftState)}>{`drift:${snapshot.driftState}`}</Badge>
+            <Badge variant={badgeVariantForWs(wsState)}>{`ws:${wsState}`}</Badge>
+          </div>
+        </div>
+        <div className='panelBody'>
+          <div className='bridgeGrid'>
+            <div className='kv'>
+              <div className='kvLabel'>mode</div>
+              <div className='kvValue'>{snapshot.mode}</div>
+              <div className='kvLabel'>pnl</div>
+              <div className='kvValue hlp-pnl'>{pnl.toFixed(3)}%</div>
+              <div className='kvLabel'>updated</div>
+              <div className='kvValue'>{snapshot.lastUpdateAt}</div>
+              <div className='kvLabel'>exchange</div>
+              <div className='kvValue'>hyperliquid</div>
+            </div>
 
+            <div className='monoBox'>
+              <div className='muted'>pnl chart (since page load)</div>
+              <pre className='chart'>{chart}</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className='grid3'>
         <section className='panel panelAlt'>
           <div className='panelHeader'>
-            <div className='panelTitle'>Control Deck</div>
+            <div className='panelTitle'>Crew</div>
             <div className='panelBadges'>
-              <Badge variant='ok'>one page</Badge>
+              <Badge variant='ok'>agentic</Badge>
             </div>
           </div>
           <div className='panelBody'>
-            <details className='details' open>
-              <summary className='detailsSummary'>Operator Hatch</summary>
-              <OperatorDeck token={operatorToken} onTokenChange={setOperatorToken} snapshot={snapshot} />
-            </details>
-            <details className='details'>
-              <summary className='detailsSummary'>Replay Timeline</summary>
-              <ReplayPanel token={operatorToken} />
-            </details>
-            <details className='details'>
-              <summary className='detailsSummary'>About</summary>
-              <AboutPanel />
-            </details>
+            <div className='crew'>
+              {CREW.map((role) => {
+                const last = crewLast[role]
+                const lastMs = last?.ts ? Date.parse(last.ts) : 0
+                const active = lastMs > 0 && crewNow - lastMs < 90_000
+                const variant = active ? 'ok' : 'warn'
+                const line = last?.line ? last.line : '...'
+                const level = last?.level ?? 'INFO'
+                return (
+                  <div className='crewRow' key={role}>
+                    <div className='crewLeft'>
+                      <Badge variant={variant}>{crewLabel(role)}</Badge>
+                      <span className={`crewLevel ${String(level).toLowerCase()}`}>{level}</span>
+                    </div>
+                    <div className='crewRight'>
+                      <div className='crewLine'>{line}</div>
+                      <div className='crewMeta'>{last?.ts ?? ''}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className='panel'>
+          <div className='panelHeader'>
+            <div className='panelTitle'>Tape</div>
+            <div className='panelBadges'>
+              <Badge variant='ok'>live</Badge>
+            </div>
+          </div>
+          <div className='panelBody'>
+            <div className='tape' ref={tapeRef} aria-label='event tape'>
+              {tape.map((entry, index) => {
+                const role = entry.role ? `[${entry.role}] ` : ''
+                const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
+                const rendered = `${entry.ts} ${role}${entry.line}`.trim()
+                return (
+                  <span className={`tapeLine ${index === 0 ? 'hot' : ''} ${levelClass}`} key={`${index}-${rendered.slice(0, 32)}`}>
+                    {rendered}
+                  </span>
+                )
+              })}
+            </div>
           </div>
         </section>
       </div>
+
+      <footer className='footer'>
+        <div className='muted'>
+          External agents can purchase paid routes via x402: <span className='mono'>{apiUrl('/v1/agent/analysis/latest')}</span>
+        </div>
+      </footer>
     </main>
   )
 }
+
