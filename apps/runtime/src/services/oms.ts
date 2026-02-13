@@ -35,6 +35,9 @@ export interface ExecutionAdapter {
   modify(orderId: string, notionalUsd: number): Promise<PlacedOrder>
   reconcile(): Promise<Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }>>
   snapshot(): Promise<{ orders: PlacedOrder[]; positions: OperatorPosition[]; realizedPnlUsd: number }>
+  // Live-only helpers used by runtime funding gates.
+  getAccountValueUsd?: () => Promise<number>
+  getWalletAddress?: () => string
 }
 
 interface InternalOrder extends PlacedOrder {
@@ -583,7 +586,16 @@ export function createLiveAdapter(env: RuntimeEnv): ExecutionAdapter {
     }
   }
 
-  return { place, cancel, modify, reconcile, snapshot }
+  const getWalletAddress = () => wallet.address
+
+  const getAccountValueUsd = async (): Promise<number> => {
+    const clearinghouse = await info.clearinghouseState({ user: wallet.address })
+    const raw = clearinghouse.marginSummary?.accountValue ?? clearinghouse.crossMarginSummary?.accountValue ?? '0'
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  return { place, cancel, modify, reconcile, snapshot, getAccountValueUsd, getWalletAddress }
 }
 
 export function mapToOperatorOrder(order: PlacedOrder): OperatorOrder {

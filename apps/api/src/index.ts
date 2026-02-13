@@ -508,15 +508,15 @@ app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async () => {
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
   const operatorLoginSecret = env.OPERATOR_LOGIN_SECRET?.trim()
   if (!operatorLoginSecret && env.NODE_ENV === 'production') {
-    reply.code(404).send({ error: 'DISABLED', message: 'operator login disabled in production' })
-    return
+    reply.code(404)
+    return { error: 'DISABLED', message: 'operator login disabled in production' }
   }
 
   if (operatorLoginSecret) {
     const providedSecret = String(request.headers['x-operator-login-secret'] ?? '')
     if (!providedSecret || !secretsEqual(providedSecret, operatorLoginSecret)) {
-      reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing or invalid operator login secret' })
-      return
+      reply.code(401)
+      return { error: 'UNAUTHORIZED', message: 'missing or invalid operator login secret' }
     }
   }
 
@@ -526,7 +526,7 @@ app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply
   const mfa = env.NODE_ENV === 'production' ? true : Boolean(body.mfa ?? true)
   const roles = [OPERATOR_VIEW_ROLE, ...(adminUsers.has(user) ? [OPERATOR_ADMIN_ROLE] : [])]
   const token = await app.jwt.sign({ sub: user, roles, mfa })
-  reply.send({ token })
+  return { token }
 })
 
 app.post('/v1/operator/refresh', { ...routeRateLimit(30, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
@@ -624,6 +624,8 @@ app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [a
   const command = parsed.command
   const policy = commandPolicy(command.command)
   const claims = resolveOperatorClaims(request)
+  const actorRole =
+    claims.roles.includes(OPERATOR_ADMIN_ROLE) ? OPERATOR_ADMIN_ROLE : (claims.roles[0] ?? OPERATOR_VIEW_ROLE)
 
   if (policy.requiredRoles.includes(OPERATOR_ADMIN_ROLE) && env.OPERATOR_MFA_REQUIRED && !claims.mfa) {
     reply.code(403).send({ error: 'MFA_REQUIRED', message: 'mfa required for this command' })
@@ -654,9 +656,9 @@ app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [a
     command: command.command,
     actorType: 'human',
     actorId: claims.sub,
-    reason: sanitizedReason,
-    args: sanitizedArgs
-  })
+      reason: sanitizedReason,
+      args: sanitizedArgs
+    })
   await bus.publish('hlp.commands', {
     type: 'operator.command',
     stream: 'hlp.commands',
@@ -671,10 +673,10 @@ app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [a
       actor: {
         actorType: 'human',
         actorId: claims.sub,
-        role: claims.roles[0],
+        role: actorRole,
         requestedAt: new Date().toISOString()
       },
-      actorRole: claims.roles[0],
+      actorRole,
       capabilities: ['command.execute']
     }
   })

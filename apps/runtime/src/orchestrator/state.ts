@@ -168,6 +168,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let timer: ReturnType<typeof setInterval> | undefined
   let loopRunning = false
   let lastUrgentCycleAt = 0
+  let lastLiveAccountValueCheckAtMs = 0
+  let cachedLiveAccountValueUsd = 0
+  let cachedLiveWalletAddress = ''
 
   const riskConfig: RiskConfig = {
     maxLeverage: env.RISK_MAX_LEVERAGE,
@@ -412,6 +415,44 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         runtimeProposalCounter.inc({ status: 'skipped_halt' })
         await publishStateUpdate(cycleCorrelationId, urgency ? 'halted (urgent)' : 'halted')
         return
+      }
+
+      // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
+      // to support the configured target notional under the leverage cap.
+      if (env.ENABLE_LIVE_OMS && state.positions.length === 0) {
+        const minAccountValueUsd = Math.max(
+          1,
+          (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE)
+        )
+        const nowMs = Date.now()
+
+        if (nowMs - lastLiveAccountValueCheckAtMs > 15_000) {
+          lastLiveAccountValueCheckAtMs = nowMs
+          try {
+            const getWallet = (adapter as ExecutionAdapter).getWalletAddress
+            if (!cachedLiveWalletAddress && typeof getWallet === 'function') {
+              cachedLiveWalletAddress = String(getWallet())
+            }
+
+            const getAccountValueUsd = (adapter as ExecutionAdapter).getAccountValueUsd
+            if (typeof getAccountValueUsd === 'function') {
+              cachedLiveAccountValueUsd = await getAccountValueUsd()
+            }
+          } catch {
+            // Fail-closed for opening new exposure: if we cannot confirm funding, keep waiting.
+            cachedLiveAccountValueUsd = 0
+          }
+        }
+
+        if (cachedLiveAccountValueUsd < minAccountValueUsd) {
+          runtimeProposalCounter.inc({ status: 'awaiting_funding' })
+          const walletHint = cachedLiveWalletAddress ? `${cachedLiveWalletAddress.slice(0, 10)}...` : 'unknown'
+          await publishStateUpdate(
+            cycleCorrelationId,
+            `awaiting Hyperliquid funding (accountValueUsd=${cachedLiveAccountValueUsd.toFixed(2)} < min=${minAccountValueUsd.toFixed(2)} wallet=${walletHint})`
+          )
+          return
+        }
       }
 
       const recentSignals = pluginManager.getSignals()
