@@ -14,7 +14,7 @@
     "test": "bash scripts/workspace.sh test",
     "typecheck": "bash scripts/workspace.sh typecheck",
     "format": "echo 'format not wired; run package-specific formatters as needed'",
-    "deploy:web:firebase": "cd apps/web && bun run build:firebase && bunx firebase-tools deploy --only hosting",
+    "deploy:web:firebase": "cd apps/web && NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://api.hlprivateer.xyz} NEXT_PUBLIC_WS_BASE_URL=${NEXT_PUBLIC_WS_BASE_URL:-wss://ws.hlprivateer.xyz} bun run build:firebase && bunx firebase-tools deploy --only hosting",
     "secrets:decrypt": "bash scripts/secrets/decrypt.sh",
     "secrets:rotate": "bash scripts/secrets/rotate.sh",
     "secrets:rotate:print": "bash scripts/secrets/rotate.sh --print"
