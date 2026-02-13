@@ -5,6 +5,8 @@ import { parseStrategyProposal } from '@hl/privateer-contracts'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
 import { env } from './config'
 import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliquid'
+import { computePriceFeaturePack, type PriceFeature } from './price-features'
+import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMarketSnapshot } from './coingecko'
 import { runClaudeStructured, runCodexStructured } from './llm'
 
 type Tick = {
@@ -30,6 +32,26 @@ type FloorRole =
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const limit = Math.max(1, Math.min(items.length, concurrency))
+  const results: R[] = new Array(items.length)
+  let index = 0
+
+  const workers = new Array(limit).fill(0).map(async () => {
+    while (true) {
+      const current = index
+      index += 1
+      if (current >= items.length) {
+        break
+      }
+      results[current] = await fn(items[current] as T)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
 }
 
 function sanitizeLine(value: string, maxLength: number): string {
@@ -120,6 +142,15 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
 
 const BASE_LONG_SYMBOL = 'HYPE'
 
+const coinGeckoApiKey = env.COINGECKO_API_KEY?.trim()
+const coinGecko = coinGeckoApiKey
+  ? createCoinGeckoClient({
+    apiKey: coinGeckoApiKey,
+    baseUrl: env.COINGECKO_BASE_URL,
+    timeoutMs: env.COINGECKO_TIMEOUT_MS
+  })
+  : null
+
 type BasketCandidate = {
   symbol: string
   maxLeverage: number
@@ -135,6 +166,18 @@ type BasketSelection = {
   basketSymbols: string[]
   rationale: string
   selectedAt: string
+  context?: {
+    featureWindowMin: number
+    priceBase: PriceFeature | null
+    priceBySymbol: Record<string, PriceFeature>
+    coingecko?: {
+      marketsBySymbol: Record<string, CoinGeckoMarketSnapshot>
+      coinCategoriesBySymbol: Record<string, string[]>
+      sectorTopLosers: Array<{ name: string; marketCapChange24hPct: number | null }>
+      sectorTopGainers: Array<{ name: string; marketCapChange24hPct: number | null }>
+      coveragePct: number
+    }
+  }
 }
 
 function defaultBasketFromEnv(): string[] {
@@ -229,6 +272,9 @@ async function generateBasketSelection(params: {
     '- Do NOT include HYPE.',
     '- Prefer high liquidity (day notional volume, open interest).',
     '- Prefer shorts with positive funding (we earn it), all else equal.',
+    '- Prefer shorts that have underperformed HYPE over the feature window (hist.relRetWindowPct < 0).',
+    '- Prefer candidates that stay correlated to HYPE (hist.corrToBase high) to keep the hedge stable.',
+    '- Use CoinGecko spot metrics when available (cg.change24hPct/cg.change7dPct, cg.marketCapUsd, cg.volume24hUsd).',
     '- Keep it diversified; avoid selecting extremely illiquid long-tail.',
     'Return only JSON that matches the provided schema.',
     '',
@@ -310,6 +356,82 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
     })
     const fallback = deterministicBasketFallback(candidates, env.AGENT_BASKET_SIZE)
 
+    const candidateSymbols = candidates.map((candidate) => candidate.symbol)
+    const pricePack = await computePriceFeaturePack({
+      infoUrl: env.HL_INFO_URL,
+      baseSymbol: BASE_LONG_SYMBOL,
+      symbols: candidateSymbols,
+      windowMin: env.AGENT_FEATURE_WINDOW_MIN,
+      interval: '1m',
+      timeoutMs: 1500,
+      concurrency: env.AGENT_FEATURE_CONCURRENCY
+    })
+
+    let cgMarketsBySymbol: Record<string, CoinGeckoMarketSnapshot> = {}
+    let cgIdsBySymbol: Record<string, string> = {}
+    let cgSectorTopLosers: Array<{ name: string; marketCapChange24hPct: number | null }> = []
+    let cgSectorTopGainers: Array<{ name: string; marketCapChange24hPct: number | null }> = []
+    let cgCoveragePct = 0
+
+    if (coinGecko) {
+      try {
+        const concurrency = Math.min(env.AGENT_FEATURE_CONCURRENCY, 4)
+        const resolved = await mapWithConcurrency(candidateSymbols, concurrency, async (symbol) => {
+          const id = await coinGecko.getCoinIdForSymbol(symbol)
+          return { symbol, id }
+        })
+
+        for (const entry of resolved) {
+          if (entry?.id) {
+            cgIdsBySymbol[entry.symbol] = entry.id
+          }
+        }
+
+        const ids = [...new Set(Object.values(cgIdsBySymbol))]
+        const markets = await coinGecko.fetchMarkets(ids)
+        const marketById = new Map<string, CoinGeckoMarketSnapshot>()
+        for (const market of markets) {
+          marketById.set(market.id, market)
+        }
+
+        for (const [symbol, id] of Object.entries(cgIdsBySymbol)) {
+          const market = marketById.get(id)
+          if (market) {
+            cgMarketsBySymbol[symbol] = market
+          }
+        }
+
+        cgCoveragePct = candidateSymbols.length > 0 ? (Object.keys(cgMarketsBySymbol).length / candidateSymbols.length) * 100 : 0
+
+        try {
+          const categories = await coinGecko.fetchCategories()
+          const withChange = categories.filter(
+            (category) => typeof category.marketCapChange24hPct === 'number' && Number.isFinite(category.marketCapChange24hPct)
+          )
+          withChange.sort((a, b) => (a.marketCapChange24hPct ?? 0) - (b.marketCapChange24hPct ?? 0))
+          cgSectorTopLosers = withChange
+            .slice(0, 5)
+            .map((category) => ({ name: category.name, marketCapChange24hPct: category.marketCapChange24hPct }))
+          cgSectorTopGainers = withChange
+            .slice(Math.max(0, withChange.length - 5))
+            .reverse()
+            .map((category) => ({ name: category.name, marketCapChange24hPct: category.marketCapChange24hPct }))
+        } catch {
+          // optional
+        }
+      } catch {
+        cgMarketsBySymbol = {}
+        cgIdsBySymbol = {}
+        cgCoveragePct = 0
+      }
+    }
+
+    const candidatesForLlm = candidates.map((candidate) => ({
+      ...candidate,
+      hist: pricePack.bySymbol[candidate.symbol] ?? null,
+      cg: cgMarketsBySymbol[candidate.symbol] ?? null
+    }))
+
     const input = {
       ts: new Date().toISOString(),
       mode: lastMode,
@@ -320,7 +442,17 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
         // Pre-filter candidates by daily notional volume as a rough proxy for tradability at size.
         minDayNtlVlmUsd: Number((Math.max(0, perLegShortNotionalUsd) * 100).toFixed(2))
       },
-      candidates,
+      featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
+      priceBase: pricePack.base,
+      coingecko: coinGecko
+        ? {
+          enabled: true,
+          coveragePct: Number(cgCoveragePct.toFixed(1)),
+          sectorTopLosers: cgSectorTopLosers,
+          sectorTopGainers: cgSectorTopGainers
+        }
+        : { enabled: false },
+      candidates: candidatesForLlm,
       signals: {
         // Provide the latest global signals as hints (these are primarily about HYPE, but still useful context).
         volatility: [...params.signals].reverse().find((s) => s.signalType === 'volatility')?.value ?? null,
@@ -355,10 +487,59 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
 
     const validated = validateBasketSelection({ requested: chosen.basketSymbols, allowed: candidates, size: env.AGENT_BASKET_SIZE })
     const finalBasket = validated.length === env.AGENT_BASKET_SIZE ? validated : fallback
+
+    const priceBySymbol: Record<string, PriceFeature> = {}
+    for (const symbol of finalBasket) {
+      const feature = pricePack.bySymbol[symbol]
+      if (feature) {
+        priceBySymbol[symbol] = feature
+      }
+    }
+
+    const cgMarketsSelected: Record<string, CoinGeckoMarketSnapshot> = {}
+    for (const symbol of finalBasket) {
+      const market = cgMarketsBySymbol[symbol]
+      if (market) {
+        cgMarketsSelected[symbol] = market
+      }
+    }
+
+    const cgCoinCategoriesBySymbol: Record<string, string[]> = {}
+    if (coinGecko) {
+      const tasks = finalBasket
+        .map((symbol) => ({ symbol, id: cgIdsBySymbol[symbol] }))
+        .filter((task): task is { symbol: string; id: string } => Boolean(task.id))
+
+      const rows = await mapWithConcurrency(tasks, Math.min(tasks.length, 3), async (task) => ({
+        symbol: task.symbol,
+        categories: await coinGecko.fetchCoinCategories(task.id)
+      }))
+
+      for (const row of rows) {
+        if (row.categories.length > 0) {
+          cgCoinCategoriesBySymbol[row.symbol] = row.categories
+        }
+      }
+    }
+
     activeBasket = {
       basketSymbols: finalBasket,
       rationale: chosen.rationale || 'selected',
-      selectedAt: new Date().toISOString()
+      selectedAt: new Date().toISOString(),
+      context: {
+        featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
+        priceBase: pricePack.base,
+        priceBySymbol,
+        coingecko: coinGecko
+          ? {
+            marketsBySymbol: cgMarketsSelected,
+            coinCategoriesBySymbol: cgCoinCategoriesBySymbol,
+            sectorTopLosers: cgSectorTopLosers,
+            sectorTopGainers: cgSectorTopGainers,
+            coveragePct: Number(cgCoveragePct.toFixed(1))
+          }
+          : undefined
+      }
     }
 
     void maybePublishWatchlist({ symbols: [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols], reason: 'basket selected' }).catch(() => undefined)
@@ -381,7 +562,8 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
         basketSymbols: activeBasket.basketSymbols,
         rationale: activeBasket.rationale,
         targetNotionalUsd: params.targetNotionalUsd,
-        candidateCount: candidates.length
+        candidateCount: candidates.length,
+        context: activeBasket.context
       }
     })
   } catch (error) {
@@ -1130,6 +1312,7 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { signals:
     mode: lastMode,
     targetNotionalUsd: context.targetNotionalUsd,
     basketSymbols: activeBasket.basketSymbols.join(','),
+    basketContext: activeBasket.context ?? null,
     signals: context.signals,
     ticks: tickSnapshot,
     positions: lastPositions,

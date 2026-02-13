@@ -49,16 +49,26 @@ function parseFiniteNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
-  })
-  if (!response.ok) {
-    throw new Error(`hyperliquid info http ${response.status}`)
+async function postJson<T>(url: string, body: unknown, timeoutMs?: number): Promise<T> {
+  const controller = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0 ? new AbortController() : null
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller?.signal
+    })
+    if (!response.ok) {
+      throw new Error(`hyperliquid info http ${response.status}`)
+    }
+    return (await response.json()) as T
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout)
+    }
   }
-  return (await response.json()) as T
 }
 
 export async function fetchMetaAndAssetCtxs(infoUrl: string): Promise<HyperliquidUniverseAsset[]> {
@@ -100,3 +110,40 @@ export async function fetchMetaAndAssetCtxs(infoUrl: string): Promise<Hyperliqui
   return out
 }
 
+export interface HyperliquidCandle {
+  // Start time (ms)
+  t: number
+  // End time (ms)
+  T: number
+  // Symbol
+  s: string
+  // Interval string (e.g. "1m")
+  i: string
+  // Open / close / high / low
+  o: string
+  c: string
+  h: string
+  l: string
+  // Volume + trade count
+  v: string
+  n: number
+}
+
+export async function fetchCandleSnapshot(params: {
+  infoUrl: string
+  coin: string
+  interval: string
+  startTime: number
+  endTime: number
+  timeoutMs?: number
+}): Promise<HyperliquidCandle[]> {
+  return await postJson<HyperliquidCandle[]>(params.infoUrl, {
+    type: 'candleSnapshot',
+    req: {
+      coin: params.coin,
+      interval: params.interval,
+      startTime: params.startTime,
+      endTime: params.endTime
+    }
+  }, params.timeoutMs)
+}
