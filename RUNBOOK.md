@@ -1,7 +1,8 @@
 # RUNBOOK.md
 
 ## 1. Deploy (home server)
-1. Provision Linux host with Docker optional, systemd required, Node.js 22, Postgres, Redis, cloudflared.
+1. Provision Linux host with Docker optional, systemd required, Node.js 22, Redis, cloudflared.
+   - Postgres is optional for `DRY_RUN=true` (runtime can run without persistence), but required for durable audit/replay storage.
 2. Clone repo to `/opt/hlprivateer.xyz`.
 3. Create env file:
    - `cp config/.env.example config/.env`
