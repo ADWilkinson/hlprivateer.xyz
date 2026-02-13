@@ -377,7 +377,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
 
       const dependencyHealth = await bus.health()
-      const databaseHealth = await store.health()
+      // In DRY_RUN mode we allow running without Postgres persistence to reduce operational complexity.
+      // In live mode, persistence health remains a hard dependency (fail-closed).
+      const databaseHealth = env.DRY_RUN ? true : await store.health()
       const dependenciesHealthy = dependencyHealth.ok && databaseHealth
       const risk = evaluateRisk(riskConfig, {
         state: state.mode,
