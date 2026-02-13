@@ -1,58 +1,82 @@
 # x402 Seller Quickstart Notes
 
-This repo now keeps two x402 paths:
+This repo currently has:
 
-1. `apps/api/src/index.ts` + `apps/api/src/x402.ts`:
-   - local/dev entitlement flow (deterministic proof checks, quota, abuse controls, audit + payment attempt writes)
-2. Canonical production pattern (from x402 seller quickstart):
-   - route-level x402 middleware backed by a facilitator + exact scheme
+1. A **local/dev payment-gate** used by the agent SDK:
+   - `apps/api/src/index.ts` + `apps/api/src/x402.ts`
+   - deterministic proof checks, quota, abuse controls, audit + payment-attempt writes
+2. The **canonical x402 v2 seller flow** (middleware + facilitator) as documented by x402.
 
-## Production seller shape (canonical)
+If you need actual x402 v2 interoperability (buyers retry with `PAYMENT-SIGNATURE`, sellers return `PAYMENT-REQUIRED` + `PAYMENT-RESPONSE`), follow the canonical flow below.
 
-Use these packages in the API gateway layer:
+## Canonical x402 v2 seller shape (Express example)
 
-- `@x402/core`
-- `@x402/express` (or another x402 server adapter)
-- `@x402/evm`
+Install:
 
-Core wiring pattern:
+```bash
+npm install @x402/express @x402/core @x402/evm
+```
+
+Wire middleware (testnet facilitator + Base Sepolia network ID):
 
 ```ts
-import { paymentMiddleware, x402ResourceServer } from '@x402/express'
-import { ExactEvmScheme } from '@x402/evm/exact/server'
-import { HTTPFacilitatorClient } from '@x402/core/server'
+import express from 'express'
+import { paymentMiddleware } from '@x402/express'
+import { x402ResourceServer, HTTPFacilitatorClient } from '@x402/core/server'
+import { registerExactEvmScheme } from '@x402/evm/exact/server'
 
-const facilitator = new HTTPFacilitatorClient({ url: process.env.FACILITATOR_URL! })
-const server = new x402ResourceServer(facilitator).register('eip155:8453', new ExactEvmScheme())
+const app = express()
+
+// Your receiving wallet address.
+const payTo = process.env.X402_MERCHANT_ADDRESS!
+
+// Facilitator (testnet). For mainnet, follow x402 docs "Running on Mainnet".
+const facilitatorClient = new HTTPFacilitatorClient({ url: 'https://x402.org/facilitator' })
+
+const server = new x402ResourceServer(facilitatorClient)
+registerExactEvmScheme(server)
 
 app.use(
   paymentMiddleware(
     {
-      'GET /v1/agent/stream/snapshot': {
-        accepts: [{ scheme: 'exact', network: 'eip155:8453', price: '$0.001', payTo: process.env.X402_MERCHANT_ADDRESS! }],
-        description: 'Agent market stream',
+      'GET /weather': {
+        accepts: [
+          {
+            scheme: 'exact',
+            price: '$0.001', // USDC amount in dollars
+            network: 'eip155:84532', // Base Sepolia (CAIP-2 format)
+            payTo
+          }
+        ],
+        description: 'Get current weather data for any location',
         mimeType: 'application/json'
       }
     },
     server
   )
 )
+
+app.get('/weather', (_req, res) => {
+  res.send({ report: { weather: 'sunny', temperature: 70 } })
+})
+
+app.listen(4021, () => {
+  console.log('Server listening at http://localhost:4021')
+})
 ```
 
-## Header and flow checks
+## Header and flow checks (x402 v2)
 
-- Request payment header should be `x-payment` (v2) or `payment-signature`.
-- Unpaid routes should return HTTP `402` with payment requirements payload.
-- Successful settlement should return settlement response headers (middleware adds these).
+- Unpaid request:
+  - server responds `402 Payment Required`
+  - includes payment instructions in the `PAYMENT-REQUIRED` header
+- Paid retry:
+  - client retries with `PAYMENT-SIGNATURE` header containing a Base64-encoded JSON payment payload
+- Successful response:
+  - server returns the normal 200 payload
+  - includes `PAYMENT-RESPONSE` header containing a Base64-encoded JSON settlement response
 
-## What was fixed in repo code
+## Notes For This Repo
 
-- Proof validation now checks `challengeId`, `nonce`, `tier`, `paidAt`, and positive paid amount.
-- Signature validation now accepts deterministic digest signatures used by local agent SDK.
-- Operator and agent security/audit flow now records handshake success/failure with capability negotiation.
-
-## Remaining production hardening
-
-- Move protected agent routes to canonical x402 middleware in production mode.
-- Keep entitlement/quota middleware after payment middleware for tiered access control.
-- Pin facilitator URL + chain network in env and run integration tests against that facilitator.
+- The current `apps/api` flow is **not** a full facilitator-backed x402 settlement implementation; it is a local deterministic verifier intended for internal agent SDK testing.
+- If/when we switch to canonical x402 for paid agent routes, the local entitlement/quota checks can remain as a second stage after payment verification.
