@@ -14,41 +14,32 @@ const marketDataAgeMs = new promClient.Gauge({
 const BASE_RECONNECT_MS = 250
 const MAX_RECONNECT_MS = 30_000
 
-interface RawExchangeTick {
-  symbol?: string
-  symbolName?: string
-  px?: number | string
-  bid?: number | string
-  ask?: number | string
-  bidPx?: number | string
-  askPx?: number | string
-  bestBid?: number | string
-  bestAsk?: number | string
-  bidSize?: number | string
-  askSize?: number | string
-  volume?: number | string
-  v?: number | string
-  volume24hUsd?: number | string
-  mark?: number | string
-  updatedAt?: string
-  time?: number | string
-  ts?: number | string
-  timestamp?: string
+type HyperliquidSubscription =
+  | { type: 'allMids'; dex?: string }
+  | { type: 'bbo'; coin: string }
+
+interface HyperliquidLevel {
+  px: string
+  sz: string
+  n: number
 }
 
-interface RawExchangePayload {
-  channel?: string
-  data?: RawExchangeTick | RawExchangeTick[]
-  symbol?: string
-  dataType?: string
-  dataType2?: string
-  price?: string
-  mark?: string
-  event?: string
-  type?: string
-  updatedAt?: string
-  timestamp?: string
+interface HyperliquidBbo {
+  coin: string
+  time: number
+  bbo: [HyperliquidLevel | null, HyperliquidLevel | null]
 }
+
+interface HyperliquidAllMids {
+  mids: Record<string, string>
+}
+
+type HyperliquidWsEnvelope =
+  | { channel: 'subscriptionResponse'; data: { method: string; subscription: HyperliquidSubscription } }
+  | { channel: 'bbo'; data: HyperliquidBbo }
+  | { channel: 'allMids'; data: HyperliquidAllMids }
+  | { channel: 'error'; data: unknown }
+  | { channel: string; data: unknown }
 
 export interface MarketDataAdapter {
   start(): Promise<void>
@@ -128,6 +119,8 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
   private reconnectAttempts = 0
   private ticks = new Map<string, NormalizedTick>()
   private stopped = false
+  private mids = new Map<string, number>()
+  private lastPublishAtMs = new Map<string, number>()
 
   constructor(
     private symbols: string[],
@@ -166,14 +159,20 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
 
     ws.on('open', () => {
       this.reconnectAttempts = 0
-      const subscribe = {
-        type: 'subscribe',
-        data: {
-          channels: ['ticker'],
-          symbols: this.symbols
-        }
+      // Hyperliquid WS expects:
+      // { "method": "subscribe", "subscription": { "type": "...", ... } }
+      //
+      // For a simple tick stream with bid/ask we subscribe to `bbo` per coin.
+      // We also subscribe to `allMids` so we can fill `px` if one side is missing.
+      ws.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'allMids' } satisfies HyperliquidSubscription }))
+      for (const symbol of this.symbols) {
+        ws.send(
+          JSON.stringify({
+            method: 'subscribe',
+            subscription: { type: 'bbo', coin: symbol } satisfies HyperliquidSubscription
+          })
+        )
       }
-      ws.send(JSON.stringify(subscribe))
     })
 
     ws.on('message', (message: any) => {
@@ -182,36 +181,45 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
         return
       }
 
-      let envelope: RawExchangePayload
+      let envelope: unknown
       try {
         envelope = JSON.parse(raw)
       } catch {
         return
       }
 
-      const tick = this.normalizeTick(envelope)
+      const channel = typeof (envelope as any)?.channel === 'string' ? String((envelope as any).channel) : ''
+      if (channel === 'error') {
+        void console.error('hyperliquid ws error', (envelope as any)?.data)
+        return
+      }
+
+      if (channel === 'allMids') {
+        const mids = (envelope as any)?.data?.mids as unknown
+        if (!mids || typeof mids !== 'object' || Array.isArray(mids)) {
+          return
+        }
+
+        for (const [coin, midRaw] of Object.entries(mids as Record<string, unknown>)) {
+          const mid = parseNumber(midRaw)
+          if (typeof mid === 'number') {
+            this.mids.set(coin, mid)
+          }
+        }
+        return
+      }
+
+      if (channel !== 'bbo') {
+        return
+      }
+
+      const tick = this.normalizeBbo(((envelope as any)?.data ?? {}) as HyperliquidBbo)
       if (!tick || !this.symbols.includes(tick.symbol)) {
         return
       }
 
       this.ticks.set(tick.symbol, tick)
-      void this.eventBus.publish('hlp.market.normalized', {
-        type: 'MARKET_TICK',
-        stream: 'hlp.market.normalized',
-        source: 'runtime.market',
-        correlationId: ulid(),
-        actorType: 'system',
-        actorId: 'market-adapter',
-        payload: {
-          symbol: tick.symbol,
-          px: tick.px,
-          bid: tick.bid,
-          ask: tick.ask,
-          bidSize: tick.bidSize,
-          askSize: tick.askSize,
-          updatedAt: tick.updatedAt
-        }
-      })
+      void this.publishTickThrottled(tick)
     })
 
     ws.on('close', () => {
@@ -225,48 +233,72 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
     })
   }
 
-  private normalizeTick(message: RawExchangePayload): NormalizedTick | null {
-    const envelopeData = Array.isArray(message.data) ? message.data[0] : message.data
-    if (!envelopeData) {
+  private normalizeBbo(message: HyperliquidBbo): NormalizedTick | null {
+    const coin = typeof message?.coin === 'string' ? message.coin : ''
+    if (!coin) {
       return null
     }
 
-    const symbol = envelopeData.symbol ?? envelopeData.symbolName ?? message.symbol
-    if (!symbol) {
-      return null
-    }
+    const bidLevel = message.bbo?.[0] ?? null
+    const askLevel = message.bbo?.[1] ?? null
+    const bid = bidLevel ? parseNumber(bidLevel.px) : undefined
+    const ask = askLevel ? parseNumber(askLevel.px) : undefined
+    const bidSize = bidLevel ? parseNumber(bidLevel.sz) : undefined
+    const askSize = askLevel ? parseNumber(askLevel.sz) : undefined
 
-    const px = firstFinite(
-      parseNumber(envelopeData.px),
-      parseNumber(message.price),
-      parseNumber(envelopeData.mark)
-    )
-    const bid = firstFinite(parseNumber(envelopeData.bidPx), parseNumber(envelopeData.bid), parseNumber(envelopeData.bestBid))
-    const ask = firstFinite(parseNumber(envelopeData.askPx), parseNumber(envelopeData.ask), parseNumber(envelopeData.bestAsk))
-    if (!px || !bid || !ask) {
+    const mid = this.mids.get(coin)
+    const px =
+      typeof bid === 'number' && typeof ask === 'number'
+        ? (bid + ask) / 2
+        : typeof mid === 'number'
+          ? mid
+          : firstFinite(bid, ask)
+
+    if (typeof px !== 'number') {
       return null
     }
 
     const normalized = NormalizedTickSchema.safeParse({
-      symbol,
+      symbol: coin,
       px,
-      bid,
-      ask,
-      bidSize: firstFinite(parseNumber(envelopeData.bidSize), parseNumber(envelopeData.v)) ?? 0,
-      askSize: firstFinite(parseNumber(envelopeData.askSize), parseNumber(envelopeData.v)) ?? 0,
-      volume24hUsd: firstFinite(parseNumber(envelopeData.volume), parseNumber(envelopeData.volume24hUsd)),
-      updatedAt:
-        firstString(
-          envelopeData.updatedAt,
-          envelopeData.timestamp,
-          envelopeData.time ? String(envelopeData.time) : undefined,
-          message.updatedAt,
-          message.timestamp
-        ) || new Date().toISOString(),
+      bid: typeof bid === 'number' ? bid : px,
+      ask: typeof ask === 'number' ? ask : px,
+      bidSize: typeof bidSize === 'number' ? bidSize : 0,
+      askSize: typeof askSize === 'number' ? askSize : 0,
+      updatedAt: isoFromMillis(message.time) ?? new Date().toISOString(),
       source: 'ws'
     })
 
     return normalized.success ? normalized.data : null
+  }
+
+  private async publishTickThrottled(tick: NormalizedTick): Promise<void> {
+    // `bbo` can update multiple times per second. Persisting every tick into Redis Streams is
+    // unnecessary and causes unbounded stream growth. Throttle to a stable per-symbol cadence.
+    const now = Date.now()
+    const last = this.lastPublishAtMs.get(tick.symbol) ?? 0
+    if (now - last < 1000) {
+      return
+    }
+
+    this.lastPublishAtMs.set(tick.symbol, now)
+    await this.eventBus.publish('hlp.market.normalized', {
+      type: 'MARKET_TICK',
+      stream: 'hlp.market.normalized',
+      source: 'runtime.market',
+      correlationId: ulid(),
+      actorType: 'system',
+      actorId: 'market-adapter',
+      payload: {
+        symbol: tick.symbol,
+        px: tick.px,
+        bid: tick.bid,
+        ask: tick.ask,
+        bidSize: tick.bidSize,
+        askSize: tick.askSize,
+        updatedAt: tick.updatedAt
+      }
+    })
   }
 
   private async scheduleReconnect(): Promise<void> {
@@ -316,7 +348,7 @@ export function createMarketAdapter(config: RuntimeEnv, eventBus: EventBus): Mar
   return new HyperliquidWebSocketAdapter(symbols, config.HL_WS_URL, eventBus)
 }
 
-function parseNumber(value?: string | number): number | undefined {
+function parseNumber(value?: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value
   }
@@ -339,14 +371,18 @@ function firstFinite(...values: Array<number | undefined>): number | undefined {
   return undefined
 }
 
-function firstString(...values: Array<string | undefined>): string | undefined {
-  for (const candidate of values) {
-    if (candidate && candidate.trim().length > 0) {
-      return candidate
-    }
+function isoFromMillis(value: unknown): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
   }
 
-  return undefined
+  const ms = value < 10_000_000_000 ? value * 1000 : value
+  const date = new Date(ms)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date.toISOString()
 }
 
 function toText(value: string | Buffer | ArrayBuffer | DataView | ArrayBufferView): string | null {
