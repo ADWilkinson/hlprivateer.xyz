@@ -1,0 +1,42 @@
+[Unit]
+Description=HL Privateer Agent Runner
+After=network-online.target redis.service
+Wants=network-online.target redis.service
+
+[Service]
+Type=simple
+User=hlprivateer
+Group=hlprivateer
+WorkingDirectory=/opt/hlprivateer.xyz
+EnvironmentFile=/opt/hlprivateer.xyz/config/.env
+LoadCredential=hlprivateer.env:/etc/hlprivateer/credentials/hlprivateer.env
+EnvironmentFile=-/run/credentials/%N/hlprivateer.env
+ExecStart=/usr/local/bin/bun /opt/hlprivateer.xyz/apps/agent-runner/dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateUsers=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hlprivateer.xyz /var/log/hlprivateer
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
+RestartSteps=3
+RestartMaxDelaySec=30
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Install]
+WantedBy=multi-user.target
+

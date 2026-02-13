@@ -471,8 +471,8 @@ OPERATOR
 - Paste an operator JWT to use /halt /resume /flatten and inspect positions/orders.
 
 NOTE ON EXCHANGE CONNECTIVITY
-- Market data + execution are currently operating in sim mode on this deployment.
-- Hyperliquid integration exists as a scaffold, but is not wired for live trading yet.`}
+- Market data comes from Hyperliquid (live WS) when configured; otherwise a synthetic feed is used.
+- Execution is paper/sim by default. Live execution requires explicit operator approval.`}
         </pre>
       </div>
       <div className='muted'>

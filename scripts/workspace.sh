@@ -12,6 +12,7 @@ WORKSPACES=(
   packages/risk-engine
   apps/api
   apps/runtime
+  apps/agent-runner
   apps/ws-gateway
   apps/web
 )
