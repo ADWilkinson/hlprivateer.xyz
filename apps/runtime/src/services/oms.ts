@@ -29,7 +29,7 @@ export interface ExecutionAdapter {
   cancel(orderId: string, reason: string): Promise<void>
   modify(orderId: string, notionalUsd: number): Promise<PlacedOrder>
   reconcile(): Promise<Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }>>
-  snapshot(): Promise<{ orders: PlacedOrder[]; positions: OperatorPosition[] }>
+  snapshot(): Promise<{ orders: PlacedOrder[]; positions: OperatorPosition[]; realizedPnlUsd: number }>
 }
 
 interface InternalOrder extends PlacedOrder {
@@ -73,6 +73,7 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
   const orders = new Map<string, InternalOrder>()
   const idempotencyMap = new Map<string, string>()
   const positions = new Map<string, OperatorPosition>()
+  let realizedPnlUsd = 0
 
   async function place(input: OrderInput): Promise<PlacedOrder> {
     const existing = idempotencyMap.get(input.idempotencyKey)
@@ -168,29 +169,59 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
   async function snapshot() {
     return {
       orders: [...orders.values()].map((order) => OperatorOrderSchema.parse(order)),
-      positions: [...positions.values()]
+      positions: [...positions.values()],
+      realizedPnlUsd
     }
   }
 
   function upsertPosition(order: InternalOrder) {
-    const sign = order.side === 'BUY' ? 1 : -1
-    const key = `${order.symbol}-${order.side === 'BUY' ? 'L' : 'S'}`
+    const fillSignedQty = (order.side === 'BUY' ? 1 : -1) * order.filledQty
+    const fillPx = order.avgFillPx
+    const key = order.symbol
+
     const prior = positions.get(key)
-    const filledNotional = order.filledQty * order.avgFillPx
+    const priorQty = prior?.qty ?? 0
+    const priorAvg = prior?.avgEntryPx ?? fillPx
 
-    const qty = (prior?.qty ?? 0) + sign * order.filledQty
-    const priorNotional = prior?.notionalUsd ?? 0
-    const notionalUsd = priorNotional + sign * filledNotional
+    // Realize PnL only when we trade against an existing position.
+    if (priorQty !== 0 && Math.sign(priorQty) !== Math.sign(fillSignedQty)) {
+      const closingQty = Math.min(Math.abs(priorQty), Math.abs(fillSignedQty))
+      // Long: (sellPx - entryPx) * qty
+      // Short: (entryPx - buyPx) * qty  == (fillPx - entryPx) * qty * sign(priorQty)
+      realizedPnlUsd += (fillPx - priorAvg) * closingQty * Math.sign(priorQty)
+    }
 
+    const nextQty = priorQty + fillSignedQty
+    if (nextQty === 0) {
+      positions.delete(key)
+      return
+    }
+
+    const sameDirectionFill = priorQty === 0 || Math.sign(priorQty) === Math.sign(fillSignedQty)
+    const flipped = priorQty !== 0 && Math.sign(priorQty) !== Math.sign(nextQty)
+
+    let avgEntryPx = priorAvg
+    if (priorQty === 0 || flipped) {
+      avgEntryPx = fillPx
+    } else if (sameDirectionFill && Math.sign(priorQty) === Math.sign(nextQty)) {
+      // Weighted average entry when increasing exposure in the same direction.
+      avgEntryPx = (Math.abs(priorQty) * priorAvg + Math.abs(fillSignedQty) * fillPx) / Math.abs(nextQty)
+    } else {
+      // Reducing but not flipping: keep entry price for remaining exposure.
+      avgEntryPx = priorAvg
+    }
+
+    const now = new Date().toISOString()
     positions.set(key, {
       symbol: order.symbol,
-      side: qty >= 0 ? 'LONG' : 'SHORT',
-      qty,
-      notionalUsd,
-      avgEntryPx: order.avgFillPx,
-      markPx: order.avgFillPx,
+      side: nextQty > 0 ? 'LONG' : 'SHORT',
+      qty: nextQty,
+      // Use mark as the latest known trade price until runtime marks it to market.
+      notionalUsd: nextQty * fillPx,
+      avgEntryPx,
+      markPx: fillPx,
       pnlUsd: 0,
-      updatedAt: new Date().toISOString()
+      updatedAt: now
     })
   }
 

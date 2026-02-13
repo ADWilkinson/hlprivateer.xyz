@@ -1148,6 +1148,30 @@ app.get('/v1/agent/stream/snapshot', { ...routeRateLimit(180, 60_000), preHandle
   reply.send({ ...snapshot, source: token ? 'agent' : 'public' })
 })
 
+app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected('analysis.read')] }, async (_request, reply) => {
+  const latest = store.audits.find((event) => event.resource === 'agent.analysis')
+  if (!latest) {
+    reply.code(404).send({ error: 'NOT_FOUND', message: 'no analysis available' })
+    return
+  }
+
+  reply.send(latest)
+})
+
+app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected('analysis.read')] }, async (request, reply) => {
+  const query = request.query as any
+  const limitRaw = Number(query?.limit ?? 20)
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 20
+  const correlationId = typeof query?.correlationId === 'string' ? query.correlationId.trim() : ''
+
+  const items = store.audits
+    .filter((event) => event.resource === 'agent.analysis')
+    .filter((event) => !correlationId || event.correlationId === correlationId)
+    .slice(0, limit)
+
+  reply.send({ count: items.length, items })
+})
+
 app.get('/v1/agent/entitlement', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected()] }, async (request, reply) => {
   reply.send((request as EntitlementRequest).entitlement)
 })

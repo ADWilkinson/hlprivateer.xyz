@@ -16,6 +16,7 @@ Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with determi
 ## Monorepo layout
 ```text
 apps/
+  agent-runner/
   api/
   runtime/
   ws-gateway/

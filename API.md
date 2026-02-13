@@ -61,6 +61,8 @@ Command request example:
 - `POST /v1/agent/handshake`
 - `GET /v1/agent/entitlement`
 - `GET /v1/agent/stream/snapshot`
+- `GET /v1/agent/analysis/latest`
+- `GET /v1/agent/analysis`
 - `POST /v1/agent/command`
 - `POST /v1/agent/unlock/:tier`
 

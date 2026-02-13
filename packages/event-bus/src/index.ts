@@ -125,12 +125,14 @@ export class RedisEventBus implements EventBus {
     const streamName = this.stream(stream)
     let running = true
     let cursor = startId
+    // Use a dedicated connection for blocking XREAD so publishes/healthchecks are not delayed.
+    const reader = this.redis.duplicate()
 
     // `$` means "new entries only", but polling with `$` can miss messages between calls.
     // Convert `$` to the current stream tail once, then always advance from concrete IDs.
     if (cursor === '$') {
       try {
-        const last = await this.redis.xrevrange(streamName, '+', '-', 'COUNT', 1)
+        const last = await reader.xrevrange(streamName, '+', '-', 'COUNT', 1)
         cursor = last.length > 0 ? last[0][0] : '0-0'
       } catch {
         cursor = '0-0'
@@ -139,7 +141,7 @@ export class RedisEventBus implements EventBus {
 
     const loop = async () => {
       while (running) {
-        const result = (await this.redis.xread(
+        const result = (await reader.xread(
           'COUNT',
           50,
           'BLOCK',
@@ -172,7 +174,7 @@ export class RedisEventBus implements EventBus {
 
     return async () => {
       running = false
-      await this.redis.quit()
+      await reader.quit().catch(() => undefined)
     }
   }
 

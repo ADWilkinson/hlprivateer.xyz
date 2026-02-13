@@ -71,29 +71,44 @@ function staleMs(tick: TickSnapshot): number {
   return Date.now() - Date.parse(tick.updatedAt)
 }
 
-function checkNotionalParity(proposal: StrategyProposal, tolerance: number): CheckResult {
-  const accum = proposal.actions.reduce(
-    (acc, current) => {
-      const long = current.legs.filter((leg) => leg.side === 'BUY').reduce((sum, leg) => sum + leg.notionalUsd, 0)
-      const short = current.legs.filter((leg) => leg.side === 'SELL').reduce((sum, leg) => sum + leg.notionalUsd, 0)
-      return {
-        long: acc.long + long,
-        short: acc.short + short
-      }
-    },
-    { long: 0, short: 0 }
-  )
+function computeProjectedLongShort(positions: PositionSnapshot[], proposal: StrategyProposal): { longUsd: number; shortUsd: number; grossUsd: number } {
+  const bySymbol = new Map<string, number>()
 
-  if (accum.long === 0 || accum.short === 0) {
-    return { ok: false, reason: 'proposal must include long and short notional legs' }
+  for (const position of positions) {
+    const sign = position.side === 'LONG' ? 1 : -1
+    bySymbol.set(position.symbol, (bySymbol.get(position.symbol) ?? 0) + sign * Math.abs(position.notionalUsd))
   }
 
-  const denominator = (accum.long + accum.short) / 2
-  const drift = Math.abs(accum.long - accum.short) / denominator
+  for (const action of proposal.actions) {
+    for (const leg of action.legs) {
+      const sign = leg.side === 'BUY' ? 1 : -1
+      bySymbol.set(leg.symbol, (bySymbol.get(leg.symbol) ?? 0) + sign * leg.notionalUsd)
+    }
+  }
+
+  const values = [...bySymbol.values()]
+  const longUsd = values.filter((v) => v > 0).reduce((sum, v) => sum + v, 0)
+  const shortUsd = values.filter((v) => v < 0).reduce((sum, v) => sum + Math.abs(v), 0)
+  return { longUsd, shortUsd, grossUsd: longUsd + shortUsd }
+}
+
+function checkNotionalParity(positions: PositionSnapshot[], proposal: StrategyProposal, tolerance: number): CheckResult {
+  const projected = computeProjectedLongShort(positions, proposal)
+  if (projected.grossUsd === 0) {
+    // Flat is acceptable (e.g. explicit exit/flatten proposals).
+    return { ok: true }
+  }
+
+  if (projected.longUsd === 0 || projected.shortUsd === 0) {
+    return { ok: false, reason: 'proposal leaves unhedged exposure (missing long or short leg)' }
+  }
+
+  const denominator = projected.grossUsd / 2
+  const drift = Math.abs(projected.longUsd - projected.shortUsd) / denominator
   if (drift > tolerance) {
     return {
       ok: false,
-      reason: `notional imbalance ${(drift * 100).toFixed(2)}% exceeds ${(tolerance * 100).toFixed(2)}%`
+      reason: `projected notional imbalance ${(drift * 100).toFixed(2)}% exceeds ${(tolerance * 100).toFixed(2)}%`
     }
   }
 
@@ -102,11 +117,13 @@ function checkNotionalParity(proposal: StrategyProposal, tolerance: number): Che
 
 function checkInvariant(proposal: StrategyProposal): CheckResult {
   const legs = proposal.actions.flatMap((action) => action.legs)
-  const hasLongHype = legs.some((leg) => leg.side === 'BUY' && leg.symbol.toUpperCase() === 'HYPE')
-  const hasShortBasket = legs.some((leg) => leg.side === 'SELL' && leg.symbol.toUpperCase() !== 'HYPE')
+  // Strategy invariant: proposals must remain "HYPE vs basket" oriented, but we must
+  // allow risk-reducing proposals (e.g. exits/flatten) where HYPE may be sold.
+  const hasHypeLeg = legs.some((leg) => leg.symbol.toUpperCase() === 'HYPE')
+  const hasNonHypeLeg = legs.some((leg) => leg.symbol.toUpperCase() !== 'HYPE')
 
-  if (!hasLongHype || !hasShortBasket) {
-    return { ok: false, reason: 'strategy invariant must include LONG HYPE and SHORT basket leg(s)' }
+  if (!hasHypeLeg || !hasNonHypeLeg) {
+    return { ok: false, reason: 'strategy invariant must include HYPE + at least one non-HYPE leg' }
   }
 
   return { ok: true }
@@ -257,21 +274,17 @@ function checkDrawdown(positions: PositionSnapshot[], maxDrawdownPct: number): C
   return { ok: true }
 }
 
-function computeImbalance(proposal: StrategyProposal): number {
-  const agg = proposal.actions.reduce(
-    (acc, action) => {
-      const long = action.legs.filter((leg) => leg.side === 'BUY').reduce((sum, leg) => sum + leg.notionalUsd, 0)
-      const short = action.legs.filter((leg) => leg.side === 'SELL').reduce((sum, leg) => sum + leg.notionalUsd, 0)
-      return { long: acc.long + long, short: acc.short + short }
-    },
-    { long: 0, short: 0 }
-  )
+function computeImbalance(positions: PositionSnapshot[], proposal: StrategyProposal): number {
+  const projected = computeProjectedLongShort(positions, proposal)
+  if (projected.grossUsd === 0) {
+    return 0
+  }
 
-  if (agg.long === 0 || agg.short === 0) {
+  if (projected.longUsd === 0 || projected.shortUsd === 0) {
     return Number.POSITIVE_INFINITY
   }
 
-  return Math.abs(agg.long - agg.short) / ((agg.long + agg.short) / 2)
+  return Math.abs(projected.longUsd - projected.shortUsd) / (projected.grossUsd / 2)
 }
 
 function computeExposure(positions: PositionSnapshot[], proposal: StrategyProposal): { grossExposureUsd: number; netExposureUsd: number } {
@@ -328,7 +341,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'INVARIANT_VIOLATION', message: invariantResult.reason ?? 'invalid proposal' })
   }
 
-  const parityResult = checkNotionalParity(context.proposal, config.notionalParityTolerance)
+  const parityResult = checkNotionalParity(context.openPositions, context.proposal, config.notionalParityTolerance)
   if (!parityResult.ok) {
     reasons.push({ code: 'NOTIONAL_PARITY', message: parityResult.reason ?? 'invalid notional parity' })
   }
@@ -377,7 +390,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   const computed = {
     ...computeExposure(context.openPositions, context.proposal),
     projectedDrawdownPct: computeProjectedDrawdown(context.openPositions, context.proposal),
-    notionalImbalancePct: Number((computeImbalance(context.proposal) * 100).toFixed(2))
+    notionalImbalancePct: Number((computeImbalance(context.openPositions, context.proposal) * 100).toFixed(2))
   }
 
   const hasBlockers = reasons.some((entry) =>

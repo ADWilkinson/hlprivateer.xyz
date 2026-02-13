@@ -96,13 +96,6 @@ export async function createRuntimePluginManager(eventBus: EventBus): Promise<Ru
     await plugin.initialize(context)
 
     await poll()
-    await publishSignal({
-      pluginId: manifest.id,
-      signalType: 'custom',
-      symbol: 'HYPE',
-      value: 0,
-      ts: new Date().toISOString()
-    })
 
     const timer = setInterval(() => {
       void poll()

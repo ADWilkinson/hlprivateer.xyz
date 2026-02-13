@@ -409,17 +409,20 @@ function sendSafe(ws: any, message: WsServerMessage) {
 
 function sanitizeForPublic(statePayload: unknown): Record<string, unknown> {
   if (!statePayload || typeof statePayload !== 'object') {
-    return { eventType: 'state', ts: new Date().toISOString() }
+    return { type: 'STATE_UPDATE', ts: new Date().toISOString() }
   }
 
   const payload = statePayload as Record<string, unknown>
+  const message = typeof payload.message === 'string' ? payload.message : undefined
   return {
-    eventType: 'STATE_UPDATE',
+    // Keep public payload shape compatible with the web UI client which expects `type`.
+    type: 'STATE_UPDATE',
     mode: payload.mode,
     driftState: payload.driftState,
     healthCode: payload.healthCode,
     pnlPct: payload.pnlPct,
     lastUpdateAt: payload.lastUpdateAt,
+    ...(message ? { message } : {}),
     ts: new Date().toISOString()
   }
 }

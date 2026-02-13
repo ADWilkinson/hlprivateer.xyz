@@ -276,7 +276,7 @@ export type CommandEnvelopePayload = z.infer<typeof CommandEnvelopePayloadSchema
 
 export const DEFAULT_TIER_CAPABILITIES: TierCapabilityMap = {
   tier0: ['stream.read.public', 'command.status'],
-  tier1: ['stream.read.public', 'command.status', 'stream.read.obfuscated.realtime', 'command.explain.redacted'],
+  tier1: ['stream.read.public', 'command.status', 'stream.read.obfuscated.realtime', 'command.explain.redacted', 'analysis.read'],
   tier2: [
     'stream.read.public',
     'stream.read.obfuscated.realtime',
@@ -285,7 +285,8 @@ export const DEFAULT_TIER_CAPABILITIES: TierCapabilityMap = {
     'command.explain.redacted',
     'command.positions',
     'command.execute',
-    'plugin.health.read'
+    'plugin.health.read',
+    'analysis.read'
   ],
   tier3: [
     'stream.read.public',
@@ -297,7 +298,8 @@ export const DEFAULT_TIER_CAPABILITIES: TierCapabilityMap = {
     'command.execute',
     'plugin.health.read',
     'plugin.submit',
-    'command.audit'
+    'command.audit',
+    'analysis.read'
   ]
 }
 

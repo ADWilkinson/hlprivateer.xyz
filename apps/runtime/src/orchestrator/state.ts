@@ -35,6 +35,7 @@ interface LoopConfig {
 export interface RuntimeState {
   mode: TradeState
   pnlPct: number
+  realizedPnlUsd: number
   driftState: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
   lastUpdateAt: string
   cycle: number
@@ -142,6 +143,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   const state: RuntimeState = {
     mode: persistedState?.state ?? 'INIT',
     pnlPct: 0,
+    realizedPnlUsd: 0,
     driftState: 'IN_TOLERANCE',
     lastUpdateAt: new Date().toISOString(),
     cycle: 0,
@@ -180,9 +182,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     payload: {
       mode: state.mode,
       pnlPct: state.pnlPct,
+      realizedPnlUsd: state.realizedPnlUsd,
       driftState: state.driftState,
       healthCode: 'GREEN',
-      lastUpdateAt: state.lastUpdateAt
+      lastUpdateAt: state.lastUpdateAt,
+      message: 'runtime boot'
     }
   })
   await store.saveSystemState(state.mode, persistedState?.reason ?? 'startup')
@@ -242,6 +246,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         previousMode,
         reason,
         pnlPct: state.pnlPct,
+        realizedPnlUsd: state.realizedPnlUsd,
         driftState: state.driftState,
         healthCode: mode === 'SAFE_MODE' || mode === 'HALT' ? 'RED' : 'GREEN',
         lastUpdateAt: state.lastUpdateAt
@@ -301,6 +306,53 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     }
   })
 
+  let pendingAgentProposal: StrategyProposal | null = null
+  let pendingAgentProposalReceivedAt = 0
+
+  const publishPositionsUpdate = async (correlationId: string) => {
+    await bus.publish('hlp.ui.events', {
+      type: 'POSITION_UPDATE',
+      stream: 'hlp.ui.events',
+      source: 'runtime',
+      correlationId,
+      actorType: 'system',
+      actorId: 'runtime',
+      payload: state.positions
+    })
+  }
+
+  const publishOrdersUpdate = async (correlationId: string) => {
+    await bus.publish('hlp.ui.events', {
+      type: 'ORDER_UPDATE',
+      stream: 'hlp.ui.events',
+      source: 'runtime',
+      correlationId,
+      actorType: 'system',
+      actorId: 'runtime',
+      payload: state.orders
+    })
+  }
+
+  const publishStateUpdate = async (correlationId: string, message: string) => {
+    await bus.publish('hlp.ui.events', {
+      type: 'STATE_UPDATE',
+      stream: 'hlp.ui.events',
+      source: 'runtime',
+      correlationId,
+      actorType: 'system',
+      actorId: 'runtime-state',
+      payload: {
+        mode: state.mode,
+        pnlPct: state.pnlPct,
+        realizedPnlUsd: state.realizedPnlUsd,
+        driftState: state.driftState,
+        healthCode: state.mode === 'SAFE_MODE' || state.mode === 'HALT' ? 'RED' : 'GREEN',
+        lastUpdateAt: state.lastUpdateAt,
+        message
+      }
+    })
+  }
+
   const runCycle = async (urgency = false) => {
     if (stopped || loopRunning) {
       return
@@ -309,64 +361,18 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     loopRunning = true
     runtimeCycleCounter.inc()
     const endCycleTimer = runtimeCycleDurationMs.startTimer()
+    const cycleCorrelationId = envelopeId()
     try {
-      if (state.mode === 'HALT') {
-        runtimeProposalCounter.inc({ status: 'skipped' })
-        return
-      }
+      const nowIso = new Date().toISOString()
+      state.lastUpdateAt = nowIso
 
-      const recentSignals = pluginManager.getSignals()
-      const targetNotional = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, recentSignals)
-      const proposalCandidate = buildProposal(state, targetNotional, env.BASKET_SYMBOLS, recentSignals)
-      const parsedProposal = parseStrategyProposal(proposalCandidate)
-      if (!parsedProposal.ok) {
-        const reasons = parsedProposal.errors.map((error: { code: string; message: string; path?: unknown[] }) => ({
-          code: error.code,
-          message: error.message,
-          details: error.path ? { path: error.path } : undefined
-        }))
+      const basketSymbols = env.BASKET_SYMBOLS
+        .split(',')
+        .map((symbol) => symbol.trim())
+        .filter(Boolean)
 
-        await addAudit('proposal.parse_error', 'runtime', proposalCandidate.proposalId, {
-          action: 'parse_error',
-          proposal: proposalCandidate,
-          reasons
-        })
-
-        await publishRiskDecision(
-          {
-            decision: 'DENY',
-            reasons,
-            correlationId: proposalCandidate.proposalId,
-            decisionId: `dec-${proposalCandidate.proposalId}`,
-            computedAt: new Date().toISOString(),
-            computed: {
-              grossExposureUsd: 0,
-              netExposureUsd: 0,
-              projectedDrawdownPct: 0,
-              notionalImbalancePct: 100
-            }
-          },
-          'PARSE_ERROR',
-          proposalCandidate.proposalId
-        )
-
-        runtimeProposalCounter.inc({ status: 'parse_error' })
-        runtimeRiskDecisionCounter.inc({ decision: 'DENY' })
-        return
-      }
-
-      const proposal = parsedProposal.proposal
-      runtimeProposalCounter.inc({ status: 'parsed' })
-      await addAudit('proposal.generated', 'runtime', proposal.proposalId, {
-        proposalId: proposal.proposalId,
-        cycleId: proposal.cycleId,
-        actionCount: proposal.actions.length,
-        summary: proposal.summary,
-        requestedMode: proposal.requestedMode,
-        urgency: urgency ? 'urgent' : 'scheduled'
-      })
-
-      const tickSymbols = new Set<string>(['HYPE', ...env.BASKET_SYMBOLS.split(',').map((symbol) => symbol.trim()).filter(Boolean)])
+      // Pull latest ticks for any symbol we might touch this cycle.
+      const tickSymbols = new Set<string>(['HYPE', ...basketSymbols, ...state.positions.map((position) => position.symbol)])
       const ticks: Record<string, { symbol: string; px: number; bid: number; ask: number; bidSize?: number; askSize?: number; updatedAt: string }> = {}
 
       for (const symbol of tickSymbols) {
@@ -376,11 +382,102 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         }
       }
 
+      const mark = markToMarketPositions(state.positions, ticks, nowIso)
+      state.positions = mark.positions
+      const totalPnlUsd = state.realizedPnlUsd + mark.unrealizedPnlUsd
+      state.pnlPct = env.ACCOUNT_VALUE_USD > 0 ? Number(((totalPnlUsd / env.ACCOUNT_VALUE_USD) * 100).toFixed(3)) : 0
+      state.driftState = driftFrom(state)
+
+      // Keep downstream views live even on no-op cycles.
+      await publishPositionsUpdate(cycleCorrelationId)
+
+      if (state.mode === 'HALT') {
+        runtimeProposalCounter.inc({ status: 'skipped_halt' })
+        await publishStateUpdate(cycleCorrelationId, urgency ? 'halted (urgent)' : 'halted')
+        return
+      }
+
+      const recentSignals = pluginManager.getSignals()
+      const targetNotional = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, recentSignals)
+
+      const agentFresh = pendingAgentProposal && Date.now() - pendingAgentProposalReceivedAt < 60_000
+      let proposalCandidate: StrategyProposal | null
+      let origin: 'agent' | 'runtime' = 'runtime'
+
+      if (agentFresh && pendingAgentProposal) {
+        proposalCandidate = pendingAgentProposal
+        pendingAgentProposal = null
+        pendingAgentProposalReceivedAt = 0
+        origin = 'agent'
+      } else {
+        proposalCandidate = buildProposal(state, targetNotional, env.BASKET_SYMBOLS, recentSignals)
+      }
+
+      if (!proposalCandidate) {
+        runtimeProposalCounter.inc({ status: 'no_action' })
+        await publishStateUpdate(cycleCorrelationId, urgency ? 'no action (urgent)' : 'no action')
+        return
+      }
+
+      const parsedProposal = parseStrategyProposal(proposalCandidate)
+      if (!parsedProposal.ok) {
+        const proposalId = typeof (proposalCandidate as any)?.proposalId === 'string' ? String((proposalCandidate as any).proposalId) : envelopeId()
+        const reasons = parsedProposal.errors.map((error: { code: string; message: string; path?: unknown[] }) => ({
+          code: error.code,
+          message: error.message,
+          details: error.path ? { path: error.path } : undefined
+        }))
+
+        await addAudit('proposal.parse_error', 'runtime', proposalId, {
+          action: 'parse_error',
+          origin,
+          proposal: proposalCandidate,
+          reasons
+        })
+
+        await publishRiskDecision(
+          {
+            decision: 'DENY',
+            reasons,
+            correlationId: proposalId,
+            decisionId: `dec-${proposalId}`,
+            computedAt: new Date().toISOString(),
+            computed: {
+              grossExposureUsd: 0,
+              netExposureUsd: 0,
+              projectedDrawdownPct: 0,
+              notionalImbalancePct: 100
+            }
+          },
+          'PARSE_ERROR',
+          proposalId
+        )
+
+        runtimeProposalCounter.inc({ status: 'parse_error' })
+        runtimeRiskDecisionCounter.inc({ decision: 'DENY' })
+        await publishStateUpdate(proposalId, 'proposal parse error')
+        return
+      }
+
+      const proposal = parsedProposal.proposal
+      runtimeProposalCounter.inc({ status: origin === 'agent' ? 'agent_parsed' : 'parsed' })
+      await addAudit('proposal.selected', 'runtime', proposal.proposalId, {
+        proposalId: proposal.proposalId,
+        cycleId: proposal.cycleId,
+        origin,
+        createdBy: proposal.createdBy,
+        actionCount: proposal.actions.length,
+        summary: proposal.summary,
+        requestedMode: proposal.requestedMode,
+        urgency: urgency ? 'urgent' : 'scheduled'
+      }, 'runtime.proposal')
+
       const dependencyHealth = await bus.health()
       // In DRY_RUN mode we allow running without Postgres persistence to reduce operational complexity.
       // In live mode, persistence health remains a hard dependency (fail-closed).
       const databaseHealth = env.DRY_RUN ? true : await store.health()
       const dependenciesHealthy = dependencyHealth.ok && databaseHealth
+
       const risk = evaluateRisk(riskConfig, {
         state: state.mode,
         actorType: 'system',
@@ -398,24 +495,33 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         if (risk.reasons.some((entry) => entry.code === 'DEPENDENCY_FAILURE')) {
           await setMode('SAFE_MODE', 'risk dependency failure')
         }
+        await publishStateUpdate(proposal.proposalId, 'risk denied')
         return
       }
 
       const previousMode = state.mode
       await execute(proposal, risk.decision)
       runtimeProposalCounter.inc({ status: 'executed' })
+
+      // Re-mark after execution so operator/public views show updated PnL.
+      const postMarkIso = new Date().toISOString()
+      state.lastUpdateAt = postMarkIso
+      const postMark = markToMarketPositions(state.positions, ticks, postMarkIso)
+      state.positions = postMark.positions
+      const totalAfterUsd = state.realizedPnlUsd + postMark.unrealizedPnlUsd
+      state.pnlPct = env.ACCOUNT_VALUE_USD > 0 ? Number(((totalAfterUsd / env.ACCOUNT_VALUE_USD) * 100).toFixed(3)) : 0
+      state.driftState = driftFrom(state)
+      await publishPositionsUpdate(proposal.proposalId)
+
       if (previousMode === 'READY' && state.positions.length > 0) {
         await setMode('IN_TRADE', 'trade entry')
-      } else if (state.mode === 'IN_TRADE') {
+      } else if (state.positions.length > 0 && (state.mode === 'IN_TRADE' || state.mode === 'REBALANCE')) {
         await setMode('REBALANCE', 'rebalance')
+      } else if (state.positions.length === 0 && state.mode !== 'READY') {
+        await setMode('READY', 'flat')
       }
 
-      state.lastUpdateAt = new Date().toISOString()
-      state.cycle += 1
-      state.pnlPct = Number((Math.sin(state.cycle / 5) * 5).toFixed(3))
-      state.driftState = driftFrom(state)
-
-      if (state.driftState === 'BREACH' && state.mode === 'IN_TRADE') {
+      if (state.driftState === 'BREACH' && state.positions.length > 0) {
         await setMode('SAFE_MODE', 'drift breach')
       }
 
@@ -437,6 +543,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           cycle: state.cycle
         }
       })
+
+      await publishStateUpdate(proposal.proposalId, `${origin} proposal executed`)
     } catch (error) {
       await setMode('SAFE_MODE', `runtime error: ${String(error)}`)
       await addAudit('runtime_error', 'runtime', envelopeId(), {
@@ -444,10 +552,53 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       })
       runtimeCycleErrorCounter.inc()
     } finally {
+      state.cycle += 1
       endCycleTimer()
       loopRunning = false
     }
   }
+
+  bus.consume('hlp.strategy.proposals', '$', async (envelope) => {
+    const candidate = envelope?.payload
+    if (!candidate) {
+      return
+    }
+
+    const parsed = parseStrategyProposal(candidate)
+    if (!parsed.ok) {
+      await addAudit('agent.proposal.parse_error', envelope.actorId ?? 'agent', envelopeId(), {
+        errors: parsed.errors
+      }, 'runtime.agent')
+      runtimeProposalCounter.inc({ status: 'agent_parse_error' })
+      return
+    }
+
+    // Ignore live proposals unless the runtime has explicitly enabled live execution.
+    if (parsed.proposal.requestedMode === 'LIVE' && !env.ENABLE_LIVE_OMS) {
+      await addAudit('agent.proposal.ignored', envelope.actorId ?? 'agent', parsed.proposal.proposalId, {
+        reason: 'live proposal received while ENABLE_LIVE_OMS=false',
+        proposalId: parsed.proposal.proposalId,
+        requestedMode: parsed.proposal.requestedMode
+      }, 'runtime.agent')
+      runtimeProposalCounter.inc({ status: 'agent_ignored_live' })
+      return
+    }
+
+    pendingAgentProposal = parsed.proposal
+    pendingAgentProposalReceivedAt = Date.now()
+    await addAudit('agent.proposal.received', envelope.actorId ?? 'agent', parsed.proposal.proposalId, {
+      proposalId: parsed.proposal.proposalId,
+      summary: parsed.proposal.summary,
+      createdBy: parsed.proposal.createdBy,
+      requestedMode: parsed.proposal.requestedMode
+    }, 'runtime.agent')
+
+    const now = Date.now()
+    if (now - lastUrgentCycleAt >= 1_000) {
+      lastUrgentCycleAt = now
+      void runCycle(true)
+    }
+  })
 
   const execute = async (proposal: StrategyProposal, decision: RiskDecision): Promise<void> => {
     const action = proposal.actions[0]
@@ -487,6 +638,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     const snapshot = await adapter.snapshot()
     state.positions = snapshot.positions
     state.orders = snapshot.orders
+    state.realizedPnlUsd = snapshot.realizedPnlUsd
     await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
 
     await bus.publish('hlp.execution.commands', {
@@ -734,6 +886,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const snapshot = await adapter.snapshot()
       state.positions = snapshot.positions
       state.orders = snapshot.orders
+      state.realizedPnlUsd = snapshot.realizedPnlUsd
       await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
 
       await addAudit('flatten.execute', actorId, commandAuditId, {
@@ -854,6 +1007,33 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   }
 }
 
+function markToMarketPositions(
+  positions: OperatorPosition[],
+  ticks: Record<string, { symbol: string; px: number; updatedAt: string }>,
+  nowIso: string
+): { positions: OperatorPosition[]; unrealizedPnlUsd: number } {
+  let unrealizedPnlUsd = 0
+
+  const marked = positions
+    .map((position) => {
+      const tick = ticks[position.symbol]
+      const markPx = tick?.px ?? position.markPx ?? position.avgEntryPx
+      const pnlUsd = (markPx - position.avgEntryPx) * position.qty
+      unrealizedPnlUsd += pnlUsd
+
+      return {
+        ...position,
+        markPx,
+        notionalUsd: position.qty * markPx,
+        pnlUsd,
+        updatedAt: nowIso
+      }
+    })
+    .filter((position) => Math.abs(position.qty) > 1e-9)
+
+  return { positions: marked, unrealizedPnlUsd }
+}
+
 function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
   const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
   const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
@@ -876,51 +1056,76 @@ function buildProposal(
   targetNotional: number,
   basketSymbolsCsv: string,
   signals: PluginSignal[]
-): StrategyProposal {
+): StrategyProposal | null {
   const basketSymbols = basketSymbolsCsv
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+
+  if (basketSymbols.length === 0) {
+    return null
+  }
+
   const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
   const latestCorrelation = [...signals].reverse().find((signal) => signal.signalType === 'correlation')
+  const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
   const signalSummary = [
     latestVolatility ? `vol=${latestVolatility.value.toFixed(3)}` : 'vol=na',
-    latestCorrelation ? `corr=${latestCorrelation.value.toFixed(3)}` : 'corr=na'
+    latestCorrelation ? `corr=${latestCorrelation.value.toFixed(3)}` : 'corr=na',
+    latestFunding ? `funding=${latestFunding.value.toFixed(6)}` : 'funding=na'
   ].join(' ')
 
-  const baseLegs = [{ symbol: 'HYPE', side: 'BUY' as const, notionalUsd: targetNotional }]
-  const perBasket = basketSymbols.length > 0 ? targetNotional / basketSymbols.length : 0
-  const basketLegs = basketSymbols.map((symbol) => ({
-    symbol,
-    side: 'SELL' as const,
-    notionalUsd: perBasket
-  }))
+  const desiredBySymbol = new Map<string, number>()
+  desiredBySymbol.set('HYPE', targetNotional)
+  const perBasket = targetNotional / basketSymbols.length
+  for (const symbol of basketSymbols) {
+    desiredBySymbol.set(symbol, -perBasket)
+  }
 
-  const actionType = state.mode === 'IN_TRADE' && state.positions.length > 0 ? 'REBALANCE' : 'ENTER'
+  const currentBySymbol = new Map<string, number>()
+  for (const position of state.positions) {
+    const signed = position.side === 'LONG' ? Math.abs(position.notionalUsd) : -Math.abs(position.notionalUsd)
+    currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
+  }
 
-  const proposalLegs =
-    state.mode === 'IN_TRADE' && state.positions.length > 0
-      ? state.positions.map((position) => ({
-        symbol: position.symbol,
-        side: position.side === 'LONG' ? ('SELL' as const) : ('BUY' as const),
-        notionalUsd: Math.abs(position.notionalUsd)
-      }))
-      : [...baseLegs, ...basketLegs]
+  const minLegUsd = Math.max(25, targetNotional * 0.01)
+  const legs = [...desiredBySymbol.entries()]
+    .map(([symbol, desiredNotional]) => {
+      const current = currentBySymbol.get(symbol) ?? 0
+      const delta = desiredNotional - current
+      if (!Number.isFinite(delta) || Math.abs(delta) < minLegUsd) {
+        return null
+      }
+
+      return {
+        symbol,
+        side: delta > 0 ? ('BUY' as const) : ('SELL' as const),
+        notionalUsd: Number(Math.abs(delta).toFixed(2))
+      }
+    })
+    .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number } => Boolean(leg))
+
+  if (legs.length === 0) {
+    return null
+  }
+
+  const actionType = state.positions.length > 0 ? 'REBALANCE' : 'ENTER'
+  const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
 
   return {
     proposalId: envelopeId(),
     cycleId: envelopeId(),
-    summary: state.mode === 'READY' ? `enter pair trade (${signalSummary})` : `rebalance cycle ${state.cycle} (${signalSummary})`,
+    summary: state.positions.length === 0 ? `enter pair trade (${signalSummary})` : `rebalance to target (${signalSummary})`,
     confidence: 0.75,
     requestedMode: 'SIM',
     createdBy: 'runtime',
     actions: [
       {
         type: actionType,
-        rationale: 'systematic pair rebalance',
-        notionalUsd: targetNotional,
+        rationale: 'delta-to-target exposure (HYPE vs basket)',
+        notionalUsd: Number(actionNotionalUsd.toFixed(2)),
         expectedSlippageBps: 3,
-        legs: proposalLegs
+        legs
       }
     ]
   }

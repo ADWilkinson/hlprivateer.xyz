@@ -84,4 +84,31 @@ describe('sim adapter', () => {
     await expect(adapter.modify(placed.orderId, -10)).rejects.toThrow()
     await expect(adapter.modify(placed.orderId, 1500)).rejects.toThrowError(/order cannot be modified/)
   })
+
+  it('nets positions and realizes pnl when reducing exposure', async () => {
+    const adapter = createSimAdapter(0, 0)
+
+    await adapter.place({
+      symbol: 'HYPE',
+      side: 'BUY',
+      notionalUsd: 100,
+      tick: { ...baseTick, bid: 10, ask: 10 },
+      idempotencyKey: 'open-long'
+    })
+
+    await adapter.place({
+      symbol: 'HYPE',
+      side: 'SELL',
+      notionalUsd: 60,
+      tick: { ...baseTick, bid: 12, ask: 12, px: 12 },
+      idempotencyKey: 'reduce-long'
+    })
+
+    const snapshot = await adapter.snapshot()
+    expect(snapshot.positions.length).toBe(1)
+    expect(snapshot.positions[0]?.symbol).toBe('HYPE')
+    expect(snapshot.positions[0]?.side).toBe('LONG')
+    expect(snapshot.positions[0]?.qty).toBeGreaterThan(0)
+    expect(snapshot.realizedPnlUsd).toBeGreaterThan(0)
+  })
 })
