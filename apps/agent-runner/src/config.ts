@@ -40,13 +40,27 @@ export const env = z
     REDIS_STREAM_PREFIX: z.string().default('hlp'),
 
     AGENT_ID: z.string().min(1).default('agent-runner'),
+    // Global/default LLM choice for all internal agents.
     AGENT_LLM: z.enum(['claude', 'codex', 'none']).default('claude'),
+    // Optional per-role overrides (defaults to AGENT_LLM).
+    AGENT_RESEARCH_LLM: z.enum(['claude', 'codex', 'none']).optional(),
+    AGENT_RISK_LLM: z.enum(['claude', 'codex', 'none']).optional(),
+    AGENT_STRATEGIST_LLM: z.enum(['claude', 'codex', 'none']).optional(),
+    AGENT_SCRIBE_LLM: z.enum(['claude', 'codex', 'none']).optional(),
     AGENT_PROPOSAL_INTERVAL_MS: z.coerce.number().int().positive().default(30000),
     AGENT_ANALYSIS_INTERVAL_MS: z.coerce.number().int().positive().default(60000),
+    AGENT_RESEARCH_INTERVAL_MS: z.coerce.number().int().positive().default(180000),
+    AGENT_RISK_INTERVAL_MS: z.coerce.number().int().positive().default(30000),
+    AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+    OPS_AUTO_HALT: booleanFromEnv.default(false),
 
     // Reuse the runtime's strategy config knobs when present.
     BASKET_SYMBOLS: z.string().default('BTC,ETH'),
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(1000),
+
+    // Agent uses these to mark proposals as LIVE when the runtime is live.
+    DRY_RUN: booleanFromEnv.default(true),
+    ENABLE_LIVE_OMS: booleanFromEnv.default(false),
 
     // LLM settings
     CLAUDE_MODEL: z.string().default('sonnet'),
@@ -58,4 +72,3 @@ export const env = z
   })
 
 export type AgentRunnerEnv = typeof env
-

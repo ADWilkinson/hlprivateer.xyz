@@ -1011,12 +1011,14 @@ const x402Protected = (requiredCapability?: string) => {
           reason: 'missing entitlement/challenge id'
         }
       })
+      request.x402GateHandled = true
       reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
       reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'x402-payment required', challenge })
       return
     }
 
     if (isEntitlementBanned(normalizedEntitlementId)) {
+      request.x402GateHandled = true
       reply.code(429).send({ error: 'TEMPORARY_BAN', message: 'rate-limited by abuse protection' })
       return
     }
@@ -1044,10 +1046,12 @@ const x402Protected = (requiredCapability?: string) => {
             }
           })
           if (abuseCount >= ABUSE_BAN_THRESHOLD) {
+            request.x402GateHandled = true
             reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
             return
           }
 
+          request.x402GateHandled = true
           reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
           reply.code(402).send({
             error: 'PAYMENT_REQUIRED',
@@ -1089,6 +1093,7 @@ const x402Protected = (requiredCapability?: string) => {
             reason: 'unknown entitlement'
           }
         })
+        request.x402GateHandled = true
         reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
         reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'unknown entitlement', challenge })
         return
@@ -1113,10 +1118,12 @@ const x402Protected = (requiredCapability?: string) => {
           }
         })
         if (abuseCount >= ABUSE_BAN_THRESHOLD) {
+          request.x402GateHandled = true
           reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
           return
         }
 
+        request.x402GateHandled = true
         reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
         reply.code(402).send({
           error: 'PAYMENT_REQUIRED',
@@ -1150,10 +1157,12 @@ const x402Protected = (requiredCapability?: string) => {
         }
       })
       if (abuseCount >= ABUSE_BAN_THRESHOLD) {
+        request.x402GateHandled = true
         reply.code(429).send({ error: 'TEMPORARY_BAN', message: `agent identity mismatch (abuse ${abuseCount})` })
         return
       }
 
+      request.x402GateHandled = true
       reply.code(403).send({ error: 'INVALID_AGENT', message: `agent mismatch (${abuseCount})` })
       return
     }
@@ -1171,6 +1180,7 @@ const x402Protected = (requiredCapability?: string) => {
           expiresAt: entitlement.expiresAt
         }
       })
+      request.x402GateHandled = true
       reply.code(410).send({ error: 'EXPIRED', message: 'entitlement expired' })
       return
     }
@@ -1188,6 +1198,7 @@ const x402Protected = (requiredCapability?: string) => {
           requiredCapability
         }
       })
+      request.x402GateHandled = true
       reply.code(403).send({ error: 'FORBIDDEN', message: `missing capability: ${requiredCapability}` })
       return
     }
@@ -1208,6 +1219,7 @@ const x402Protected = (requiredCapability?: string) => {
           rateLimitPerMinute: entitlement.rateLimitPerMinute
         }
       })
+      request.x402GateHandled = true
       reply.code(429).send({ error: 'RATE_LIMIT_EXCEEDED', message: 'too many requests for entitlement window' })
       return
     }
@@ -1226,6 +1238,7 @@ const x402Protected = (requiredCapability?: string) => {
           quotaRemaining
         }
       })
+      request.x402GateHandled = true
       reply.code(403).send({ error: 'QUOTA_EXHAUSTED', message: 'quota exceeded' })
       return
     }
@@ -1266,12 +1279,16 @@ const x402AgentReadGate = (requiredCapability?: string) => {
 }
 
 app.get('/v1/agent/stream/snapshot', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('stream.read.public')] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
   const token = request.headers['x-agent-token']
   const snapshot = store.getPublicSnapshot()
   reply.send({ ...snapshot, source: token ? 'agent' : 'public' })
 })
 
-app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
   const latest = store.audits.find((event) => event.resource === 'agent.analysis')
   if (!latest) {
     reply.code(404).send({ error: 'NOT_FOUND', message: 'no analysis available' })
@@ -1282,6 +1299,8 @@ app.get('/v1/agent/analysis/latest', { ...routeRateLimit(180, 60_000), preHandle
 })
 
 app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
   const query = request.query as any
   const limitRaw = Number(query?.limit ?? 20)
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 20
@@ -1296,18 +1315,26 @@ app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x40
 })
 
 app.get('/v1/agent/positions', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if (((_request as any).x402GateHandled) || (reply as any).sent || (reply as any).raw?.headersSent) return
   reply.send(store.positions)
 })
 
 app.get('/v1/agent/orders', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if (((_request as any).x402GateHandled) || (reply as any).sent || (reply as any).raw?.headersSent) return
   reply.send(store.orders)
 })
 
 app.get('/v1/agent/entitlement', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected()] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
   reply.send((request as EntitlementRequest).entitlement)
 })
 
 app.post('/v1/agent/command', { ...routeRateLimit(60, 60_000), preHandler: [x402Protected('command.status')] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
   const parsed = parseCommand(request.body)
   if (!parsed.ok) {
     reply.code(400).send({ error: 'INVALID_COMMAND', message: errorMessages(parsed.errors) })

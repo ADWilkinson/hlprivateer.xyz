@@ -64,6 +64,7 @@ rg -n \"^(HL_PRIVATE_KEY|DATABASE_URL)_FILE=\" -S config/.env || true
 
 x402 facilitator mode (paid agent endpoints):
 - Set:
+  - `X402_ENABLED=true`
   - `X402_PROVIDER=facilitator`
   - `X402_FACILITATOR_URL=https://facilitator.payai.network` (or another supported facilitator)
   - `X402_NETWORK=eip155:8453` (Base mainnet)
@@ -95,8 +96,8 @@ Until the wallet is funded, keep the runtime halted (`/halt`).
 
 ## 6) Resume Trading (Operator)
 When funded and ready, issue `/resume` via:
-- Operator UI (paste operator JWT and run command), or
-- `POST /v1/operator/command` (see `API.md`)
+- `POST /v1/operator/command` (see `API.md`), or
+- WS gateway `cmd.exec` as an operator (see `API.md`)
 
 If anything looks wrong:
 - `/halt` immediately
@@ -137,4 +138,3 @@ Monitor:
 systemctl status hlprivateer-burnin.service
 tail -f burnin-*.log
 ```
-

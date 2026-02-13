@@ -43,17 +43,17 @@ export async function createX402FacilitatorGate(params: {
 
     const result = await httpServer.processHTTPRequest(ctx)
     if (result.type === 'no-payment-required') {
-      reply.code(500).send({ error: 'X402_MISCONFIGURED', message: 'paid route missing x402 configuration' })
-      return
+      ;(request as any).x402GateHandled = true
+      return reply.code(500).send({ error: 'X402_MISCONFIGURED', message: 'paid route missing x402 configuration' })
     }
     if (result.type === 'payment-error') {
+      ;(request as any).x402GateHandled = true
       reply.code(result.response.status)
       for (const [name, value] of Object.entries(result.response.headers ?? {})) {
         reply.header(name, value)
       }
 
-      reply.send(result.response.body ?? {})
-      return
+      return reply.send(result.response.body ?? {})
     }
 
     if (result.type === 'payment-verified') {

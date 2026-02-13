@@ -72,6 +72,17 @@ const parsed = envSchema.parse({
   X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET')
 })
 
+// Keep x402 "mock" as a dev-only mode. Production should always run real facilitator-backed payments.
+if (parsed.NODE_ENV === 'production') {
+  if (!parsed.X402_ENABLED) {
+    throw new Error('production requires X402_ENABLED=true')
+  }
+
+  if (parsed.X402_PROVIDER !== 'facilitator') {
+    throw new Error('production requires X402_PROVIDER=facilitator (mock is dev-only)')
+  }
+}
+
 if (parsed.X402_PROVIDER === 'facilitator') {
   if (!parsed.X402_ENABLED) {
     throw new Error('X402_PROVIDER=facilitator requires X402_ENABLED=true')

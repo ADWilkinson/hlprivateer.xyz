@@ -1,8 +1,8 @@
 import './globals.css'
 import type { ReactNode } from 'react'
-import { Space_Mono } from 'next/font/google'
+import { IBM_Plex_Mono } from 'next/font/google'
 
-const spaceMono = Space_Mono({
+const ibmPlexMono = IBM_Plex_Mono({
   subsets: ['latin'],
   weight: ['400', '700'],
   variable: '--font-mono',
@@ -11,7 +11,7 @@ const spaceMono = Space_Mono({
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang='en' className={spaceMono.variable}>
+    <html lang='en' className={ibmPlexMono.variable}>
       <body className='hlp-body'>{children}</body>
     </html>
   )
