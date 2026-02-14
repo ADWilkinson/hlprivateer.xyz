@@ -262,9 +262,10 @@ function checkSafeModePosture(state: TradeState, positions: PositionSnapshot[], 
   return { ok: true }
 }
 
-function checkDrawdown(positions: PositionSnapshot[], maxDrawdownPct: number): CheckResult {
-  const grossExposureUsd = positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
-  const netExposureUsd = positions.reduce((sum, position) => sum + (position.side === 'LONG' ? position.notionalUsd : -position.notionalUsd), 0)
+function checkDrawdown(positions: PositionSnapshot[], proposal: StrategyProposal, maxDrawdownPct: number): CheckResult {
+  const projected = computeExposure(positions, proposal)
+  const grossExposureUsd = Math.abs(projected.grossExposureUsd)
+  const netExposureUsd = projected.netExposureUsd
   const projectedDrawdownPct = (grossExposureUsd === 0 ? 0 : Math.abs(netExposureUsd) / grossExposureUsd) * 100
 
   if (projectedDrawdownPct > maxDrawdownPct) {
@@ -360,7 +361,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'LEVERAGE', message: leverage.reason ?? 'leverage exceeded' })
   }
 
-  const drawdown = checkDrawdown(context.openPositions, config.maxDrawdownPct)
+  const drawdown = checkDrawdown(context.openPositions, context.proposal, config.maxDrawdownPct)
   if (!drawdown.ok) {
     reasons.push({ code: 'DRAWDOWN', message: drawdown.reason ?? 'drawdown exceeded' })
   }

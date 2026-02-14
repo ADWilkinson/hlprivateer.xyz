@@ -227,7 +227,10 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- If context is stale, contradictory, or incomplete, choose conservative actions.',
   '- Never invent symbols, metrics, or events not present in context.',
   '- Return strictly structured JSON only, no commentary.',
-  '- Prioritize stability and avoid unnecessary churn.'
+  '- Prioritize stability and avoid unnecessary churn.',
+  '- Use latest risk decisions to drive recovery: when a recent DENY cites DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE, require immediate risk-reduction first.',
+  '- If risk posture requires reduction, do not scale up notional or propose growth-facing changes.',
+  '- Preserve market neutrality and risk budgets: prioritize reduced gross first, then re-enable sizing only after reduced-risk state is confirmed.'
 ]
 
 const FLOOR_TAPE_CONTEXT_LINES = 12
@@ -245,6 +248,40 @@ type FloorTapePromptEntry = {
   level: 'INFO' | 'WARN' | 'ERROR'
   ageMs: number | null
   line: string
+}
+
+const RISK_RECOVERY_FORCE_EXIT_CODES = new Set([
+  'DRAWDOWN',
+  'EXPOSURE',
+  'LEVERAGE',
+  'SAFE_MODE',
+  'DEPENDENCY_FAILURE',
+  'NOTIONAL_PARITY',
+  'SYSTEM_GATED',
+  'STALE_DATA',
+  'LIQUIDITY',
+  'SLIPPAGE_BREACH'
+])
+const RISK_RECOVERY_TTL_MS = 120_000
+
+type RuntimeRiskReason = {
+  code: string
+  message: string
+  details?: Record<string, unknown>
+}
+
+type RuntimeRiskDecision = {
+  decision?: 'ALLOW' | 'ALLOW_REDUCE_ONLY' | 'DENY'
+  reasons?: RuntimeRiskReason[]
+  computedAt?: string
+  computed?: {
+    grossExposureUsd: number
+    netExposureUsd: number
+    projectedDrawdownPct: number
+    notionalImbalancePct: number
+  }
+  decisionId?: string
+  proposalCorrelation?: string
 }
 
 type InterAgentRoleContext = {
@@ -594,6 +631,52 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
         max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
       }
     }
+  }
+}
+
+function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
+  if (!decision || !Array.isArray(decision.reasons)) {
+    return []
+  }
+
+  return decision.reasons
+    .map((entry) => String(entry?.code ?? '').trim().toUpperCase())
+    .filter((code) => code.length > 0)
+}
+
+function shouldForceRiskRecovery(nowMs: number, positions: OperatorPosition[]): {
+  active: boolean
+  signature: string
+  reasonCodes: string[]
+  computed: RuntimeRiskDecision['computed'] | undefined
+  reasonMessage: string
+} {
+  if (!Array.isArray(positions) || positions.length === 0) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  const parsedAt = Date.parse(lastRiskDecision.computedAt)
+  if (!Number.isFinite(parsedAt) || !Number.isFinite(nowMs - parsedAt) || nowMs - parsedAt > RISK_RECOVERY_TTL_MS) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  const reasonCodes = parseRiskReasonCodes(lastRiskDecision)
+  const hasBlockingCode = reasonCodes.some((code) => RISK_RECOVERY_FORCE_EXIT_CODES.has(code))
+  if (!hasBlockingCode) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  const signature = reasonCodes.slice().sort().join('|')
+  return {
+    active: true,
+    signature,
+    reasonCodes,
+    computed: lastRiskDecision.computed,
+    reasonMessage: `risk denied for ${reasonCodes.join(', ')}`
   }
 }
 
@@ -1579,6 +1662,7 @@ async function generateStrategistDirective(params: {
         'Prefer MAINTAIN unless there is clear evidence to rotate or exit.',
         'Use ROTATE only when hedge quality or liquidity improves materially.',
         'Use EXIT if correlation breaks, volatility is extreme, or risk posture is RED.',
+        'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), force EXIT / flat-first behavior.',
         'Respect min/max notional multipliers and avoid growth in SAFE_MODE.',
         'Prefer lower multipliers when uncertainty rises.'
       ],
@@ -1628,7 +1712,9 @@ let lastOpsAt = 0
 let lastDirectiveAt = 0
 let lastProposal: StrategyProposal | null = null
 let lastProposalPublishedAt = 0
-let lastRiskDecision: { decision?: string; computedAt?: string } | null = null
+let lastRiskDecision: RuntimeRiskDecision | null = null
+let lastRiskRecoverySignature = ''
+let lastRiskRecoveryNoticeAt = 0
 let lastStateUpdate:
   | {
     mode?: string
@@ -2243,6 +2329,40 @@ async function runStrategistCycle(): Promise<void> {
 
   syncActiveBasketFromPositions(lastPositions)
   await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: baseTargetNotionalUsd, positions: lastPositions })
+  const riskRecovery = shouldForceRiskRecovery(now, lastPositions)
+  if (riskRecovery.active) {
+    if (riskRecovery.signature !== lastRiskRecoverySignature) {
+      lastRiskRecoverySignature = riskRecovery.signature
+      const computed = riskRecovery.computed
+      const safeExposure = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : 'na')
+      const exposure = computed
+        ? ` gross=${safeExposure(computed.grossExposureUsd)} net=${safeExposure(computed.netExposureUsd)} drawdown=${safeExposure(computed.projectedDrawdownPct)}%`
+        : ''
+
+      if (now - lastRiskRecoveryNoticeAt > 60_000) {
+        lastRiskRecoveryNoticeAt = now
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: `risk recovery enforced: ${riskRecovery.reasonMessage}${exposure}`
+        })
+      }
+    }
+
+    if (activeDirective.decision !== 'EXIT') {
+      activeDirective = {
+        decision: 'EXIT',
+        targetNotionalMultiplier: 1,
+        rationale: riskRecovery.reasonMessage,
+        confidence: 1,
+        decidedAt: new Date().toISOString()
+      }
+      lastDirectiveAt = now
+    }
+  } else {
+    lastRiskRecoverySignature = ''
+  }
 
   const scaledTargetNotionalUsd = Number(
     Math.max(
@@ -2543,9 +2663,27 @@ const start = async (): Promise<void> => {
     }
     const payload = envelope.payload as any
     if (payload && typeof payload === 'object') {
+      const reasons = Array.isArray(payload.reasons)
+        ? payload.reasons
+          .map((item: any) => ({
+            code: typeof item?.code === 'string' ? item.code : '',
+            message: typeof item?.message === 'string' ? item.message : '',
+            details: typeof item?.details === 'object' && item.details ? item.details as Record<string, unknown> : undefined
+          }))
+          .filter((reason: RuntimeRiskReason) => reason.code)
+        : undefined
       lastRiskDecision = {
         decision: typeof payload.decision === 'string' ? payload.decision : undefined,
-        computedAt: typeof payload.computedAt === 'string' ? payload.computedAt : undefined
+        computedAt: typeof payload.computedAt === 'string' ? payload.computedAt : undefined,
+        reasons,
+        decisionId: typeof payload.decisionId === 'string' ? payload.decisionId : undefined,
+        proposalCorrelation: typeof payload.proposalCorrelation === 'string' ? payload.proposalCorrelation : undefined,
+        computed: typeof payload.computed === 'object' && payload.computed ? {
+          grossExposureUsd: Number(payload.computed.grossExposureUsd),
+          netExposureUsd: Number(payload.computed.netExposureUsd),
+          projectedDrawdownPct: Number(payload.computed.projectedDrawdownPct),
+          notionalImbalancePct: Number(payload.computed.notionalImbalancePct)
+        } : undefined
       }
     }
   })
