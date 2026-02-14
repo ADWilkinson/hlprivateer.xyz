@@ -589,7 +589,7 @@ function summarizeActiveBasketContext(context: BasketSelection['context'] | unde
   }
 }
 
-const PROMPT_CONTEXT_MAX_CHARS = 9000
+const PROMPT_CONTEXT_MAX_CHARS = 65000
 
 function toPromptPayload(value: unknown): string {
   const raw = JSON.stringify(value)

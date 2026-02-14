@@ -87,7 +87,8 @@ export const env = z
 
     // Basket selection (dynamic basket against HYPE).
     AGENT_BASKET_SIZE: z.coerce.number().int().min(1).max(12).default(3),
-    AGENT_BASKET_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(120).default(40),
+    // Keep candidate universe broad by default so the LLM can see the full tradable space.
+    AGENT_BASKET_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(300).default(240),
     AGENT_BASKET_REFRESH_MS: z.coerce.number().int().positive().default(30 * 60_000),
 
     // Basket feature extraction (historical + external metrics).
