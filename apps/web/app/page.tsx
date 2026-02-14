@@ -144,7 +144,7 @@ export default function DeckPage() {
     scribe: null,
     ops: null,
   }))
-  const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
 
   const logo = useMemo(() => asciiLogo(), [])
   const tapeRef = useRef<HTMLDivElement | null>(null)
@@ -159,7 +159,7 @@ export default function DeckPage() {
 
   useEffect(() => {
     const stored = localStorage.getItem('hlp-theme')
-    if (stored === 'dark') setTheme('dark')
+    if (stored === 'light') setTheme('light')
   }, [])
 
   const toggleTheme = () => {
