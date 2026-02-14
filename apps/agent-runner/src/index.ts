@@ -231,6 +231,8 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Use latest risk decisions to drive recovery: when a recent DENY cites DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE, require immediate risk-reduction first.',
   '- If risk posture requires reduction, do not scale up notional or propose growth-facing changes.',
   '- Preserve market neutrality and risk budgets: prioritize reduced gross first, then re-enable sizing only after reduced-risk state is confirmed.',
+  '- All non-EXIT proposals must state expected gross/notional outcome and never exceed recovery constraints.',
+  '- Treat SAFE_MODE and DEPENDENCY_FAILURE as hard-reduce states: request only flat/close actions until state is cleared.',
   '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and only risk mitigation command is /flatten.',
   '- Read the floor context memory every cycle: active directive, target risk caps, allocation multipliers, and latest risk/posture tape before sizing any basket leg.',
   '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.'
@@ -2338,6 +2340,10 @@ async function runStrategistCycle(): Promise<void> {
       level: 'WARN',
       line: `strategy paused (mode=${lastMode})`
     })
+    return
+  }
+
+  if (lastMode === 'SAFE_MODE' && lastPositions.length === 0) {
     return
   }
 

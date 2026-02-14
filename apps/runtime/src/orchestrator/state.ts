@@ -540,6 +540,15 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         }
       }
 
+      if (state.mode === 'SAFE_MODE' && state.positions.length === 0) {
+        runtimeProposalCounter.inc({ status: 'safe_mode_flat_hold' })
+        if (nowMs - lastSafeModeHoldNoticeAtMs >= 60_000) {
+          lastSafeModeHoldNoticeAtMs = nowMs
+          await publishStateUpdate(cycleCorrelationId, 'safe mode hold: no open exposure, awaiting recovery conditions')
+        }
+        return
+      }
+
       // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
       // to support the configured target notional under the leverage cap.
       if (env.ENABLE_LIVE_OMS && state.positions.length === 0) {
