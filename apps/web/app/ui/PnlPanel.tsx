@@ -58,7 +58,7 @@ function toSigned(value: number): string {
 }
 
 function toSignedUsd(value: number | undefined): string {
-  if (!Number.isFinite(value)) return '—'
+  if (value === undefined || !Number.isFinite(value)) return '—'
   const sign = value > 0 ? '+' : ''
   return `${sign}${ACCOUNT_VALUE_FORMAT.format(value)}`
 }
