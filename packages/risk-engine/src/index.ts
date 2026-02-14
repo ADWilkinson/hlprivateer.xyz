@@ -407,20 +407,26 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     notionalImbalancePct: Number((computeImbalance(context.openPositions, context.proposal) * 100).toFixed(2))
   }
 
-  const hasBlockers = reasons.some((entry) =>
-    [
-      'DEPENDENCY_FAILURE',
-      'SYSTEM_GATED',
-      'NOTIONAL_PARITY',
-      'DRAWDOWN',
-      'EXPOSURE',
-      'STALE_DATA',
-      'LIQUIDITY',
-      'LEVERAGE',
-      'SLIPPAGE_BREACH',
-      'ACTOR_NOT_ALLOWED'
-    ].includes(entry.code)
-  )
+  const blockingReasonCodes = [
+    'DEPENDENCY_FAILURE',
+    'SYSTEM_GATED',
+    'NOTIONAL_PARITY',
+    'DRAWDOWN',
+    'EXPOSURE',
+    'STALE_DATA',
+    'LIQUIDITY',
+    'LEVERAGE',
+    'SLIPPAGE_BREACH',
+    'ACTOR_NOT_ALLOWED'
+  ]
+
+  const hasBlockers = reasons.some((entry) => {
+    if (isSafeModeExit && entry.code === 'DRAWDOWN') {
+      return false
+    }
+
+    return blockingReasonCodes.includes(entry.code)
+  })
   const hasSafeModeBlocker = context.state === 'SAFE_MODE' && !safeMode.ok
   const decision: RiskDecision =
     hasBlockers || hasSafeModeBlocker

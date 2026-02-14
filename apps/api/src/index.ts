@@ -156,8 +156,18 @@ const securityEventCounter = new promClient.Counter({
 
 app.setErrorHandler(async (error, request, reply) => {
   request.log.error(error)
+  if (reply.sent || reply.raw?.headersSent) {
+    return
+  }
+
+  const rawStatusCode = (error as { statusCode?: unknown }).statusCode
+  const statusCode = typeof rawStatusCode === 'number' && Number.isInteger(rawStatusCode)
+    ? rawStatusCode
+    : 500
   const message = error instanceof Error ? error.message : String(error)
-  reply.code(500).send({ error: 'INTERNAL', message })
+  const errorName = statusCode >= 500 ? 'INTERNAL' : 'BAD_REQUEST'
+
+  reply.code(statusCode).send({ error: errorName, message })
 })
 
 let x402Facilitator: Awaited<ReturnType<typeof createX402FacilitatorGate>> | null = null
@@ -642,25 +652,23 @@ app.get('/v1/public/floor-tape', routeRateLimit(180, 60_000), async () => {
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
   const operatorLoginSecret = env.OPERATOR_LOGIN_SECRET?.trim()
   if (!operatorLoginSecret && env.NODE_ENV === 'production') {
-    reply.code(404)
-    return { error: 'DISABLED', message: 'operator login disabled in production' }
+    return reply.code(404).send({ error: 'DISABLED', message: 'operator login disabled in production' })
   }
 
   if (operatorLoginSecret) {
     const providedSecret = String(request.headers['x-operator-login-secret'] ?? '')
     if (!providedSecret || !secretsEqual(providedSecret, operatorLoginSecret)) {
-      reply.code(401)
-      return { error: 'UNAUTHORIZED', message: 'missing or invalid operator login secret' }
+      return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing or invalid operator login secret' })
     }
   }
 
-  const body = request.body as any
+  const body = (request.body as { user?: string; mfa?: boolean } | undefined) ?? {}
   const user = String(body.user ?? 'operator')
   // MFA is currently a boolean claim gate. In production, enforce `mfa=true` on issued tokens.
   const mfa = env.NODE_ENV === 'production' ? true : Boolean(body.mfa ?? true)
   const roles = [OPERATOR_VIEW_ROLE, ...(adminUsers.has(user) ? [OPERATOR_ADMIN_ROLE] : [])]
   const token = await app.jwt.sign({ sub: user, roles, mfa })
-  return { token }
+  return reply.send({ token })
 })
 
 app.post('/v1/operator/refresh', { ...routeRateLimit(30, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
@@ -822,7 +830,7 @@ app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [a
     reason: sanitizedReason,
     actor: 'operator'
   })
-  reply.send(result)
+  return reply.send(result)
 })
 
 app.patch('/v1/operator/config/risk', { ...routeRateLimit(30, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
@@ -1105,7 +1113,7 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
     grantedCapabilities,
     entitlementId: challenge.challengeId
   })
-  reply.send({ challenge, entitlement })
+  return reply.send({ challenge, entitlement })
 })
 
 const x402Protected = (requiredCapability?: string) => {
@@ -1640,7 +1648,7 @@ app.post('/v1/agent/command', { ...routeRateLimit(60, 60_000), preHandler: [x402
     message: 'agent command queued',
     requestId
   })
-  reply.send(result)
+  return reply.send(result)
 })
 
 app.post('/v1/agent/unlock/:tier', routeRateLimit(30, 60_000), async (request, reply) => {
@@ -1673,7 +1681,7 @@ app.post('/v1/agent/unlock/:tier', routeRateLimit(30, 60_000), async (request, r
     }
   })
   await store.setEntitlement({ entitlementId: challenge.challengeId, entitlement })
-  reply.send({ challenge, entitlement })
+  return reply.send({ challenge, entitlement })
 })
 
 app.get('/v1/security/refresh-secrets', { ...routeRateLimit(10, 60_000), preHandler: [app.authenticate] }, async (_request, reply) => {
