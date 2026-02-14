@@ -137,18 +137,27 @@ export function asciiLogo(): string {
 export function asciiCrewMap(activeByRole: CrewHeartbeat, nowMs: number): string {
   const marker = (role: CrewRole) => {
     const lastPing = activeByRole[role]
-    if (!lastPing) return '\u00B7'
+    if (!lastPing) return ' ◦ '
     const age = Math.max(0, nowMs - lastPing)
-    if (age <= 5_000) return '\u25C9'
-    if (age <= HEARTBEAT_WINDOW_MS) return '\u25CB'
-    return '\u25A1'
+    if (age <= 5_000) return ' ◉ '
+    if (age <= HEARTBEAT_WINDOW_MS * 0.35) return ' ◍ '
+    if (age <= HEARTBEAT_WINDOW_MS * 0.75) return ' ◎ '
+    return ' ◌ '
   }
 
+  const scout = marker('scout')
+  const research = marker('research')
+  const strategist = marker('strategist')
+  const ops = marker('ops')
+  const risk = marker('risk')
+  const scribe = marker('scribe')
+  const execution = marker('execution')
+
   return [
-    '╔═══════════════ TRADING FLOOR ════════════════╗',
-    `║ ${marker('scout')} SCOUT    ${marker('research')} RESEARCH    ${marker('strategist')} STRATEGY ║`,
-    `║            ${marker('ops')} OPS                   ║`,
-    `║ ${marker('risk')} RISK      ${marker('scribe')} SCRIBE    ${marker('execution')} EXECUTE ║`,
+    '╔═══════════════ TRADING FLOOR MAP ═══════════════╗',
+    `║${scout} SCOUT ${research} RESEARCH ${strategist} STRATEGY║`,
+    `║             ${ops} OPS                         ║`,
+    `║${risk} RISK ${scribe} SCRIBE ${execution} EXECUTE ║`,
     '╚═══════════════════════════════════════════════╝',
   ].join('\n')
 }
