@@ -18,6 +18,8 @@ SYSTEMD_SOURCE_DIR="${SYSTEMD_SOURCE_DIR:-infra/systemd}"
 RUN_LOCAL_SMOKE="${RUN_LOCAL_SMOKE:-1}"
 RESTART_WEB_SERVICE="${RESTART_WEB_SERVICE:-1}"
 RESTART_CLOUDFLARED="${RESTART_CLOUDFLARED:-1}"
+SKIP_GIT_FETCH="${SKIP_GIT_FETCH:-0}"
+SKIP_GIT_RESET="${SKIP_GIT_RESET:-0}"
 
 require_cmd bun
 require_cmd git
@@ -40,9 +42,20 @@ log "branch: $REPO_BRANCH"
 cd "$ROOT_DIR"
 
 log "fetching git updates"
-git fetch origin
-git checkout "$REPO_BRANCH"
-git reset --hard "origin/$REPO_BRANCH"
+if [[ "$SKIP_GIT_FETCH" == "1" ]]; then
+  log "SKIP_GIT_FETCH=1, skipping git fetch"
+else
+  git fetch origin
+  log "fetch complete"
+fi
+
+if [[ "$SKIP_GIT_RESET" == "1" ]]; then
+  log "SKIP_GIT_RESET=1, skipping branch checkout/reset"
+else
+  git checkout "$REPO_BRANCH"
+  git reset --hard "origin/$REPO_BRANCH"
+  log "checked out/reset $REPO_BRANCH from origin"
+fi
 
 log "installing dependencies"
 bun install

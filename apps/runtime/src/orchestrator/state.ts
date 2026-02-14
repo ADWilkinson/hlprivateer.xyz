@@ -63,7 +63,7 @@ export interface RuntimeHandle {
 type RuntimeRiskPolicy = Omit<RiskConfig, 'failClosedOnDependencyError'>
 
 type ParsedRiskPolicyCommand = {
-  patch: Partial<RuntimeRiskPolicy>
+  patch: RuntimeRiskPolicy
 }
 
 type RiskPolicyValidationError = {

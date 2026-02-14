@@ -448,7 +448,9 @@ function sanitizePositionRows(raw: unknown, maxRows = 200): Array<Record<string,
         ...(id ? { id } : {}),
       }
     })
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .filter((entry): entry is { symbol: string } & Record<string, unknown> => {
+      return Boolean(entry)
+    })
     .slice(0, maxRows)
 }
 
