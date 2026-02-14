@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body
-        className={`${terminalFont.className} min-h-screen bg-hlpBg dark:bg-hlpBgDark bg-[radial-gradient(circle_at_top,_#efeadf_0%,_#efe3cb_40%,_#f0e4d0_100%)] text-hlpFg transition-colors duration-300 antialiased selection:bg-hlpPositive/25 selection:text-hlpBg dark:bg-[radial-gradient(circle_at_top,_#121924_0%,_#1f2d3e_42%,_#121924_100%)] dark:text-hlpFgDark dark:selection:bg-hlpPositiveDark/30`}
+        className={`${terminalFont.className} min-h-screen bg-hlpBg dark:bg-hlpBgDark bg-[radial-gradient(circle_at_top,_#F4EEE8_0%,_#FEF3E2_40%,_#FDE6C4_100%)] text-hlpFg transition-colors duration-300 antialiased selection:bg-hlpPositive/25 selection:text-hlpBg dark:bg-[radial-gradient(circle_at_top,_#040728_0%,_#27272A_42%,_#040728_100%)] dark:text-hlpFgDark dark:selection:bg-hlpPositiveDark/30`}
       >
         {children}
       </body>
