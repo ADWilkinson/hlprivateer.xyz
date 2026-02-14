@@ -1,0 +1,60 @@
+# llms.txt - Agent Navigation Guide for HL Privateer
+
+Project purpose:
+- Build and operate a self-hosted agentic trading platform on Hyperliquid with deterministic risk hard-gates.
+
+Primary entrypoints:
+- Product + architecture: `docs/SPEC.md`
+- API contracts: `API.md`
+- Security policies: `SECURITY.md`
+- Operations: `RUNBOOK.md`
+- Go-live checklist: `docs/GO_LIVE.md`
+- Agent runner dev: `docs/AGENT_RUNNER.md`
+- Agent capabilities: `skills.md`
+- x402 setup: `docs/X402_SELLER_QUICKSTART.md`
+
+Repository map for agents:
+- `apps/api`: REST, auth, x402 enforcement
+- `apps/runtime`: strategy orchestration and OMS integration
+- `apps/ws-gateway`: websocket fanout and command channel
+- `apps/web`: ASCII floor UI and operator console
+- `packages/contracts`: zod schemas and shared types
+- `packages/risk-engine`: deterministic risk checks (hard-gate)
+- `packages/plugin-sdk`: plugin contract and sandbox rules
+- `packages/event-bus`: Redis Streams adapters and replay
+- `packages/agent-sdk`: external agent client utilities
+
+External-agent execution map:
+- Use `POST /v1/agent/handshake` to obtain entitlement context and negotiated capabilities.
+- Pay-protected routes are enforced by `x402` + entitlement checks:
+  - `GET /v1/agent/stream/snapshot` (`stream.read.public`)
+  - `GET /v1/agent/analysis/latest` (`analysis.read`)
+  - `GET /v1/agent/analysis` (`analysis.read`)
+  - `GET /v1/agent/positions` (`command.positions`)
+  - `GET /v1/agent/orders` (`command.positions`)
+  - `GET /v1/agent/data/overview` (`market.data.read`)
+  - `GET /v1/agent/insights` (`agent.insights.read`)
+  - `GET /v1/agent/copy-trade/signals` (`copy.signals.read`)
+  - `GET /v1/agent/copy-trade/positions` (`copy.positions.read`)
+- Commands and control are available via `POST /v1/agent/command` with capability-guarded actor checks.
+
+Mandatory constraints for all agent-generated changes:
+- Never bypass risk engine for order execution.
+- Preserve pair-trade invariant: LONG HYPE vs SHORT basket.
+- Preserve equal-notional enforcement and risk circuit breakers.
+- Public responses must expose PnL percent only and obfuscated fields.
+- Any privileged command requires audit reason.
+- External-facing agents should respect capability gates and dynamic risk policy adjustments emitted in `riskPolicy` payloads.
+
+Agent workflow:
+1. Read contracts in `packages/contracts` before editing service code.
+2. Propose changes as typed interfaces first.
+3. Ensure new endpoints/events are reflected in `API.md`.
+4. Add or update threat assumptions in `SECURITY.md` when security-sensitive.
+5. Add runbook steps in `RUNBOOK.md` when operational behavior changes.
+
+Definition of safe completion:
+- Type-safe interfaces updated.
+- Risk and auth boundaries preserved.
+- Audit trail coverage maintained.
+- Docs updated for humans and agents.
