@@ -26,15 +26,20 @@ WORKDIR /app
 ARG APP
 ENV APP=$APP
 ENV NODE_ENV=production
-ENV HOME=/home/hlp
-ENV PATH="/home/hlp/.bun/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
+ENV HOME=/home/bun
+ENV BUN_INSTALL=/home/bun/.bun
+ENV PATH="/home/bun/.bun/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
 COPY --from=builder /app /app
 
-RUN addgroup --system --gid 1001 hlp && adduser --system --home /home/hlp --uid 1001 --ingroup hlp
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends nodejs \
+  && rm -rf /var/lib/apt/lists/*
 
-USER hlp
-
+RUN mkdir -p /home/bun/.bun
 RUN bun install -g @anthropic-ai/claude-code @openai/codex
+RUN chown -R bun:bun /home/bun/.bun
+
+USER bun
 
 CMD ["sh", "-lc", "case \"$APP\" in\n  api) bun run --cwd /app/apps/api start ;;\n  runtime) bun run --cwd /app/apps/runtime start ;;\n  ws-gateway) bun run --cwd /app/apps/ws-gateway start ;;\n  agent-runner) bun run --cwd /app/apps/agent-runner start ;;\n  web) bun run --cwd /app/apps/web start ;;\n  *) echo \"unknown APP value: $APP\"; exit 1 ;;\n esac"]
