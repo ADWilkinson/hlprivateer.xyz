@@ -20,7 +20,6 @@ import {
 import { AsciiBackground } from './ui/AsciiBackground'
 import { AsciiDivider } from './ui/AsciiDivider'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
-import { FloorPlanPanel } from './ui/FloorPlanPanel'
 import { FloorHeader } from './ui/FloorHeader'
 import { PnlPanel } from './ui/PnlPanel'
 import { StatusStrip } from './ui/StatusStrip'
@@ -31,7 +30,7 @@ import { X402AgentMaterialsPanel } from './ui/X402AgentMaterialsPanel'
 type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
 type CrewLast = Record<CrewRole, TapeEntry | null>
-type SectionKey = 'status' | 'pnl' | 'floorPlan' | 'crew' | 'tape' | 'x402'
+type SectionKey = 'status' | 'pnl' | 'crew' | 'tape' | 'x402'
 
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
@@ -348,7 +347,6 @@ export default function DeckPage() {
   const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
     status: false,
     pnl: false,
-    floorPlan: true,
     crew: true,
     tape: true,
     x402: true,
@@ -779,18 +777,6 @@ export default function DeckPage() {
           />
 
           <AsciiDivider variant='wave' />
-
-          <FloorPlanPanel
-            isLoading={isBootstrapping}
-            crewHeartbeat={crewHeartbeat}
-            nowMs={crewNow}
-            deckFeedAgeMs={deckFeedAgeMs}
-            deckMissing={deckMissing}
-            deckHeartbeatMs={deckHeartbeatMs}
-            isCollapsed={collapsedSections.floorPlan}
-            onToggle={() => toggleSection('floorPlan')}
-            sectionId='floorPlan'
-          />
 
           <CrewStationsPanel
             crewLast={crewLast}
