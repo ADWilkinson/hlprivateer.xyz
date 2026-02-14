@@ -243,7 +243,7 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
       'openPositionNotionalUsd' in payload || 'openPositionNotional' in payload || 'positionNotional' in payload || 'open_position_notional' in payload || 'position_notional' in payload
         ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
         : fallback.openPositionNotionalUsd,
-    accountValueUsd: nextAccountValueUsd,
+    accountValueUsd: nextAccountValueUsd ?? fallback.accountValueUsd,
   }
 }
 
@@ -536,12 +536,36 @@ export default function DeckPage() {
         socket.onmessage = (event) => {
           if (!running) return
           try {
-            const parsed = JSON.parse(event.data as string) as { type: string; payload: unknown; channel?: string }
-            if (parsed.type !== 'event' || parsed.channel !== 'public') {
-              logInfo('websocket envelope ignored', { type: parsed.type, channel: parsed.channel })
+            const parsed = JSON.parse(event.data as string) as { type?: unknown; payload?: unknown; channel?: unknown; ts?: unknown }
+            const envelopeType =
+              typeof parsed?.type === 'string' ? parsed.type.trim().toLowerCase() : ''
+            const envelopeChannel = typeof parsed?.channel === 'string' ? parsed.channel : ''
+            const hasEnvelopePayload = Object.prototype.hasOwnProperty.call(parsed, 'payload')
+            const payload = (envelopeType === 'event' && envelopeChannel === 'public' && hasEnvelopePayload
+              ? parsed.payload
+              : parsed) as SnapshotPayload
+
+            if (envelopeType === 'event' && envelopeChannel !== 'public') {
+              logInfo('websocket envelope ignored', { type: envelopeType, channel: envelopeChannel })
               return
             }
-            const payload = parsed.payload as SnapshotPayload
+
+            if (envelopeType === 'heartbeat') {
+              const ts = typeof parsed?.ts === 'string' ? Date.parse(parsed.ts) : NaN
+              setDeckHeartbeatMs(Number.isFinite(ts) ? ts : Date.now())
+              return
+            }
+
+            if (envelopeType === 'event' && envelopeChannel === 'public' && !hasEnvelopePayload) {
+              logWarn('websocket event missing payload', { type: envelopeType, channel: envelopeChannel })
+              return
+            }
+
+            if (!payload || typeof payload !== 'object') {
+              logWarn('unhandled websocket payload type', payload)
+              return
+            }
+
             const payloadType =
               payload && typeof payload === 'object' && 'type' in payload && typeof payload.type === 'string'
                 ? payload.type.trim().toLowerCase()
