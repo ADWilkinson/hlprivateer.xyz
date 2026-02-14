@@ -175,7 +175,7 @@ export function X402AgentMaterialsPanel() {
         />
 
         <AsciiTable
-          caption='x402 route pricing (env override)'
+          caption='x402 route pricing'
           columns={[
             { key: 'route', header: 'ROUTE', align: 'left', width: '58%' },
             { key: 'price', header: 'PRICE', align: 'right', width: '12%' },
@@ -184,11 +184,6 @@ export function X402AgentMaterialsPanel() {
           data={x402Pricing}
           emptyText='no pricing data'
         />
-
-        <div className='grid gap-2 text-[10px] text-hlpMuted md:grid-cols-2'>
-          <span>Provider modes: mock (local verify) or facilitator (canonical x402 flow).</span>
-          <span>Capability keys and policy logic are mutable by risk-aware automation, not hardcoded constants.</span>
-        </div>
       </div>
     </section>
   )
