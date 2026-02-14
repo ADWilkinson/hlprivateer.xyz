@@ -21,7 +21,6 @@ import { CREW } from './ui/floor-dashboard'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
 import { FloorFooter } from './ui/FloorFooter'
 import { FloorHeader } from './ui/FloorHeader'
-import { FloorPlanPanel } from './ui/FloorPlanPanel'
 import { PnlPanel } from './ui/PnlPanel'
 import { StatusStrip } from './ui/StatusStrip'
 import { TapeSection } from './ui/TapeSection'
@@ -294,13 +293,6 @@ export default function DeckPage() {
         deckMissing={deckMissing}
       />
       <PnlPanel snapshot={snapshot} chart={chart} />
-      <FloorPlanPanel
-        crewHeartbeat={crewHeartbeat}
-        nowMs={crewNow}
-        deckFeedAgeMs={deckFeedAgeMs}
-        deckMissing={deckMissing}
-        deckHeartbeatMs={deckHeartbeatMs}
-      />
       <CrewStationsPanel crewLast={crewLast} crewHeartbeat={crewHeartbeat} crewSignals={crewSignals} nowMs={crewNow} />
       <TapeSection tape={tape} tapeRef={tapeRef} />
       <FloorFooter apiEndpoint={apiUrl('/v1/agent/analysis/latest')} />
