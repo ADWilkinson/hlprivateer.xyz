@@ -1,5 +1,6 @@
 import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
 import { crewLabel, type CrewHeartbeat, type CrewRole, type CrewStats, formatAge, formatTime, heartbeatLevel, floorHeartbeatGlyph, type TapeEntry } from './floor-dashboard'
+import { cardClass, cardStyle, sectionTitleClass } from './ascii-style'
 
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
@@ -14,12 +15,12 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
   const getActivityWidth = (beatScore: number) => `${Math.max(0, Math.min(100, Math.round(beatScore / 10) * 10))}%`
   return (
     <AsciiCard
-      title='CREW STATIONS'
-      className='border border-[var(--border)] bg-[var(--bg-raised)] rounded-[var(--r)] shadow-[var(--panel-shadow)] text-[var(--fg)]'
+      className={cardClass}
+      style={cardStyle}
     >
       <div className='flex items-center justify-between border-b border-[var(--border)] px-3 py-2'>
-        <div className='text-[9px] uppercase tracking-[0.25em] text-[var(--fg-muted)]'>CREW STATIONS</div>
-        <AsciiBadge color='success'>7 AGENTS</AsciiBadge>
+        <div className={sectionTitleClass}>CREW STATIONS</div>
+        <AsciiBadge color='success' style={{ color: 'var(--positive)' }}>7 AGENTS</AsciiBadge>
       </div>
       <div className='grid grid-cols-1 gap-1 p-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
         {(Object.keys(crewHeartbeat) as CrewRole[]).map((role) => {

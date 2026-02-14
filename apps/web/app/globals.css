@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   --r: 10px;
   --gap: 4px;
 }
@@ -64,7 +65,7 @@ body {
 .hlp-body {
   min-height: 100vh;
   color: var(--fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
   background: var(--bg);
@@ -127,7 +128,7 @@ body {
 
 .floor {
   width: 100%;
-  max-width: min(1120px, calc(100vw - 16px));
+  max-width: min(1320px, calc(100vw - 16px));
   margin: 0 auto;
   padding: 10px;
   display: flex;
