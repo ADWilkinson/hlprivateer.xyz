@@ -13,7 +13,8 @@ coverage
 apps/web/out
 *.log
 .DS_Store
-secrets
+secrets/*
+!secrets/README.md
 *.pem
 *.key
 config/secrets.*.plain.yaml
