@@ -71,6 +71,12 @@ export const env = z
     RISK_STALE_DATA_MS: z.coerce.number().positive().default(3000),
     RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().positive().default(1.1),
     RISK_NOTIONAL_PARITY_TOLERANCE: z.number().min(0).max(1).default(0.015),
+    // Keep "flat" semantics consistent with runtime (dust positions should not trap recovery loops).
+    RUNTIME_FLAT_DUST_NOTIONAL_USD: z.coerce
+      .number()
+      .nonnegative()
+      .default(50)
+      .transform((value) => Math.max(50, value)),
 
     // Hyperliquid info endpoint for universe selection.
     HL_INFO_URL: z.string().default('https://api.hyperliquid.xyz/info'),

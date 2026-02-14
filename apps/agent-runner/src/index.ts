@@ -4,6 +4,7 @@ import type { EventEnvelope, AuditEvent, OperatorPosition, StrategyProposal } fr
 import { parseStrategyProposal } from '@hl/privateer-contracts'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
 import { env } from './config'
+import { buildFlatSignature, meaningfulPositions } from './exposure'
 import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliquid'
 import { computePriceFeaturePack, type PriceFeature } from './price-features'
 import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMarketSnapshot } from './coingecko'
@@ -713,7 +714,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   }
 }
 
-const EXIT_NOTIONAL_EPSILON_USD = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
+const EXIT_NOTIONAL_EPSILON_USD = env.RUNTIME_FLAT_DUST_NOTIONAL_USD
 
 function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
   if (!decision || !Array.isArray(decision.reasons)) {
@@ -1579,43 +1580,6 @@ function signedNotionalBySymbol(positions: OperatorPosition[]): Map<string, numb
   return currentBySymbol
 }
 
-function buildFlatSignature(positions: OperatorPosition[]): string {
-  const rows = positions
-    .filter((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) >= EXIT_NOTIONAL_EPSILON_USD)
-    .map((position) => ({
-      symbol: String(position.symbol).toUpperCase(),
-      side: position.side,
-      qtyBucket: Number((Math.round(Math.abs(position.qty) * 10000) / 10000).toFixed(4))
-    }))
-    .sort((a, b) => {
-      const symbolCmp = a.symbol.localeCompare(b.symbol)
-      if (symbolCmp !== 0) {
-        return symbolCmp
-      }
-      return a.side.localeCompare(b.side)
-    })
-
-  if (rows.length === 0) {
-    return 'FLAT'
-  }
-
-  return rows.map((row) => `${row.symbol}:${row.side}:${row.qtyBucket.toFixed(4)}`).join('|')
-}
-
-function hasDustOnlyExposure(positions: OperatorPosition[], thresholdUsd: number): boolean {
-  if (positions.length === 0) {
-    return false
-  }
-
-  const threshold = Math.max(0, thresholdUsd)
-  const hasMeaningful = positions.some((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) >= threshold)
-  if (hasMeaningful) {
-    return false
-  }
-
-  return positions.some((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) > 1e-9)
-}
-
 function buildTargetProposal(params: {
   createdBy: string
   basketSymbols: string[]
@@ -1729,7 +1693,6 @@ function buildExitProposal(params: {
   executionTactics: { expectedSlippageBps: number; maxSlippageBps: number }
   confidence?: number
   rationale?: string
-  forceFullClose?: boolean
 }): StrategyProposal | null {
   if (params.positions.length === 0) {
     return null
@@ -1737,7 +1700,7 @@ function buildExitProposal(params: {
 
   const currentBySymbol = signedNotionalBySymbol(params.positions)
   const symbols = [...new Set(params.positions.map((position) => position.symbol))].sort((a, b) => a.localeCompare(b))
-  const minLegUsd = params.forceFullClose ? 0 : Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
+  const minLegUsd = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
 
   const legs = symbols
     .map((symbol) => {
@@ -2791,7 +2754,6 @@ async function runStrategistCycle(): Promise<void> {
   const baseTargetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
   const tactics = computeExecutionTactics({ signals })
   const nowMs = Date.now()
-  const dustOnlyExposure = hasDustOnlyExposure(lastPositions, EXIT_NOTIONAL_EPSILON_USD)
   const safeFlatBasket = activeBasket.basketSymbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_BASKET_REFRESH_MS
 
   syncActiveBasketFromPositions(lastPositions)
@@ -2831,26 +2793,6 @@ async function runStrategistCycle(): Promise<void> {
     lastRiskRecoverySignature = ''
   }
 
-  if (lastPositions.length > 0 && dustOnlyExposure) {
-    if (activeDirective.decision !== 'EXIT') {
-      activeDirective = {
-        decision: 'EXIT',
-        targetNotionalMultiplier: 1,
-        rationale: 'dust-only exposure detected: force full flatten',
-        confidence: 1,
-        decidedAt: new Date().toISOString()
-      }
-      lastDirectiveAt = now
-      lastExitProposalSignature = null
-      await publishTape({
-        correlationId: ulid(),
-        role: 'ops',
-        level: 'WARN',
-        line: 'dust-only exposure detected; forcing full flatten'
-      })
-    }
-  }
-
   const scaledTargetNotionalUsd = Number(
     Math.max(
       100,
@@ -2864,8 +2806,8 @@ async function runStrategistCycle(): Promise<void> {
   }
 
   if (activeDirective.decision === 'EXIT') {
-    const exitSignature = buildFlatSignature(lastPositions)
-    if (exitSignature === 'FLAT' && !dustOnlyExposure) {
+    const exitSignature = buildFlatSignature(lastPositions, EXIT_NOTIONAL_EPSILON_USD)
+    if (exitSignature === 'FLAT') {
       const noActionLine = `no action (mode=${lastMode} already flat)`
       const now = Date.now()
       const shouldPublishNoAction =
@@ -2918,8 +2860,7 @@ async function runStrategistCycle(): Promise<void> {
       requestedMode: requestedModeFromEnv(),
       executionTactics: tactics,
       confidence: activeDirective.confidence,
-      rationale: activeDirective.rationale,
-      forceFullClose: dustOnlyExposure
+      rationale: activeDirective.rationale
     })
   } else {
     // When flat, ensure we have a fresh basket selected before attempting entry.
@@ -3224,7 +3165,7 @@ const start = async (): Promise<void> => {
     if (envelope.type === 'POSITION_UPDATE') {
       const payload = envelope.payload as any
       if (Array.isArray(payload)) {
-        lastPositions = payload as OperatorPosition[]
+        lastPositions = meaningfulPositions(payload as OperatorPosition[], EXIT_NOTIONAL_EPSILON_USD)
         syncActiveBasketFromPositions(lastPositions)
         if (basketPivot) {
           const nowMs = Date.now()

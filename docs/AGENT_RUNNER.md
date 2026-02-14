@@ -45,6 +45,7 @@ Core:
 Strategy knobs (shared with runtime):
 - `BASKET_TARGET_NOTIONAL_USD`
 - `DRY_RUN`, `ENABLE_LIVE_OMS` (used by the agent-runner to mark proposals as `requestedMode=LIVE` when live is enabled)
+- `RUNTIME_FLAT_DUST_NOTIONAL_USD` (dust threshold; positions smaller than this are treated as flat to avoid recovery loops)
 
 Basket selection (dynamic short basket vs HYPE):
 - `AGENT_BASKET_SIZE`
