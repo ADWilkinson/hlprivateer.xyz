@@ -133,6 +133,17 @@ export const StrategyParseResultSchema = z.discriminatedUnion('ok', [
 ])
 export type StrategyParseResult = z.infer<typeof StrategyParseResultSchema>
 
+export const FloorTapeLineLevelSchema = z.enum(['INFO', 'WARN', 'ERROR'])
+export type FloorTapeLineLevel = z.infer<typeof FloorTapeLineLevelSchema>
+
+export const FloorTapeLineSchema = z.object({
+  ts: z.string().datetime(),
+  role: z.string().min(1).optional(),
+  level: FloorTapeLineLevelSchema.default('INFO'),
+  line: z.string().min(1)
+})
+export type FloorTapeLine = z.infer<typeof FloorTapeLineSchema>
+
 export const RiskDecisionSchema = z.enum(['ALLOW', 'ALLOW_REDUCE_ONLY', 'DENY'])
 export type RiskDecision = z.infer<typeof RiskDecisionSchema>
 
@@ -172,6 +183,7 @@ export const PublicSnapshotSchema = z.object({
   pnlPct: z.number(),
   healthCode: z.enum(['GREEN', 'YELLOW', 'RED']),
   driftState: z.enum(['IN_TOLERANCE', 'POTENTIAL_DRIFT', 'BREACH']),
+  recentTape: z.array(FloorTapeLineSchema).default([]),
   lastUpdateAt: z.string().datetime()
 })
 export type PublicSnapshot = z.infer<typeof PublicSnapshotSchema>

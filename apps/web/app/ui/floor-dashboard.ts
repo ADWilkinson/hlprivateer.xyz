@@ -26,6 +26,8 @@ export type TapeEntry = {
   line: string
 }
 
+export const TAPE_DISPLAY_LIMIT = 64
+
 export type CrewHeartbeat = Record<CrewRole, number>
 export type CrewStats = Record<CrewRole, number>
 
@@ -101,8 +103,17 @@ export function normalizeCrewRole(role: unknown): CrewRole | undefined {
   return role as CrewRole
 }
 
+export function normalizeTapeLinePrefix(line: string): string {
+  return line.trim().replace(/^\[[^\]]+\]\s*/i, '')
+}
+
 export function shouldSuppressTapeLine(line: string): boolean {
-  return /\b(no action|no changes?|idle)\b/i.test(line) || /^deck status /.test(line)
+  const normalized = normalizeTapeLinePrefix(line)
+  return (
+    !normalized ||
+    /\b(no action|no changes?|idle|no-op)\b/i.test(normalized) ||
+    /^deck status /i.test(normalized)
+  )
 }
 
 export function parseDeckStatus(line: string): { feedAgeMs: number | undefined; missing: number | undefined } {

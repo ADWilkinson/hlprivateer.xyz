@@ -20,5 +20,7 @@ describe('public payload redaction', () => {
     expect(() => PublicSnapshotSchema.parse(snapshot)).not.toThrow()
     expect(Object.prototype.hasOwnProperty.call(snapshot as Record<string, unknown>, 'positions')).toBe(false)
     expect(Object.prototype.hasOwnProperty.call(snapshot as Record<string, unknown>, 'orders')).toBe(false)
+    expect(Array.isArray(snapshot.recentTape)).toBe(true)
+    expect(snapshot.recentTape.length).toBe(0)
   })
 })
