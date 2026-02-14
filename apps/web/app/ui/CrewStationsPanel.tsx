@@ -73,7 +73,7 @@ export function CrewStationsPanel({
         </AsciiBadge>
       </div>
 
-      <div className='grid gap-2 p-1 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]'>
+      <div className='grid gap-2 p-2 [grid-template-columns:repeat(auto-fit,minmax(230px,1fr))]'>
         {roles.map((role) => {
           const last = isLoading ? null : crewLast[role]
           const lastMs = last?.ts ? Date.parse(last.ts) : 0
@@ -91,7 +91,7 @@ export function CrewStationsPanel({
 
           return (
             <article
-              className={`${monitorClass} min-h-[114px] transition-colors ${
+              className={`${monitorClass} min-h-[168px] transition-colors ${
                 active
                   ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel/95 dark:bg-hlpPanelDark/95'
                   : 'border-hlpBorder dark:border-hlpBorderDark'
@@ -99,12 +99,12 @@ export function CrewStationsPanel({
               key={role}
             >
               <div className='flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark px-2 py-1.5'>
-                <div className='flex min-w-0 items-center gap-1.5'>
+                <div className='flex min-w-0 items-start gap-1.5'>
                   <span className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</span>
                   {isLoading ? (
                     <span className={`h-4 w-24 rounded-sm ${skeletonPulseClass}`} />
                   ) : (
-                    <span className='truncate rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/55 px-1.5 py-0.5 text-[7px] uppercase tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark'>
+                    <span className='rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/55 px-1.5 py-0.5 text-[7px] uppercase leading-tight tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark break-words'>
                       {lane}
                     </span>
                   )}
@@ -153,7 +153,7 @@ export function CrewStationsPanel({
                   </span>
                 </div>
 
-                <div className='mt-1 overflow-hidden whitespace-nowrap text-[11px]' title={line}>
+                <div className='mt-1 overflow-hidden text-[11px] break-words' title={line}>
                   {isLoading ? (
                     <span className={`inline-block h-3 w-full max-w-[160px] rounded-sm ${skeletonPulseClass}`} />
                   ) : (
@@ -163,18 +163,18 @@ export function CrewStationsPanel({
                   )}
                 </div>
 
-                <div className='mt-1 flex items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] tracking-[0.15em] text-hlpMuted dark:text-hlpMutedDark'>
+                <div className='mt-1 flex items-center gap-1 overflow-hidden text-[9px] tracking-[0.15em] text-hlpMuted dark:text-hlpMutedDark'>
                   <span className='text-[10px]'>{active ? '◉' : isLoading ? '◌' : '◌'}</span>
                   {isLoading ? 'heartbeats booting' : `heartbeat ${heartbeatPulse} · ${statusLabel}`}
                 </div>
-                <div className='mt-1 text-[8px] uppercase tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark'>
+                <div className='mt-1 text-[8px] uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted dark:text-hlpMutedDark'>
                   {isLoading ? <span className={`inline-block h-3 w-28 rounded-sm ${skeletonPulseClass}`} /> : <span title={nextGateLabel}>{nextGateLabel}</span>}
                 </div>
               </div>
 
-              <div className='flex items-center justify-between border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-1 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
+              <div className='flex flex-wrap items-center justify-between gap-1 border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-1 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
                 <span>{isLoading ? <span className={`inline-block h-3 w-14 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '—'}</span>
-                <span className='whitespace-nowrap'>events {isLoading ? '—' : crewSignals[role]}/max {maxSignals}</span>
+                <span>events {isLoading ? '—' : crewSignals[role]}/max {maxSignals}</span>
               </div>
 
               <div className='flex flex-wrap gap-1 p-1.5'>

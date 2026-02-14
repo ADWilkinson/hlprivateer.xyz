@@ -1,3 +1,4 @@
+import { panelRadiusSubtle } from './ascii-style'
 import type { HTMLAttributes, ReactNode } from 'react'
 
 type BadgeTone = 'neutral' | 'positive' | 'warning' | 'error' | 'info'
@@ -65,7 +66,7 @@ export function AsciiBadge({
   return (
     <span
       {...props}
-      className={`inline-flex h-5 items-center rounded-sm border px-2 py-1 text-[9px] uppercase tracking-[0.14em] ${badgeToneClass[tone]} ${className}`}
+      className={`inline-flex h-5 items-center ${panelRadiusSubtle} border px-2 py-1 text-[9px] uppercase tracking-[0.14em] ${badgeToneClass[tone]} ${className}`}
     >
       <span className='select-none'>{leftGlyph}</span>
       <span className='px-1'>{children}</span>
@@ -83,7 +84,7 @@ export function AsciiTable<T extends Record<string, unknown>>({
   ...props
 }: AsciiTableProps<T>) {
   return (
-    <div className={`overflow-hidden rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark ${className}`}>
+    <div className={`overflow-hidden ${panelRadiusSubtle} border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark ${className}`}>
       {caption && <div className='border-b border-hlpBorder dark:border-hlpBorderDark px-2 py-1 text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>{caption}</div>}
 
       <table {...props} className='w-full border-collapse text-[10px]'>
@@ -137,3 +138,4 @@ export function AsciiTable<T extends Record<string, unknown>>({
   )
 }
 
+export type { BadgeTone, BadgeVariant, TableAlign }

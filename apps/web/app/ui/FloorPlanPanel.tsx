@@ -211,8 +211,8 @@ export function FloorPlanPanel({
         </AsciiBadge>
       </div>
 
-      <div className='grid grid-cols-1 gap-2 p-2 lg:grid-cols-[minmax(220px,_300px)_minmax(540px,_1fr)]'>
-        <div className='min-h-[280px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+      <div className='grid grid-cols-1 gap-2 p-2 lg:grid-cols-[minmax(260px,_340px)_minmax(600px,_1fr)]'>
+        <div className='min-h-[300px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>NODE TABLE</span>
           </div>
@@ -222,25 +222,25 @@ export function FloorPlanPanel({
               { key: 'status', header: 'STATUS', align: 'center' },
               { key: 'ageText', header: 'HEARTBEAT', align: 'right' },
               { key: 'pulse', header: 'PULSE', align: 'center' },
-              { key: 'route', header: 'ROUTE', align: 'left' },
+              { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
             ]}
             data={stationRows}
             className='text-[9px]'
           />
         </div>
 
-        <div className='min-h-[280px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+        <div className='min-h-[300px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
-          <div ref={mapRef} className='min-h-[280px] w-full max-w-full overflow-auto px-1 pb-1'>
+          <div ref={mapRef} className='min-h-[300px] w-full max-w-full overflow-auto px-1 pb-1'>
             <AsciiTopology
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
               theme={theme}
               pulseMs={nowMs}
-              className='text-[11px] leading-none text-hlpMuted dark:text-hlpMutedDark'
+              className='text-[12px] leading-none text-hlpMuted dark:text-hlpMutedDark'
               loading={isLoading}
             />
           </div>
