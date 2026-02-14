@@ -177,6 +177,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let cachedLiveAccountValueUsd = 0
   let cachedLiveWalletAddress = ''
   let agentWatchlistSymbols: string[] = []
+  let lastSafeModeHoldNoticeAtMs = 0
 
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
@@ -518,6 +519,21 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         return
       }
 
+      if (state.mode === 'SAFE_MODE' && state.positions.length === 0) {
+        const dependencyHealth = await bus.health()
+        const databaseHealth = env.DRY_RUN ? true : await store.health()
+        const canExitSafeMode = dependencyHealth.ok && databaseHealth
+        if (canExitSafeMode) {
+          await setMode('READY', 'safe mode auto-resolve: no open exposure')
+        } else if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
+          lastSafeModeHoldNoticeAtMs = nowMs
+          await publishStateUpdate(
+            cycleCorrelationId,
+            `safe mode hold: dependencies healthy=${dependencyHealth.ok ? 'YES' : 'NO'}, db=${databaseHealth ? 'YES' : 'NO'}`
+          )
+        }
+      }
+
       // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
       // to support the configured target notional under the leverage cap.
       if (env.ENABLE_LIVE_OMS && state.positions.length === 0) {
@@ -654,11 +670,14 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       await publishRiskDecision(risk, 'RISK_EVAL', proposal.proposalId)
       if (risk.decision === 'DENY') {
+        const reasonMessage = risk.reasons.length
+          ? risk.reasons.map((entry) => `${entry.code}: ${entry.message}`).join(' | ')
+          : 'no risk reasons provided'
         runtimeProposalCounter.inc({ status: 'risk_denied' })
         if (risk.reasons.some((entry) => entry.code === 'DEPENDENCY_FAILURE')) {
           await setMode('SAFE_MODE', 'risk dependency failure')
         }
-        await publishStateUpdate(proposal.proposalId, 'risk denied')
+        await publishStateUpdate(proposal.proposalId, `risk denied (${reasonMessage})`)
         return
       }
 
