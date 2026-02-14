@@ -26,6 +26,8 @@ export const skeletonPulseClass =
 
 export const sectionTitleClass = 'text-[9px] uppercase tracking-[0.24em] text-hlpMuted'
 export const mutedTextClass = 'text-[9px] text-hlpMuted'
+export const inverseControlClass =
+  'inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-black text-[10px] uppercase tracking-[0.14em] text-hlpPanel'
 export const mutedPanelClass = 'border-t border-hlpBorder bg-hlpSurface'
 export const terminalPanelClass = 'max-h-[380px] min-h-0 overflow-y-auto overflow-x-hidden py-1 px-2'
 

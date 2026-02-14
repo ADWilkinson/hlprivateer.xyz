@@ -1,5 +1,5 @@
 import { AsciiBadge, AsciiTable } from './ascii-kit'
-import { cardClass, cardHeaderClass, panelBodyPad, sectionTitleClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inverseControlClass, panelBodyPad, sectionTitleClass } from './ascii-style'
 
 type AgentRouteRow = {
   id: string
@@ -138,10 +138,10 @@ export function X402AgentMaterialsPanel({
       >
         <span className={sectionTitleClass}>[HL] PRIVATEER / X402 + AGENTS</span>
         <div className='flex items-center gap-2'>
-          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+          <span className={inverseControlClass}>
             {isCollapsed ? '+' : '−'}
           </span>
-          <AsciiBadge tone='neutral' className='text-hlpMuted'>
+          <AsciiBadge tone='inverse'>
             external access surface
           </AsciiBadge>
         </div>

@@ -1,7 +1,7 @@
 import { panelRadiusSubtle } from './ascii-style'
 import type { HTMLAttributes, ReactNode } from 'react'
 
-type BadgeTone = 'neutral' | 'positive' | 'warning' | 'error' | 'info'
+type BadgeTone = 'neutral' | 'positive' | 'warning' | 'error' | 'info' | 'inverse'
 
 type BadgeVariant = 'square' | 'angle' | 'curly'
 
@@ -29,6 +29,7 @@ const badgeToneClass: Record<BadgeTone, string> = {
   warning: 'border-hlpBorder text-hlpWarning',
   error: 'border-hlpBorder text-hlpNegative',
   info: 'border-hlpMuted/80 text-hlpMuted',
+  inverse: 'border-hlpBorder bg-black text-hlpPanel',
 }
 
 const badgeGlyphs: Record<BadgeVariant, [string, string]> = {

@@ -1,7 +1,7 @@
 import { AsciiBadge } from './ascii-kit'
 import { formatTime, type TapeEntry } from './floor-dashboard'
 import { type RefObject } from 'react'
-import { cardClass, cardHeaderClass, inlineBadgeClass, panelBodyPad, sectionStripClass, skeletonPulseClass, terminalPanelClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, inverseControlClass, panelBodyPad, sectionStripClass, skeletonPulseClass, terminalPanelClass } from './ascii-style'
 
 type TapeSectionProps = {
   tape: TapeEntry[]
@@ -32,7 +32,7 @@ export function TapeSection({
       >
         <span>FLOOR TAPE</span>
         <div className='flex items-center gap-2'>
-          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+          <span className={inverseControlClass}>
             {isCollapsed ? '+' : '−'}
           </span>
           <AsciiBadge tone='positive' variant='angle' className='tracking-[0.16em]'>

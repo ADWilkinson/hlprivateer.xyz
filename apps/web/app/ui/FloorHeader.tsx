@@ -11,18 +11,18 @@ export function FloorHeader() {
         </div>
         <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
           <a href='#x402-access'>
-            <AsciiBadge tone='neutral' variant='curly' className='tracking-[0.2em] text-hlpMuted'>
+            <AsciiBadge tone='inverse' variant='curly' className='tracking-[0.2em]'>
               x402 access
             </AsciiBadge>
           </a>
-          <AsciiBadge tone='neutral' variant='curly' className='tracking-[0.2em] text-hlpMuted'>
+          <AsciiBadge tone='inverse' variant='curly' className='tracking-[0.2em]'>
             system online
           </AsciiBadge>
         </div>
       </header>
       <div className={cardHeaderClass}>
         <span>system status</span>
-        <AsciiBadge tone='neutral' variant='curly' className='text-hlpMuted'>
+        <AsciiBadge tone='inverse' variant='curly'>
           live feed
         </AsciiBadge>
       </div>

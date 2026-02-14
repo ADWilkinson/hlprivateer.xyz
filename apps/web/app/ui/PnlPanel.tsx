@@ -3,6 +3,7 @@ import { AsciiBadge } from './ascii-kit'
 import {
   cardClass,
   cardHeaderClass,
+  inverseControlClass,
   inlineBadgeClass,
   monitorClass,
   panelBodyPad,
@@ -293,10 +294,10 @@ export function PnlPanel({
       >
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
         <div className='flex items-center gap-2'>
-          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+          <span className={inverseControlClass}>
             {isCollapsed ? '+' : '−'}
           </span>
-          <AsciiBadge tone='neutral' className='text-hlpMuted'>
+          <AsciiBadge tone='inverse'>
             alpha stream
           </AsciiBadge>
         </div>
@@ -337,17 +338,17 @@ export function PnlPanel({
               </div>
             </div>
             <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-              <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</div>
-                <div className='text-[11px] font-semibold'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
+              <div className='rounded-sm border border-hlpBorder bg-black px-2 py-1'>
+                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>MODE</div>
+                <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
               </div>
-              <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>Pnl current</div>
-                <div className='text-[11px] font-semibold'>{isLoading ? '--' : toSigned(snapshot.pnlPct)}</div>
+              <div className='rounded-sm border border-hlpBorder bg-black px-2 py-1'>
+                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>Pnl current</div>
+                <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? '--' : toSigned(snapshot.pnlPct)}</div>
               </div>
-              <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>VALUE now</div>
-                <div className='text-[11px] font-semibold'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd)}</div>
+              <div className='rounded-sm border border-hlpBorder bg-black px-2 py-1'>
+                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>VALUE now</div>
+                <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd)}</div>
               </div>
             </div>
           </div>
