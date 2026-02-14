@@ -274,7 +274,7 @@ export function renderAsciiChart(values: number[], width: number, height: number
     const t = (v - min) / (max - min)
     const y = height - 1 - Math.round(t * (height - 1))
     if (grid[y] && grid[y]![x] !== undefined) {
-      grid[y]![x] = '\u2588'
+      grid[y]![x] = '\u25CF'
     }
   }
 
