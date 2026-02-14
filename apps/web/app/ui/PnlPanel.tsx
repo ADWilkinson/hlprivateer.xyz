@@ -203,19 +203,12 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                 <span className='inline-block h-32 w-full rounded-sm bg-hlpSurface/85 animate-pulse' />
               </div>
             ) : (
-              <div className='relative h-[220px] w-full overflow-hidden rounded-sm border border-hlpBorder bg-hlpPanel/90'>
+                <div className='relative h-[220px] w-full overflow-hidden rounded-sm border border-hlpBorder bg-hlpPanel/90'>
                 <svg
                   viewBox={`0 0 ${pnlStats.width} ${pnlStats.height}`}
                   preserveAspectRatio='none'
                   className='h-full w-full text-hlpPositive'
                 >
-                  <defs>
-                    <linearGradient id='pnl-spark-gradient' x1='0' y1='0' x2='0' y2='1'>
-                      <stop offset='0%' stopColor='currentColor' stopOpacity='0.35' />
-                      <stop offset='100%' stopColor='currentColor' stopOpacity='0.03' />
-                    </linearGradient>
-                  </defs>
-
                   {Array.from({ length: 5 }).map((_, index) => {
                     const ratio = index / 4
                     const top = ratio * 100
@@ -259,12 +252,11 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                     />
                   ) : null}
 
-                  <path d={pnlStats.areaPath} fill='url(#pnl-spark-gradient)' stroke='none' />
                   <path
                     d={pnlStats.path}
                     fill='none'
                     className='stroke-hlpPositive'
-                    strokeWidth='0.7'
+                    strokeWidth='0.9'
                     strokeLinecap='square'
                     strokeLinejoin='miter'
                   />
