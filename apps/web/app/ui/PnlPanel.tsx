@@ -49,6 +49,10 @@ type SparklineMetric = {
   zeroY: number | null
   width: number
   height: number
+  padX: number
+  padY: number
+  chartWidth: number
+  chartHeight: number
 }
 
 function toSigned(value: number): string {
@@ -111,6 +115,10 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
     zeroY: null,
     width: 100,
     height: 32,
+    padX: 0,
+    padY: 0,
+    chartWidth: 0,
+    chartHeight: 0,
   }
 
   if (numeric.length === 0 && safeFallback === undefined) {
@@ -150,6 +158,10 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
     zeroY,
     width,
     height,
+    padX,
+    padY,
+    chartWidth,
+    chartHeight,
   }
 }
 
@@ -174,11 +186,13 @@ export function PnlPanel({
     id,
     title,
     colorClass,
+    axisLabel,
     stats,
   }: {
     id: string
     title: string
     colorClass: string
+    axisLabel: (value: number) => string
     stats: SparklineMetric
   }) => (
     <article className={monitorClass} aria-label={id}>
@@ -202,41 +216,94 @@ export function PnlPanel({
               preserveAspectRatio='none'
               className='h-full w-full'
             >
+              <line
+                x1={stats.padX}
+                x2={stats.padX}
+                y1={stats.padY}
+                y2={stats.height - stats.padY}
+                className='stroke-hlpPanel/70'
+                strokeWidth='0.25'
+              />
+              <line
+                x1={stats.padX}
+                x2={stats.width - stats.padX}
+                y1={stats.height - stats.padY}
+                y2={stats.height - stats.padY}
+                className='stroke-hlpPanel/70'
+                strokeWidth='0.25'
+              />
+
               {Array.from({ length: 5 }).map((_, index) => {
                 const ratio = index / 4
-                const y = ratio * 100
+                const y = stats.padY + ratio * stats.chartHeight
+                const value = stats.max - ratio * (stats.max - stats.min)
                 return (
-                  <line
-                    key={`h-grid-${id}-${index}`}
-                    x1='0'
-                    x2={String(stats.width)}
-                    y1={y}
-                    y2={y}
-                    className='stroke-hlpBorder/35'
-                    strokeWidth='0.2'
-                  />
+                  <>
+                    <line
+                      key={`y-grid-${id}-${index}`}
+                      x1={stats.padX}
+                      x2={stats.width - stats.padX}
+                      y1={y}
+                      y2={y}
+                      className='stroke-hlpBorder/28'
+                      strokeWidth='0.2'
+                    />
+                    <text
+                      key={`y-label-${id}-${index}`}
+                      x={stats.padX - 1}
+                      y={y + 0.2}
+                      textAnchor='end'
+                      dominantBaseline='middle'
+                      className='text-[5px] fill-hlpMuted'
+                    >
+                      {axisLabel(value)}
+                    </text>
+                  </>
                 )
               })}
 
-              {Array.from({ length: 8 }).map((_, index) => {
-                const x = (index / 7) * 100
+              {Array.from({ length: 6 }).map((_, index) => {
+                const ratio = index / 5
+                const x = stats.padX + ratio * stats.chartWidth
+                const isEdge = index === 0 || index === 5
+                const label = isEdge ? (index === 0 ? 'start' : 'now') : ''
                 return (
-                  <line
-                    key={`v-grid-${id}-${index}`}
-                    x1={x}
-                    x2={x}
-                    y1='0'
-                    y2={String(stats.height)}
-                    className='stroke-hlpBorder/28'
-                    strokeWidth='0.2'
-                  />
+                  <g key={`x-grid-${id}-${index}`}>
+                    <line
+                      x1={x}
+                      x2={x}
+                      y1={stats.padY}
+                      y2={stats.height - stats.padY}
+                      className='stroke-hlpBorder/28'
+                      strokeWidth='0.2'
+                    />
+                    <line
+                      x1={x}
+                      x2={x}
+                      y1={stats.height - stats.padY}
+                      y2={stats.height - stats.padY + 1.2}
+                      className='stroke-hlpBorder'
+                      strokeWidth='0.25'
+                    />
+                    {label ? (
+                      <text
+                        x={x}
+                        y={stats.height - stats.padY + 4}
+                        textAnchor='middle'
+                        className='text-[5px] fill-hlpMuted'
+                      >
+                        {label}
+                      </text>
+                    ) : null}
+                  </g>
                 )
               })}
+
 
               {stats.zeroY !== null ? (
                 <line
-                  x1='0'
-                  x2={String(stats.width)}
+                  x1={stats.padX}
+                  x2={stats.width - stats.padX}
                   y1={stats.zeroY}
                   y2={stats.zeroY}
                   className='stroke-hlpWarning/40'
@@ -337,12 +404,14 @@ export function PnlPanel({
             id='market-pnl'
             title='MARKET PNL OVER TIME'
             colorClass='text-hlpHealthy'
+            axisLabel={toSigned}
             stats={pnlStats}
           />
           <SparklineCard
             id='account-value'
             title='ACCOUNT VALUE OVER TIME'
             colorClass='text-hlpNeutral'
+            axisLabel={toUsd}
             stats={accountValueStats}
           />
         </div>
