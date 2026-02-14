@@ -56,7 +56,8 @@ export const runtimeEnv = z
     RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().default(1.1),
     RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(0.015),
     ACCOUNT_VALUE_USD: z.coerce.number().default(10000),
-    BASKET_SYMBOLS: z.string().default('BTC,ETH'),
+    // Market-data seed only (runtime trade entry is agent-driven).
+    BASKET_SYMBOLS: z.string().default(''),
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().default(1000),
     RUNTIME_METRICS_PORT: z.coerce.number().default(9400),
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),

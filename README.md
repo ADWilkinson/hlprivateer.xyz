@@ -3,7 +3,7 @@
 Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with deterministic risk gates, ASCII trade floor UI, and x402-based external agent marketplace.
 
 ## What It Does
-- Runs a continuous pair-trade strategy: `LONG HYPE` vs `SHORT basket` (basket configurable).
+- Runs a continuous pair-trade strategy: `LONG HYPE` vs `SHORT basket` (basket selected dynamically by the strategist agent).
 - Streams a public ASCII "trading floor" UI (mode/health/drift/PnL + event tape).
 - Provides operator controls via JWT API: `/halt`, `/resume`, `/flatten`, `/status`, etc.
 - Runs an internal `agent-runner` that proposes rebalances + publishes structured analysis (Claude/Codex CLIs optional).
@@ -16,6 +16,7 @@ Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with determi
 
 ## Core invariants
 - Strategy is always pair-trade: `LONG HYPE` vs `SHORT basket`.
+- The short basket is selected by the strategist agent and only changes when flat (no mid-trade churn).
 - Equal notional across both legs is enforced by deterministic risk checks.
 - AI can propose, never execute directly.
 - Public output is restricted to PnL percentage and obfuscated stream fields.
