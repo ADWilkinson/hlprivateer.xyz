@@ -243,7 +243,7 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
       'openPositionNotionalUsd' in payload || 'openPositionNotional' in payload || 'positionNotional' in payload || 'open_position_notional' in payload || 'position_notional' in payload
         ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
         : fallback.openPositionNotionalUsd,
-    accountValueUsd: nextAccountValueUsd ?? fallback.accountValueUsd,
+    accountValueUsd: nextAccountValueUsd,
   }
 }
 
@@ -265,6 +265,7 @@ function normalizeRiskDenial(text: string): { signature: string; display: string
     .map((entry) => entry.split(':')[0]?.trim())
     .map((entry) => entry?.toUpperCase())
     .filter((entry): entry is string => !!entry)
+    .map((entry) => entry.replace(/\d+/g, ''))
     .map((entry) => entry.replace(/\s+/g, ' '))
     .filter((entry) => entry.length > 0)
     .join('|')
@@ -572,6 +573,21 @@ export default function DeckPage() {
                 : ''
             logInfo(`ws payloadType=${payloadType || 'unknown'}`)
 
+            const isHeartbeatPayload = payloadType === 'heartbeat' ||
+              (typeof (payload as Record<string, unknown>)?.type === 'string' &&
+                String((payload as Record<string, unknown>).type).trim().toLowerCase() === 'heartbeat') ||
+              payloadType === 'pong' ||
+              payloadType === 'ping'
+
+            if (isHeartbeatPayload) {
+              if (typeof payload?.ts === 'string' && Number.isFinite(Date.parse(payload.ts))) {
+                setDeckHeartbeatMs(Date.parse(payload.ts))
+              } else {
+                setDeckHeartbeatMs(Date.now())
+              }
+              return
+            }
+
             if (!payloadType && payload && typeof payload === 'object' && 'ts' in payload && 'mode' in payload) {
               logWarn('ws payload missing type; falling back to state update inference', payload)
               setSnapshot((current) => normalizeSnapshot(payload as SnapshotPayload, current))
@@ -597,15 +613,6 @@ export default function DeckPage() {
                 if (parsedMessage && shouldRenderTapeLine(parsedMessage)) {
                   setTape((current) => [parsedMessage, ...current].slice(0, TAPE_DISPLAY_LIMIT))
                 }
-              }
-              return
-            }
-
-            if (payloadType === 'heartbeat') {
-              if (typeof payload?.ts === 'string' && Number.isFinite(Date.parse(payload.ts))) {
-                setDeckHeartbeatMs(Date.parse(payload.ts))
-              } else {
-                setDeckHeartbeatMs(Date.now())
               }
               return
             }
