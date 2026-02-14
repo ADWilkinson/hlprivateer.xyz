@@ -19,7 +19,6 @@ import {
 } from './ui/floor-dashboard'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
 import { FloorPlanPanel } from './ui/FloorPlanPanel'
-import { FloorFooter } from './ui/FloorFooter'
 import { FloorHeader } from './ui/FloorHeader'
 import { PnlPanel } from './ui/PnlPanel'
 import { StatusStrip } from './ui/StatusStrip'
@@ -481,7 +480,7 @@ export default function DeckPage() {
 
   return (
     <main className={pageShellClass}>
-      <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
+      <FloorHeader theme={theme} onToggleTheme={toggleTheme} />
       <div className='space-y-2'>
         <StatusStrip
           isLoading={isBootstrapping}
@@ -489,8 +488,6 @@ export default function DeckPage() {
           wsState={wsState}
           suppressedNoAction={suppressedNoAction}
           riskDeniedCount={riskDeniedCount}
-          riskDeniedSuppressed={riskDeniedSuppressed}
-          riskDeniedReason={riskDeniedReason}
           heartbeatAgeMs={heartbeatMs}
           snapshotAgeMs={snapshotAgeMs}
           deckFeedAgeMs={deckFeedAgeMs}
@@ -514,7 +511,6 @@ export default function DeckPage() {
           isLoading={isBootstrapping}
         />
         <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
-        <FloorFooter apiEndpoint={apiUrl('/v1/agent/analysis/latest')} />
       </div>
     </main>
   )

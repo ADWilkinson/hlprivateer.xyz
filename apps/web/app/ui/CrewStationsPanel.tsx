@@ -6,14 +6,12 @@ import {
   type CrewStats,
   formatAge,
   formatTime,
-  floorHeartbeatGlyph,
   heartbeatLevel,
   type TapeEntry,
 } from './floor-dashboard'
 import {
   cardClass,
   cardHeaderClass,
-  inlineBadgeClass,
   monitorClass,
   panelBodyPad,
   panelInsetPad,
@@ -51,16 +49,6 @@ const roleGate: Record<CrewRole, string> = {
   ops: 'state bus',
 }
 
-const loadingSkeletonWidth: Record<CrewRole, string> = {
-  scout: 'w-40',
-  research: 'w-36',
-  strategist: 'w-44',
-  execution: 'w-40',
-  risk: 'w-36',
-  scribe: 'w-38',
-  ops: 'w-32',
-}
-
 export function CrewStationsPanel({
   crewLast,
   crewHeartbeat,
@@ -78,7 +66,7 @@ export function CrewStationsPanel({
       <div className={cardHeaderClass}>
         <span className={sectionTitleClass}>CREW STATIONS</span>
         <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
-          {isLoading ? 'BOOTING...' : '7 AGENTS'}
+          {isLoading ? 'BOOTING' : '7 AGENTS'}
         </AsciiBadge>
       </div>
 
@@ -100,40 +88,39 @@ export function CrewStationsPanel({
 
           return (
             <article
-              className={`${monitorClass} min-h-[190px] transition-colors ${
+              className={`${monitorClass} min-h-[202px] transition-colors ${
                 active
                   ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel/95 dark:bg-hlpPanelDark/95'
                   : 'border-hlpBorder dark:border-hlpBorderDark'
               }`}
               key={role}
             >
-              <div className={`flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad}`}>
-                <div className='flex min-w-0 items-start gap-1.5'>
-                  <span className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</span>
-                  {isLoading ? (
-                    <span className={`h-4 w-24 rounded-sm ${skeletonPulseClass}`} />
-                  ) : (
-                    <span
-                      className={`rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/55 ${panelInsetPad} text-[7px] uppercase leading-tight tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark break-words`}
-                    >
-                      {lane}
-                    </span>
-                  )}
+              <div className={`border-b border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad} space-y-1`}>
+                <div className='flex items-start justify-between gap-2'>
+                  <div className='min-w-0'>
+                    <div className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</div>
+                    {isLoading ? (
+                      <span className='mt-1 inline-block h-3 w-24 rounded-sm bg-hlpSurface/80 dark:bg-hlpSurfaceDark/80' />
+                    ) : (
+                      <div className='mt-1 text-[8px] uppercase tracking-[0.18em] break-words text-hlpMuted dark:text-hlpMutedDark'>{lane}</div>
+                    )}
+                  </div>
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      isLoading
+                        ? 'bg-hlpMuted dark:bg-hlpMutedDark'
+                        : active
+                          ? 'bg-hlpPositive dark:bg-hlpPositiveDark animate-hlp-led'
+                          : 'bg-hlpMuted dark:bg-hlpMutedDark'
+                    }`}
+                  />
                 </div>
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    isLoading
-                      ? 'bg-hlpMuted dark:bg-hlpMutedDark'
-                      : active
-                        ? 'bg-hlpPositive dark:bg-hlpPositiveDark shadow-[0_0_4px_rgba(47,139,103,0.45)] dark:shadow-[0_0_4px_rgba(86,207,173,0.45)] animate-hlp-led'
-                        : 'bg-hlpMuted dark:bg-hlpMutedDark'
-                  }`}
-                />
+                <div className='text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>{isLoading ? 'booting' : statusLabel}</div>
               </div>
 
-              <div className={panelBodyPad}>
+              <div className={`${panelBodyPad} space-y-1.5`}>
                 {isLoading ? (
-                  <span className={`inline-block rounded-sm ${loadingSkeletonWidth[role]} h-3 ${skeletonPulseClass}`} />
+                  <span className='inline-block h-3 w-20 rounded-sm bg-hlpSurface/80 dark:bg-hlpSurfaceDark/80' />
                 ) : (
                   <span
                     className={`text-[8px] uppercase tracking-[0.12em] ${
@@ -148,64 +135,33 @@ export function CrewStationsPanel({
                   </span>
                 )}
 
-                <div className='mt-1 flex items-center gap-1.5'>
-                  <span className='relative h-1 w-full min-w-0 border border-hlpBorder dark:border-hlpBorderDark rounded-sm overflow-hidden' aria-hidden='true'>
-                    {isLoading ? (
-                      <span className={`absolute inset-y-0 left-0 rounded-sm ${skeletonPulseClass}`} style={{ width: '58%' }} />
-                    ) : (
-                      <span
-                        className='absolute inset-y-0 left-0 bg-gradient-to-r from-hlpPositive dark:from-hlpPositiveDark to-hlpPositive/60 dark:to-hlpPositiveDark/60'
-                        style={{ width: getActivityWidth(beatScore) }}
-                      />
-                    )}
-                  </span>
-                  <span className='w-12 flex-shrink-0 text-right text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
-                    {heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}
-                  </span>
+                <div className='h-1.5 w-full rounded-sm border border-hlpBorder dark:border-hlpBorderDark overflow-hidden' aria-hidden='true'>
+                  {isLoading ? <span className={`block h-full rounded-sm ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
+                  {!isLoading ? (
+                    <span
+                      className='block h-full rounded-sm bg-gradient-to-r from-hlpPositive dark:from-hlpPositiveDark to-hlpPositive/60 dark:to-hlpPositiveDark/60'
+                      style={{ width: getActivityWidth(beatScore) }}
+                    />
+                  ) : null}
                 </div>
 
-                <div className='mt-1 overflow-hidden text-[11px] break-words' title={line}>
-                  {isLoading ? (
-                    <span className={`inline-block h-3 w-full max-w-[160px] rounded-sm ${skeletonPulseClass}`} />
-                  ) : (
-                    <>
-                      {floorHeartbeatGlyph(beatScore)} {line}
-                    </>
-                  )}
+                <div className='flex flex-wrap items-center justify-between gap-1 text-[9px] tracking-[0.15em] text-hlpMuted dark:text-hlpMutedDark'>
+                  <span className='font-mono text-[9px]'>{heartbeatPulse}</span>
+                  <span>{isLoading ? 'heartbeat booting' : heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
                 </div>
 
-                <div className='mt-1 flex items-center gap-1 overflow-hidden text-[9px] tracking-[0.15em] text-hlpMuted dark:text-hlpMutedDark'>
-                  <span className='text-[10px]'>{active ? '◉' : isLoading ? '◌' : '◌'}</span>
-                  {isLoading ? 'heartbeats booting' : `heartbeat ${heartbeatPulse} · ${statusLabel}`}
+                <div className='min-h-9 overflow-hidden text-[11px] break-words' title={line}>
+                  {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{line}</span>}
                 </div>
-                <div className='mt-1 text-[8px] uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted dark:text-hlpMutedDark'>
-                  {isLoading ? <span className={`inline-block h-3 w-28 rounded-sm ${skeletonPulseClass}`} /> : <span title={nextGateLabel}>{nextGateLabel}</span>}
+
+                <div className='text-[8px] uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted dark:text-hlpMutedDark'>
+                  {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{nextGateLabel}</span>}
                 </div>
               </div>
 
-              <div
-                className={`flex flex-wrap items-center justify-between gap-1 border-t border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad} text-[9px] text-hlpMuted dark:text-hlpMutedDark`}
-              >
-                <span>{isLoading ? <span className={`inline-block h-3 w-14 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '—'}</span>
+              <div className={`flex flex-wrap items-center justify-between border-t border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad} text-[9px] text-hlpMuted dark:text-hlpMutedDark`}>
+                <span>{isLoading ? <span className={`inline-block h-3 w-24 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '—'}</span>
                 <span>events {isLoading ? '—' : crewSignals[role]}/max {maxSignals}</span>
-              </div>
-
-              <div className={`flex flex-wrap gap-1 ${panelInsetPad}`}>
-                {isLoading ? (
-                  <>
-                    <span className={`h-5 w-24 rounded-sm ${skeletonPulseClass}`} />
-                    <span className={`h-5 w-28 rounded-sm ${skeletonPulseClass}`} />
-                  </>
-                ) : (
-                  <>
-                    <span className={inlineBadgeClass}>
-                      <span className='uppercase tracking-[0.2em] text-[8px]'>last command</span>
-                    </span>
-                    <span className={inlineBadgeClass}>
-                      <span className='uppercase tracking-[0.2em] text-[8px]'>{active ? 'live lane' : 'offline lane'}</span>
-                    </span>
-                  </>
-                )}
               </div>
             </article>
           )

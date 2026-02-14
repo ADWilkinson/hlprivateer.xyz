@@ -13,8 +13,6 @@ type StatusStripProps = {
   wsState: WsState
   suppressedNoAction: number
   riskDeniedCount: number
-  riskDeniedSuppressed: number
-  riskDeniedReason: string
   heartbeatAgeMs: number
   snapshotAgeMs: number
   deckFeedAgeMs: number
@@ -33,8 +31,6 @@ export function StatusStrip({
   wsState,
   suppressedNoAction,
   riskDeniedCount,
-  riskDeniedSuppressed,
-  riskDeniedReason,
   heartbeatAgeMs,
   snapshotAgeMs,
   deckFeedAgeMs,
@@ -54,7 +50,7 @@ export function StatusStrip({
         </AsciiBadge>
       </div>
 
-      <div className='grid min-h-0 grid-cols-1 border-x border-b border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
+      <div className='grid min-h-0 grid-cols-2 border-x border-b border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark gap-px sm:grid-cols-3 lg:grid-cols-6'>
         {isLoading ? (
           <>
             <div className={statusCellClass}>
@@ -137,27 +133,12 @@ export function StatusStrip({
           </>
         ) : (
           <>
-            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark flex items-center gap-1'>
-              <span>ops stream:</span>
-              <span className='h-1.5 w-1.5 rounded-full bg-hlpPositive/80 dark:bg-hlpPositiveDark/80 animate-hlp-led' />
-            </span>
+            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>live stream</span>
+            <span className={inlineBadgeClass}>risk denied {riskDeniedCount}</span>
+            <span className={inlineBadgeClass}>suppressed {suppressedNoAction}</span>
             <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
-            <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
-            <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
-            {riskDeniedSuppressed > 0 ? <span className={inlineBadgeClass}>riskDeniedSuppressed={riskDeniedSuppressed}</span> : null}
-            <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
             <span className={inlineBadgeClass}>missing={deckMissing}</span>
-            <span className={inlineBadgeClass}>status=LIVE</span>
-            <span className={inlineBadgeClass}>
-              <AsciiBadge
-                tone={isFeedStale ? 'warning' : 'positive'}
-                variant='curly'
-                className={isFeedStale ? 'text-hlpWarning dark:text-hlpWarningDark' : 'text-hlpPositive dark:text-hlpPositiveDark'}
-              >
-                {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
-              </AsciiBadge>
-            </span>
-            {riskDeniedReason ? <span className={inlineBadgeClass}>last risk denial: {riskDeniedReason}</span> : null}
+            <span className={inlineBadgeClass}>status {isFeedStale ? 'DEGRADED' : 'LIVE'}</span>
           </>
         )}
       </div>

@@ -141,8 +141,6 @@ function buildSparkline(values: number[]): SparklineMetric {
 export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPanelProps) {
   const pnlStats = useMemo(() => buildSparkline(trajectory.map((point) => point.pnlPct)), [trajectory])
 
-  const normalizedTrajectory = trajectory.filter((entry) => Number.isFinite(entry.pnlPct))
-
   return (
     <section className={cardClass}>
       <div className={cardHeaderClass}>
@@ -263,29 +261,10 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                     d={pnlStats.path}
                     fill='none'
                     className='stroke-hlpPositive dark:stroke-hlpPositiveDark'
-                    strokeWidth='1'
+                    strokeWidth='0.7'
                     strokeLinecap='square'
                     strokeLinejoin='miter'
                   />
-                  {normalizedTrajectory.length > 1
-                    ? normalizedTrajectory.map((entry, index, values) => {
-                        const x = values.length > 1 ? (index / (values.length - 1)) * pnlStats.width : 0
-                        const yValue = values.length > 1 ? values[index]?.pnlPct ?? 0 : 0
-                        const min = pnlStats.min
-                        const range = Math.max(0.0001, pnlStats.max - min)
-                        const y = 4 + (1 - (yValue - min) / range) * 24
-
-                        return (
-                          <circle
-                            key={`point-${index}-${entry.ts}`}
-                            cx={x.toFixed(3)}
-                            cy={y.toFixed(3)}
-                            r='0.55'
-                            className='fill-hlpPositive dark:fill-hlpPositiveDark'
-                          />
-                        )
-                      })
-                    : null}
                 </svg>
               </div>
             )}
