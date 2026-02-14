@@ -62,17 +62,17 @@ const roleRoute: Record<CrewRole, string> = {
 }
 
 const NODE_LEGEND = [
-  { key: 'online', label: 'ONLINE', dotClass: 'bg-hlpHealthy', detail: 'steady node' },
-  { key: 'warning', label: 'WEAK', dotClass: 'bg-hlpWarning', detail: 'aging signal' },
-  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-hlpNegative', detail: 'no pulse' },
+  { key: 'online', label: 'ONLINE', dotClass: 'bg-[#1f6f52]', detail: 'steady node' },
+  { key: 'warning', label: 'WEAK', dotClass: 'bg-[#c87a34]', detail: 'aging signal' },
+  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-[#9a4a4b]', detail: 'no pulse' },
 ] as const
 
 const EDGE_LEGEND = [
-  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-hlpHealthy', detail: 'full health' },
-  { key: 'congested', label: 'CONGESTED', dotClass: 'stroke-hlpWarning', detail: 'slow lane' },
-  { key: 'warning', label: 'WARN LINK', dotClass: 'stroke-hlpWarning', detail: 'unstable' },
-  { key: 'error', label: 'ERROR', dotClass: 'stroke-hlpNegative', detail: 'broken' },
-  { key: 'inactive', label: 'IDLE', dotClass: 'stroke-hlpMuted', detail: 'waiting' },
+  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-[#1f6f52]', detail: 'full health' },
+  { key: 'congested', label: 'CONGESTED', dotClass: 'stroke-[#b06a2d]', detail: 'slow lane' },
+  { key: 'warning', label: 'WARN LINK', dotClass: 'stroke-[#c87a34]', detail: 'unstable' },
+  { key: 'error', label: 'ERROR', dotClass: 'stroke-[#9a4a4b]', detail: 'broken' },
+  { key: 'inactive', label: 'IDLE', dotClass: 'stroke-[#7a7a83]', detail: 'waiting' },
 ] as const
 
 const NODE_ONLINE_MS = 5_000
@@ -167,13 +167,16 @@ export function FloorPlanPanel({
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
   const mapRef = useRef<HTMLDivElement | null>(null)
   const [networkWidth, setNetworkWidth] = useState(640)
+  const [networkHeight, setNetworkHeight] = useState(430)
 
   useEffect(() => {
     const updateWidth = () => {
       const fallback = typeof window === 'undefined' ? 640 : Math.max(240, window.innerWidth - 58)
       const measured = mapRef.current?.clientWidth ?? fallback
-      const usable = Math.max(220, measured - 12)
+      const usable = Math.max(360, measured - 10)
+      const height = Math.max(320, Math.round(usable * 0.58))
       setNetworkWidth(usable)
+      setNetworkHeight(height)
     }
 
     updateWidth()
@@ -248,7 +251,7 @@ export function FloorPlanPanel({
         </div>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '−'}
+            {isCollapsed ? '+' : '-'}
           </span>
           <AsciiBadge tone='inverse'>{isLoading ? 'loading map' : 'topology view'}</AsciiBadge>
         </div>
@@ -257,18 +260,22 @@ export function FloorPlanPanel({
       {!isCollapsed && (
         <div className={`flex flex-col ${panelBodyPad}`}>
           <div className={`min-h-[360px] ${monitorClass} flex flex-col`}>
-            <div className={`flex items-center justify-between ${panelBodyPad} border-b border-hlpBorder/65 text-[9px] uppercase tracking-[0.14em] text-hlpMuted`}>
+            <div className={`flex items-center justify-between ${panelBodyPad} border-b border-hlpBorder text-[9px] uppercase tracking-[0.14em] text-hlpMuted`}>
               <span className={sectionTitleClass}>LIVE NETWORK MAP</span>
               <AsciiBadge tone='neutral' variant='angle' className='text-hlpMuted'>
                 network view
               </AsciiBadge>
             </div>
-            <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
+            <div
+              ref={mapRef}
+              className='w-full flex-1 overflow-hidden px-1 py-1'
+              style={{ minHeight: `${networkHeight}px` }}
+            >
               <LiveConnectivityGraph
                 nodes={topology.nodes}
                 edges={topology.edges}
                 width={networkWidth}
-                height={340}
+                height={networkHeight}
                 className='text-hlpFg'
                 loading={isLoading}
               />

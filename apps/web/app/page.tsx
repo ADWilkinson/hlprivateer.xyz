@@ -349,8 +349,8 @@ export default function DeckPage() {
     status: false,
     pnl: false,
     floorPlan: true,
-    crew: false,
-    tape: false,
+    crew: true,
+    tape: true,
     x402: true,
   })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })

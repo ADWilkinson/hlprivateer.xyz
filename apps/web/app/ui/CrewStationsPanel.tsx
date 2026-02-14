@@ -115,10 +115,10 @@ export function CrewStationsPanel({
 
             return (
               <article
-                className={`${monitorClass} min-h-[180px] border border-hlpBorder/65 transition-colors ${active ? 'bg-hlpPanel/95' : 'bg-hlpSurface'}`}
+                className={`${monitorClass} min-h-[180px] border border-hlpBorder transition-colors ${active ? 'bg-hlpPanel/95' : 'bg-hlpSurface'}`}
                 key={role}
               >
-                <div className={`${panelInsetPad} space-y-1 border-b border-hlpBorder/45`}>
+                <div className={`${panelInsetPad} space-y-1 border-b border-hlpBorder/75`}>
                   <div className='flex items-start justify-between gap-2'>
                     <div className='min-w-0 flex items-center gap-1.5'>
                       <span className='text-[12px] text-hlpDim'>{icon}</span>
@@ -185,9 +185,9 @@ export function CrewStationsPanel({
                   </div>
                 </div>
 
-                <div className={`mt-auto flex flex-wrap items-center justify-between border-t border-hlpBorder/30 ${panelInsetPad} text-[8px] text-hlpDim`}>
-                  <span>{isLoading ? <span className={`inline-block h-3 w-20 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '\u2014'}</span>
-                  <span>events {isLoading ? '\u2014' : crewSignals[role]}/{maxSignals}</span>
+                <div className={`mt-auto flex flex-wrap items-center justify-between border-t border-hlpBorder/70 ${panelInsetPad} text-[8px] text-hlpDim`}>
+                  <span>{isLoading ? <span className={`inline-block h-3 w-20 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '--'}</span>
+                  <span>events {isLoading ? '--' : crewSignals[role]}/{maxSignals}</span>
                 </div>
               </article>
             )

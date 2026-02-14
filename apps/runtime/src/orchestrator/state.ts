@@ -383,10 +383,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   const exposureUsd = (positions: readonly OperatorPosition[]): number =>
     positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
 
+  const minimumFlatExposureUsd = Math.max(0, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
   const hasMeaningfulExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
-    exposureUsd(positions) >= Math.max(0, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
+    exposureUsd(positions) >= minimumFlatExposureUsd
   const hasAnyExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
-    positions.some((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) > 1e-9)
+    hasMeaningfulExposure(positions)
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
@@ -824,18 +825,6 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         pendingAgentProposalReceivedAt = 0
         origin = 'agent'
       } else {
-        if (hasAnyExposure() && !hasMeaningfulExposure()) {
-          const flattened = await attemptRiskAutoMitigation(
-            cycleCorrelationId,
-            'dust exposure requires full flatten',
-            [{ code: 'SYSTEM_GATED', message: 'dust exposure present; full liquidation required' }]
-          )
-          if (!flattened) {
-            runtimeProposalCounter.inc({ status: 'risk_auto_mitigated' })
-            return
-          }
-        }
-
         // Deterministic proposals are REBALANCE-only. We never ENTER a new trade from env BASKET_SYMBOLS
         // because the short basket must be thesis-driven (agent selected) and can change over time.
         if (!hasMeaningfulExposure()) {
@@ -1409,7 +1398,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const closeOrders: Array<{ symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number }> = []
       for (const position of current.positions) {
         const notionalUsd = Math.abs(position.notionalUsd)
-        if (notionalUsd <= 0) {
+        if (notionalUsd <= minimumFlatExposureUsd) {
           continue
         }
 

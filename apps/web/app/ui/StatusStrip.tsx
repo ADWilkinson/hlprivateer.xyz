@@ -80,7 +80,7 @@ export function StatusStrip({
 
       {!isCollapsed && (
         <>
-          <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder/55 bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
+          <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
             {isLoading ? (
               <>
                 {['MODE', 'WS', 'HEALTH', 'DRIFT', 'FEED AGE', 'HEARTBEAT'].map((label) => (

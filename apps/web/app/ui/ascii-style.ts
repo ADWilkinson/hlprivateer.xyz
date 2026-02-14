@@ -7,7 +7,7 @@ export const panelBodyPad = 'px-2 py-2'
 export const panelHeaderPad = 'px-3 py-2'
 export const panelInsetPad = 'px-2 py-1.5'
 export const panelInlinePad = 'px-1 py-1'
-export const panelDividerClass = 'border-t border-hlpBorder/65'
+export const panelDividerClass = 'border-t border-hlpBorder'
 
 export const cardClass =
   `relative overflow-hidden animate-hlp-fade-up ${panelRadius} border border-hlpBorder bg-hlpPanel text-hlpFg shadow-hlp-card`
@@ -32,12 +32,12 @@ export const mutedPanelClass = 'border-t border-hlpBorder bg-hlpSurface'
 export const terminalPanelClass = 'max-h-[420px] min-h-0 overflow-y-auto overflow-x-hidden py-1 px-2'
 
 export const statusCellClass =
-  'flex items-center justify-between gap-2 border-b border-hlpBorder/45 bg-hlpPanel/95 px-3 py-2 min-h-[34px]'
+  'flex items-center justify-between gap-2 border-b border-hlpBorder bg-hlpPanel/95 px-3 py-2 min-h-[34px]'
 
 export const monitorClass = 'overflow-hidden rounded-[4px] bg-hlpSurface'
 
 export const sectionStripClass =
-  `flex flex-wrap ${panelGap} border-t border-hlpBorder/85 ${panelBodyPad}`
+  `flex flex-wrap ${panelGap} border-t border-hlpBorder ${panelBodyPad}`
 
 export const heroCardClass =
   `${panelRadius} border border-hlpBorder bg-hlpInverseBg p-3 sm:p-4`
