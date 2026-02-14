@@ -1,8 +1,8 @@
-import { AsciiBadge } from 'react-ascii-ui'
+import { AsciiBadge } from './ascii-kit'
 import type { TapeEntry } from './floor-dashboard'
 import { formatTime } from './floor-dashboard'
 import type { RefObject } from 'react'
-import { cardClass, cardHeaderClass, terminalPanelClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, terminalPanelClass } from './ascii-style'
 
 type TapeSectionProps = {
   tape: TapeEntry[]
@@ -14,7 +14,7 @@ export function TapeSection({ tape, tapeRef }: TapeSectionProps) {
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span>FLOOR TAPE</span>
-        <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
+        <AsciiBadge tone='positive' variant='angle' className='tracking-[0.16em]'>
           live
         </AsciiBadge>
       </div>
@@ -31,7 +31,7 @@ export function TapeSection({ tape, tapeRef }: TapeSectionProps) {
 
           return (
             <div
-              className={`flex items-baseline px-3 py-0.5 text-[11px] leading-[1.7] ${i === 0 ? 'text-hlpFg dark:text-hlpFgDark animate-hlp-hot' : ''} ${levelTone}`}
+              className={`flex items-baseline px-3 py-0.5 text-[11px] leading-[1.7] ${i === 0 ? 'text-hlpFg dark:text-hlpFgDark bg-hlpSurface/75 dark:bg-hlpSurfaceDark/65 animate-hlp-hot' : ''} ${levelTone}`}
               key={`${i}-${entry.ts}`}
             >
               <span className='w-3 shrink-0 text-[10px] text-hlpFg dark:text-hlpFgDark'>{i === 0 ? '▸' : '\u00A0'}</span>
@@ -46,6 +46,11 @@ export function TapeSection({ tape, tapeRef }: TapeSectionProps) {
             </div>
           )
         })}
+      </div>
+
+      <div className={sectionStripClass}>
+        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>tail stream</span>
+        <span className={inlineBadgeClass}>entries={tape.length}</span>
       </div>
     </section>
   )

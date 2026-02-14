@@ -1,4 +1,5 @@
 import { buttonClass, cardClass, cardHeaderClass, mutedTextClass, sectionTitleClass } from './ascii-style'
+import { AsciiBadge } from './ascii-kit'
 
 type FloorHeaderProps = {
   theme: 'light' | 'dark'
@@ -17,6 +18,9 @@ export function FloorHeader({ theme, apiBase, onToggleTheme }: FloorHeaderProps)
           <div className='max-w-[280px] truncate text-[9px] text-hlpMuted dark:text-hlpMutedDark'>{apiBase}</div>
         </div>
         <div className='flex w-full sm:w-auto items-center'>
+          <AsciiBadge tone='neutral' variant='angle' className='mr-2 tracking-[0.2em]'>
+            live-console
+          </AsciiBadge>
           <button type='button' className={buttonClass} onClick={onToggleTheme} aria-label='Toggle theme'>
             {theme === 'light' ? 'DARK MODE' : 'LIGHT MODE'}
           </button>
@@ -24,7 +28,12 @@ export function FloorHeader({ theme, apiBase, onToggleTheme }: FloorHeaderProps)
       </header>
       <div className={cardHeaderClass}>
         <span>fleet status</span>
-        <span>ascii mode active</span>
+        <div className='flex items-center gap-1'>
+          <span>ascii mode</span>
+          <AsciiBadge tone='positive' variant='curly'>
+            active
+          </AsciiBadge>
+        </div>
       </div>
     </section>
   )

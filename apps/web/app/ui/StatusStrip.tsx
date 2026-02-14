@@ -93,7 +93,7 @@ export function StatusStrip({
         </div>
       </div>
 
-      <div className={`${sectionStripClass} ${inlineBadgeClass.includes('dark') ? '' : ''}`}>
+      <div className={sectionStripClass}>
         <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark flex items-center gap-1'>
           <span>ops stream:</span>
           <span className='h-1.5 w-1.5 rounded-full bg-hlpPositive/80 dark:bg-hlpPositiveDark/80 animate-hlp-led' />
