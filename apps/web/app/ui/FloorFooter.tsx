@@ -11,7 +11,7 @@ export function FloorFooter({ apiEndpoint }: FloorFooterProps) {
         ACCESS LANE
       </div>
       <div className='mb-1 text-[11px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>x402 AGENT ACCESS</div>
-      <div className='text-[9px] text-hlpMuted dark:text-hlpMutedDark break-all'>{apiEndpoint}</div>
+      <div className='px-2 text-[9px] text-hlpMuted dark:text-hlpMutedDark break-all'>{apiEndpoint}</div>
     </div>
   )
 }

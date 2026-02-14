@@ -54,7 +54,7 @@ export function StatusStrip({
         </AsciiBadge>
       </div>
 
-      <div className='grid grid-cols-1 border-x border-b border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
+      <div className='grid min-h-0 grid-cols-1 border-x border-b border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
         {isLoading ? (
           <>
             <div className={statusCellClass}>

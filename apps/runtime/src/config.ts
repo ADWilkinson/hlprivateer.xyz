@@ -55,6 +55,7 @@ export const runtimeEnv = z
     RISK_STALE_DATA_MS: z.coerce.number().default(3000),
     RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().default(1.1),
     RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(0.015),
+    RUNTIME_FLAT_DUST_NOTIONAL_USD: z.coerce.number().default(5),
     ACCOUNT_VALUE_USD: z.coerce.number().default(10000),
     // Market-data seed only (runtime trade entry is agent-driven).
     BASKET_SYMBOLS: z.string().default(''),

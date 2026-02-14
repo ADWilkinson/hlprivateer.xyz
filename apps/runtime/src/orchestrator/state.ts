@@ -188,6 +188,12 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
 
+  const exposureUsd = (positions: readonly OperatorPosition[]): number =>
+    positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
+
+  const hasMeaningfulExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
+    exposureUsd(positions) >= Math.max(0, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
+
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
       return
@@ -525,7 +531,27 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         return
       }
 
-      if (state.mode === 'SAFE_MODE' && state.positions.length === 0) {
+      if (state.mode === 'SAFE_MODE') {
+        if (hasMeaningfulExposure()) {
+          const flattened = await attemptRiskAutoMitigation(
+            cycleCorrelationId,
+            'SAFE_MODE active with open exposure',
+            [{ code: 'SAFE_MODE', message: 'SAFE_MODE requires flatten before risk-aware proposals resume' }]
+          )
+
+          if (!flattened) {
+            runtimeProposalCounter.inc({ status: 'safe_mode_flatten_pending' })
+            if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
+              lastSafeModeHoldNoticeAtMs = nowMs
+              await publishStateUpdate(
+                cycleCorrelationId,
+                'safe mode recovery in progress: flatten request already emitted, awaiting completion'
+              )
+            }
+          }
+          return
+        }
+
         const dependencyHealth = await bus.health()
         const databaseHealth = env.DRY_RUN ? true : await store.health()
         const canExitSafeMode = dependencyHealth.ok && databaseHealth
@@ -538,9 +564,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
             `safe mode hold: dependencies healthy=${dependencyHealth.ok ? 'YES' : 'NO'}, db=${databaseHealth ? 'YES' : 'NO'}`
           )
         }
-      }
 
-      if (state.mode === 'SAFE_MODE' && state.positions.length === 0) {
         runtimeProposalCounter.inc({ status: 'safe_mode_flat_hold' })
         if (nowMs - lastSafeModeHoldNoticeAtMs >= 60_000) {
           lastSafeModeHoldNoticeAtMs = nowMs
@@ -551,7 +575,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
       // to support the configured target notional under the leverage cap.
-      if (env.ENABLE_LIVE_OMS && state.positions.length === 0) {
+      if (env.ENABLE_LIVE_OMS && !hasMeaningfulExposure()) {
         const minAccountValueUsd = minLiveAccountValueUsd()
         const hasFreshValue = lastLiveAccountValueOkAtMs > 0 && nowMs - lastLiveAccountValueOkAtMs <= 30_000
         const effectiveAccountValueUsd = hasFreshValue ? cachedLiveAccountValueUsd : 0
@@ -582,20 +606,26 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       } else {
         // Deterministic proposals are REBALANCE-only. We never ENTER a new trade from env BASKET_SYMBOLS
         // because the short basket must be thesis-driven (agent selected) and can change over time.
-        if (state.positions.length === 0) {
+        if (!hasMeaningfulExposure()) {
           proposalCandidate = null
         } else {
           const heldBasketSymbols = [...new Set(state.positions.map((position) => position.symbol))]
             .map((symbol) => symbol.trim())
             .filter((symbol) => symbol && symbol.toUpperCase() !== 'HYPE')
-          proposalCandidate = buildProposal(state, targetNotional, heldBasketSymbols.join(','), recentSignals)
+          proposalCandidate = buildProposal(
+            state,
+            targetNotional,
+            heldBasketSymbols.join(','),
+            recentSignals,
+            env.RUNTIME_FLAT_DUST_NOTIONAL_USD
+          )
         }
       }
 
       if (!proposalCandidate) {
-        runtimeProposalCounter.inc({ status: state.positions.length === 0 ? 'awaiting_agent_proposal' : 'no_action' })
+        runtimeProposalCounter.inc({ status: hasMeaningfulExposure() ? 'no_action' : 'awaiting_agent_proposal' })
         const message =
-          state.positions.length === 0
+          !hasMeaningfulExposure()
             ? 'awaiting agent proposal (entry is agent-driven)'
             : urgency
               ? 'no action (urgent)'
@@ -729,15 +759,15 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       state.driftState = driftFrom(state)
       await publishPositionsUpdate(proposal.proposalId)
 
-      if (previousMode === 'READY' && state.positions.length > 0) {
+      if (previousMode === 'READY' && hasMeaningfulExposure()) {
         await setMode('IN_TRADE', 'trade entry')
-      } else if (state.positions.length > 0 && (state.mode === 'IN_TRADE' || state.mode === 'REBALANCE')) {
+      } else if (hasMeaningfulExposure() && (state.mode === 'IN_TRADE' || state.mode === 'REBALANCE')) {
         await setMode('REBALANCE', 'rebalance')
-      } else if (state.positions.length === 0 && state.mode !== 'READY') {
+      } else if (!hasMeaningfulExposure() && state.mode !== 'READY') {
         await setMode('READY', 'flat')
       }
 
-      if (state.driftState === 'BREACH' && state.positions.length > 0) {
+      if (state.driftState === 'BREACH' && hasMeaningfulExposure()) {
         await setMode('SAFE_MODE', 'drift breach')
       }
 
@@ -967,7 +997,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     reasonMessage: string,
     reasons: Array<{ code: string; message: string; details?: Record<string, unknown> }>
   ): Promise<boolean> => {
-    if (state.positions.length === 0) {
+    if (!hasMeaningfulExposure()) {
       return false
     }
 
@@ -999,7 +1029,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     lastRiskAutoMitigationSignature = reasonSignature
     lastRiskAutoMitigationAtMs = nowMs
 
-    await setMode('SAFE_MODE', `risk auto-mitigation (${reasonSignature})`)
+    if (state.mode !== 'SAFE_MODE') {
+      await setMode('SAFE_MODE', `risk auto-mitigation (${reasonSignature})`)
+    }
     await publishStateUpdate(
       proposalId,
       `risk denied (${reasonMessage}); auto-mitigation started for ${reasonSignature}, flatten requested`
@@ -1131,9 +1163,14 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
 
       const closeOrders: Array<{ symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number }> = []
+      let skippedTinyOrders = 0
       for (const position of current.positions) {
         const notionalUsd = Math.abs(position.notionalUsd)
         if (notionalUsd <= 0) {
+          continue
+        }
+        if (notionalUsd < env.RUNTIME_FLAT_DUST_NOTIONAL_USD) {
+          skippedTinyOrders += 1
           continue
         }
 
@@ -1157,6 +1194,25 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
             }
           }
         }
+
+        if (!tick) {
+          const fallbackPx = Number(position.markPx ?? position.avgEntryPx)
+          if (!Number.isFinite(fallbackPx) || fallbackPx <= 0) {
+            continue
+          }
+
+          tick = {
+            symbol: position.symbol,
+            px: fallbackPx,
+            bid: fallbackPx,
+            ask: fallbackPx,
+            bidSize: 1,
+            askSize: 1,
+            updatedAt: new Date().toISOString(),
+            source: 'runtime.market.position-fallback'
+          }
+        }
+
         if (!tick) {
           continue
         }
@@ -1168,13 +1224,23 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           notionalUsd
         })
 
-        await adapter.place({
-          symbol: position.symbol,
-          side,
-          notionalUsd,
-          idempotencyKey: `flatten:${commandAuditId}:${position.symbol}:${side}`,
-          tick
-        })
+        try {
+          await adapter.place({
+            symbol: position.symbol,
+            side,
+            notionalUsd,
+            idempotencyKey: `flatten:${commandAuditId}:${position.symbol}:${side}`,
+            tick
+          })
+        } catch (error) {
+          await addAudit('flatten.place_error', actorId, commandAuditId, {
+            symbol: position.symbol,
+            side,
+            notionalUsd,
+            message: String(error)
+          }, 'runtime.command')
+          continue
+        }
       }
 
       const snapshot = await adapter.snapshot()
@@ -1185,15 +1251,20 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       await addAudit('flatten.execute', actorId, commandAuditId, {
         closedLegs: closeOrders,
-        resultingPositions: state.positions.length
+        skippedTinyOrders,
+        resultingPositions: state.positions.length,
+        resultingGrossUsd: exposureUsd(state.positions)
       }, 'runtime.command')
 
-      const restoreMode: TradeState = state.mode === 'HALT'
-        ? 'HALT'
-        : state.mode === 'SAFE_MODE'
-          ? 'SAFE_MODE'
-          : 'READY'
-      await setMode(restoreMode, reason)
+      if (state.mode !== 'HALT') {
+        if (hasMeaningfulExposure(state.positions)) {
+          if (state.mode !== 'SAFE_MODE') {
+            await setMode('SAFE_MODE', reason)
+          }
+        } else if (state.mode !== 'READY') {
+          await setMode('READY', reason)
+        }
+      }
       runtimeCommandCounter.inc({ command, result: 'executed' })
       return { ok: true, message: `flatten executed (${closeOrders.length} close legs)` }
     }
@@ -1357,7 +1428,8 @@ function buildProposal(
   state: RuntimeState,
   targetNotional: number,
   basketSymbolsCsv: string,
-  signals: PluginSignal[]
+  signals: PluginSignal[],
+  minimumMeaningfulNotionalUsd = 0
 ): StrategyProposal | null {
   const basketSymbols = basketSymbolsCsv
     .split(',')
@@ -1411,13 +1483,16 @@ function buildProposal(
     return null
   }
 
-  const actionType = state.positions.length > 0 ? 'REBALANCE' : 'ENTER'
+  const exposureUsd = (positions: readonly OperatorPosition[]) => positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
+  const hasMeaningfulExposure = exposureUsd(state.positions) >= Math.max(0, minimumMeaningfulNotionalUsd)
+
+  const actionType = hasMeaningfulExposure ? 'REBALANCE' : 'ENTER'
   const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
 
   return {
     proposalId: envelopeId(),
     cycleId: envelopeId(),
-    summary: state.positions.length === 0 ? `enter pair trade (${signalSummary})` : `rebalance to target (${signalSummary})`,
+    summary: hasMeaningfulExposure ? `rebalance to target (${signalSummary})` : `enter pair trade (${signalSummary})`,
     confidence: 0.75,
     requestedMode: 'SIM',
     createdBy: 'runtime',

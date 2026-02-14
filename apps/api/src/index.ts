@@ -537,7 +537,7 @@ app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply
 app.post('/v1/operator/refresh', { ...routeRateLimit(30, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
   const claims = resolveOperatorClaims(request)
   if (!claims.sub) {
-    reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing subject claim' })
+    return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing subject claim' })
     return
   }
 
@@ -550,19 +550,18 @@ app.post('/v1/operator/refresh', { ...routeRateLimit(30, 60_000), preHandler: [a
     roles: claims.roles,
     mfa: claims.mfa ?? false
   })
-  reply.send({
+  return {
     token: refreshedToken,
     expiresIn: '8h'
-  })
+  }
 })
 
 app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
   if (!hasAnyRole(request, [OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE])) {
-    reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
-    return
+    return reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
   }
 
-  reply.send({
+  return {
     mode: store.snapshot.mode,
     pnlPct: store.snapshot.pnlPct,
     riskConfig: {
@@ -572,28 +571,25 @@ app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [ap
     },
     activeAgents: 0,
     timestamp: new Date().toISOString()
-  })
+  }
 })
 
 app.get('/v1/operator/positions', { ...routeRateLimit(120, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
   if (!hasAnyRole(request, [OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE])) {
-    reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
-    return
+    return reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
   }
-  reply.send(store.positions)
+  return store.positions
 })
 
 app.get('/v1/operator/orders', { ...routeRateLimit(120, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
   if (!hasAnyRole(request, [OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE])) {
-    reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
-    return
+    return reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
   }
 
   const query = request.query as { limit?: string; cursor?: string }
   const hasPagination = typeof query.limit !== 'undefined' || typeof query.cursor !== 'undefined'
   if (!hasPagination) {
-    reply.send(store.orders)
-    return
+    return store.orders
   }
 
   const limit = Math.min(200, Number(query.limit ?? 100))
@@ -601,13 +597,12 @@ app.get('/v1/operator/orders', { ...routeRateLimit(120, 60_000), preHandler: [ap
   const offset = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0
   const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100
   const data = store.orders.slice(offset, offset + safeLimit)
-  reply.send({ data, nextCursor: offset + data.length, total: store.orders.length })
+  return { data, nextCursor: offset + data.length, total: store.orders.length }
 })
 
 app.get('/v1/operator/audit', { ...routeRateLimit(120, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
   if (!hasAnyRole(request, [OPERATOR_VIEW_ROLE, OPERATOR_ADMIN_ROLE])) {
-    reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
-    return
+    return reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
   }
 
   const query = request.query as any
@@ -616,7 +611,7 @@ app.get('/v1/operator/audit', { ...routeRateLimit(120, 60_000), preHandler: [app
   const data = store.getAudit(limit, cursor)
   const nextCursor = cursor + data.length
   const total = await store.getAuditTotalCount()
-  reply.send({ data, nextCursor, total })
+  return { data, nextCursor, total }
 })
 
 app.post('/v1/operator/command', { ...routeRateLimit(60, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
