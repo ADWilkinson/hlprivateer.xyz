@@ -163,18 +163,18 @@ export class ApiStore {
     const nextAccountValueUsd =
       hasOwn('accountValueUsd') && typeof snapshot.accountValueUsd === 'number' && Number.isFinite(snapshot.accountValueUsd)
         ? snapshot.accountValueUsd
-        : undefined
+        : this.snapshot.accountValueUsd
 
     this.snapshot = {
       ...this.snapshot,
       ...snapshot,
       openPositions: hasOwn('openPositions')
         ? (Array.isArray(snapshot.openPositions) ? snapshot.openPositions : [])
-        : [],
-      openPositionCount: hasOwn('openPositionCount') ? snapshot.openPositionCount : undefined,
-      openPositionNotionalUsd: hasOwn('openPositionNotionalUsd') ? snapshot.openPositionNotionalUsd : undefined,
+        : this.snapshot.openPositions,
+      openPositionCount: hasOwn('openPositionCount') ? snapshot.openPositionCount : this.snapshot.openPositionCount,
+      openPositionNotionalUsd: hasOwn('openPositionNotionalUsd') ? snapshot.openPositionNotionalUsd : this.snapshot.openPositionNotionalUsd,
       accountValueUsd: nextAccountValueUsd,
-      riskPolicy: hasOwn('riskPolicy') ? snapshot.riskPolicy : undefined,
+      riskPolicy: hasOwn('riskPolicy') ? snapshot.riskPolicy : this.snapshot.riskPolicy,
       lastUpdateAt: snapshot.lastUpdateAt ?? new Date().toISOString()
     }
 

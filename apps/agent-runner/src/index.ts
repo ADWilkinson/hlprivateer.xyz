@@ -313,6 +313,13 @@ type RuntimeRiskDecision = {
   proposalCorrelation?: string
 }
 
+type RuntimeStateRiskMessage = {
+  atMs: number
+  message: string
+  reasonCodes: string[]
+  signature: string
+}
+
 type InterAgentRoleContext = {
   lastRunAtMs: number | null
   ageMs: number | null
@@ -709,6 +716,161 @@ function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
     .filter((code) => code.length > 0)
 }
 
+function parseRiskStateMessageReasonCodes(message: string): string[] {
+  const normalized = message.trim().toUpperCase()
+  if (!normalized.startsWith('RISK DENIED') && !normalized.startsWith('RED:')) {
+    return []
+  }
+
+  const normalizedCandidates = new Set<string>()
+  const knownCodes = [
+    'DRAWDOWN',
+    'EXPOSURE',
+    'LEVERAGE',
+    'SAFE_MODE',
+    'DEPENDENCY_FAILURE',
+    'STALE_DATA',
+    'LIQUIDITY',
+    'SYSTEM_GATED',
+    'NOTIONAL_PARITY',
+    'SLIPPAGE_BREACH',
+    'ACTOR_NOT_ALLOWED'
+  ]
+
+  for (const code of knownCodes) {
+    if (normalized.includes(code)) {
+      normalizedCandidates.add(code)
+    }
+  }
+
+  const tokenCodes = normalized.match(/[A-Z_]{3,}/g) ?? []
+  for (const token of tokenCodes) {
+    if (RISK_RECOVERY_FORCE_EXIT_CODES.has(token)) {
+      normalizedCandidates.add(token)
+    }
+  }
+
+  if (/\b(HOLD FLAT|CONSERVATIVE|FLATTEN|CLEAN|BLOCK|BLOCKED)\b/.test(normalized)) {
+    normalizedCandidates.add('SYSTEM_GATED')
+  }
+
+  if (/\bDRAWDOWN\b/.test(normalized)) {
+    normalizedCandidates.add('DRAWDOWN')
+  }
+
+  if (/\bSTALE\b/.test(normalized)) {
+    normalizedCandidates.add('STALE_DATA')
+  }
+
+  return normalizeReasonCodes(Array.from(normalizedCandidates))
+}
+
+function normalizeReasonCodes(reasonCodes: string[]): string[] {
+  const unique = Array.from(new Set(reasonCodes.filter((code) => code.length > 0)))
+  unique.sort()
+  return unique
+}
+
+function parseRiskStateMessage(message: string, observedAtMs: number): RuntimeStateRiskMessage | null {
+  const reasonCodes = parseRiskStateMessageReasonCodes(message)
+  if (!reasonCodes.length) {
+    if (!message.toUpperCase().startsWith('RISK DENIED')) {
+      return null
+    }
+
+    return {
+      atMs: observedAtMs,
+      message: message.trim(),
+      reasonCodes: ['UNSPECIFIED_DENY'],
+      signature: 'UNSPECIFIED_DENY'
+    }
+  }
+
+  return {
+    atMs: observedAtMs,
+    message: message.trim(),
+    reasonCodes,
+    signature: reasonCodes.join('|')
+  }
+}
+
+function buildRiskRecoveryFromDecision(nowMs: number): {
+  active: boolean
+  signature: string
+  reasonCodes: string[]
+  computed: RuntimeRiskDecision['computed'] | undefined
+  reasonMessage: string
+} {
+  if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  const parsedAt = Date.parse(lastRiskDecision.computedAt)
+  if (!Number.isFinite(parsedAt) || !Number.isFinite(nowMs - parsedAt) || nowMs - parsedAt > RISK_RECOVERY_TTL_MS) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  const reasonCodes = normalizeReasonCodes(parseRiskReasonCodes(lastRiskDecision))
+  if (reasonCodes.length === 0) {
+    return {
+      active: true,
+      signature: 'UNSPECIFIED_DENY',
+      reasonCodes: ['UNSPECIFIED_DENY'],
+      computed: lastRiskDecision.computed,
+      reasonMessage: 'risk denied without structured reason codes'
+    }
+  }
+
+  const blockingCodes = reasonCodes.filter((code) => RISK_RECOVERY_FORCE_EXIT_CODES.has(code))
+  if (blockingCodes.length === 0) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  return {
+    active: true,
+    signature: blockingCodes.join('|'),
+    reasonCodes: blockingCodes,
+    computed: lastRiskDecision.computed,
+    reasonMessage: `risk denied for ${blockingCodes.join(', ')}`
+  }
+}
+
+function buildRiskRecoveryFromStateUpdate(nowMs: number): {
+  active: boolean
+  signature: string
+  reasonCodes: string[]
+  reasonMessage: string
+} {
+  if (!lastStateRiskMessage) {
+    return { active: false, signature: '', reasonCodes: [], reasonMessage: '' }
+  }
+
+  if (!Number.isFinite(lastStateRiskMessage.atMs)) {
+    return { active: false, signature: '', reasonCodes: [], reasonMessage: '' }
+  }
+
+  if (nowMs - lastStateRiskMessage.atMs > RISK_RECOVERY_TTL_MS) {
+    return { active: false, signature: '', reasonCodes: [], reasonMessage: '' }
+  }
+
+  if (!lastStateRiskMessage.reasonCodes.length) {
+    return { active: false, signature: '', reasonCodes: [], reasonMessage: '' }
+  }
+
+  const reasonCodes = normalizeReasonCodes(lastStateRiskMessage.reasonCodes)
+  const blockingCodes = reasonCodes.filter((code) => RISK_RECOVERY_FORCE_EXIT_CODES.has(code))
+  if (blockingCodes.length === 0) {
+    return { active: false, signature: '', reasonCodes: [], reasonMessage: '' }
+  }
+
+  return {
+    active: true,
+    signature: blockingCodes.join('|'),
+    reasonCodes: blockingCodes,
+    reasonMessage: `risk denied for ${blockingCodes.join(', ')}`
+  }
+}
+
 function buildRiskPolicyTuningArgs(): { args: string[]; reason: string; signature: string } | null {
   if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
     return null
@@ -784,38 +946,34 @@ function shouldForceRiskRecovery(nowMs: number, _positions: OperatorPosition[]):
   computed: RuntimeRiskDecision['computed'] | undefined
   reasonMessage: string
 } {
-  if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
-    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
-  }
-
-  const parsedAt = Date.parse(lastRiskDecision.computedAt)
-  if (!Number.isFinite(parsedAt) || !Number.isFinite(nowMs - parsedAt) || nowMs - parsedAt > RISK_RECOVERY_TTL_MS) {
-    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
-  }
-
-  const reasonCodes = parseRiskReasonCodes(lastRiskDecision)
-  if (reasonCodes.length === 0) {
-    return {
-      active: true,
-      signature: 'UNSPECIFIED_DENY',
-      reasonCodes: ['UNSPECIFIED_DENY'],
-      computed: lastRiskDecision.computed,
-      reasonMessage: 'risk denied without structured reason codes'
-    }
-  }
-
+  const decisionRecovery = buildRiskRecoveryFromDecision(nowMs)
+  const stateRecovery = buildRiskRecoveryFromStateUpdate(nowMs)
+  const reasonCodes = normalizeReasonCodes([...decisionRecovery.reasonCodes, ...stateRecovery.reasonCodes])
   const hasBlockingCode = reasonCodes.some((code) => RISK_RECOVERY_FORCE_EXIT_CODES.has(code))
-  if (!hasBlockingCode) {
+  const hasUnspecifiedDeny = reasonCodes.includes('UNSPECIFIED_DENY')
+
+  if (reasonCodes.length === 0) {
     return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
   }
 
-  const signature = reasonCodes.slice().sort().join('|')
+  if (!hasBlockingCode && !hasUnspecifiedDeny) {
+    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
+  }
+
+  const signature = reasonCodes.join('|')
+  const explicitReasonCodes = reasonCodes.filter((code) => code !== 'UNSPECIFIED_DENY')
+  const effectiveReasonCodes = hasBlockingCode ? explicitReasonCodes : ['UNSPECIFIED_DENY']
+  const reasonMessage =
+    effectiveReasonCodes.length > 0
+      ? `risk denied for ${effectiveReasonCodes.join(', ')}`
+      : 'risk denied'
+
   return {
     active: true,
     signature,
-    reasonCodes,
-    computed: lastRiskDecision.computed,
-    reasonMessage: `risk denied for ${reasonCodes.join(', ')}`
+    reasonCodes: effectiveReasonCodes,
+    computed: decisionRecovery.computed,
+    reasonMessage
   }
 }
 
@@ -1892,6 +2050,9 @@ let lastRiskPolicyTuneSignature = ''
 let lastRiskPolicyTuneAt = 0
 let lastStrategistNoActionSignature = ''
 let lastStrategistNoActionAtMs = 0
+let lastStrategyProposalSignature = ''
+let lastStateRiskMessage: RuntimeStateRiskMessage | null = null
+let lastStateUpdateAtMs = 0
 let lastStateUpdate:
   | {
     mode?: string
@@ -2790,6 +2951,17 @@ async function runStrategistCycle(): Promise<void> {
   }
 
   const proposalSummary = renderLegSummary(parsed.proposal.actions[0]?.legs ?? [])
+  const proposalSignature = [
+    riskRecovery.active ? `risk:${riskRecovery.signature}` : 'risk:clear',
+    activeDirective.decision,
+    parsed.proposal.requestedMode,
+    proposalSummary ?? parsed.proposal.summary
+  ].join('|')
+  if (proposalSignature === lastStrategyProposalSignature) {
+    return
+  }
+  lastStrategyProposalSignature = proposalSignature
+
   await publishTape({
     correlationId: parsed.proposal.proposalId,
     role: 'scout',
@@ -2950,6 +3122,14 @@ const start = async (): Promise<void> => {
     if (envelope.type === 'STATE_UPDATE') {
       const payload = envelope.payload as any
       if (payload && typeof payload === 'object') {
+        const stateAtMs = typeof payload.lastUpdateAt === 'string' ? Date.parse(payload.lastUpdateAt) : Date.now()
+        lastStateUpdateAtMs = Number.isFinite(stateAtMs) ? stateAtMs : Date.now()
+        const message = typeof payload.message === 'string' ? payload.message : ''
+        const parsedStateRiskMessage = message ? parseRiskStateMessage(message, lastStateUpdateAtMs) : null
+        if (parsedStateRiskMessage) {
+          lastStateRiskMessage = parsedStateRiskMessage
+        }
+
         const riskPolicyPayload = typeof payload.riskPolicy === 'object' && payload.riskPolicy !== null ? payload.riskPolicy as Record<string, unknown> : null
         lastStateUpdate = {
           mode: typeof payload.mode === 'string' ? payload.mode : undefined,
