@@ -62,6 +62,26 @@ Optional Cloudflare Pages web:
 - Requires `wrangler` auth (`npx wrangler login`) and a Pages project named `hlprivateer-xyz`.
 - DNS can be synced via `CF_API_TOKEN=<token with Zone:DNS:Edit> bash scripts/cloudflare/sync-dns.sh hlprivateer.xyz`.
 
+## Full server redeploy (systemd)
+
+Use this one command for a full backend/service redeploy after pulling latest code:
+
+- `sudo bun run deploy:systemd`
+
+What it does:
+- pulls latest `main`,
+- rebuilds the workspace,
+- copies systemd units from `infra/systemd/` to `/etc/systemd/system/`,
+- reloads systemd, restarts runtime/API/WS/agent-runner (+ optional web and Cloudflare tunnel services),
+- runs `scripts/readiness/smoke.sh` locally.
+
+Optional overrides:
+- `DEPLOY_ROOT=/path/to/repo`
+- `DEPLOY_BRANCH=main`
+- `RUN_LOCAL_SMOKE=0` (skip smoke check)
+- `RESTART_WEB_SERVICE=0` (if web is Pages-only)
+- `RESTART_CLOUDFLARED=0` (skip tunnel restart)
+
 ## Go Live (Hyperliquid mainnet + x402 + Postgres)
 See `docs/GO_LIVE.md` (wallet creation, Postgres bootstrap, live trading gates, x402 facilitator config, and verification steps).
 
