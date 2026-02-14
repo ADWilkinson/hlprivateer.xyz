@@ -67,7 +67,7 @@ function toSignedUsd(value: number): string {
 
 function toSafe(value: number | undefined): string {
   if (!Number.isFinite(value)) return '—'
-  return numberFormatter.format(value)
+  return numberFormatter.format(value ?? 0)
 }
 
 function safePnlClass(value: number): string {
@@ -318,7 +318,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                         const yValue = values.length > 1 ? values[index]?.pnlPct ?? 0 : 0
                         const min = pnlStats.min
                         const range = Math.max(0.0001, pnlStats.max - min)
-                        const y = (pnlStats.height - 8) - ((yValue - min) / range) * (pnlStats.height - 8) + 4
+                        const y = 4 + (1 - (yValue - min) / range) * 24
 
                         return (
                           <circle
