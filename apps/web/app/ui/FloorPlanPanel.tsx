@@ -9,7 +9,16 @@ import {
   type CrewHeartbeat,
   type CrewRole,
 } from './floor-dashboard'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, sectionTitleClass, skeletonPulseClass } from './ascii-style'
+import {
+  cardClass,
+  cardHeaderClass,
+  inlineBadgeClass,
+  monitorClass,
+  panelBodyPad,
+  sectionStripClass,
+  sectionTitleClass,
+  skeletonPulseClass,
+} from './ascii-style'
 
 type CrewNode = {
   id: string
@@ -121,13 +130,13 @@ export function FloorPlanPanel({
   const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs, isLoading), [crewHeartbeat, nowMs, isLoading])
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
   const mapRef = useRef<HTMLDivElement | null>(null)
-  const [networkWidth, setNetworkWidth] = useState(540)
+  const [networkWidth, setNetworkWidth] = useState(460)
 
   useEffect(() => {
     const updateWidth = () => {
-      const fallback = typeof window === 'undefined' ? 980 : window.innerWidth - 58
+      const fallback = typeof window === 'undefined' ? 980 : Math.max(300, window.innerWidth - 58)
       const measured = mapRef.current?.clientWidth ?? fallback
-      setNetworkWidth(Math.max(360, Math.min(measured, 1560)))
+      setNetworkWidth(Math.max(240, Math.min(measured, 1560)))
     }
 
     updateWidth()
@@ -211,8 +220,8 @@ export function FloorPlanPanel({
         </AsciiBadge>
       </div>
 
-      <div className='grid grid-cols-1 gap-2 p-2 lg:grid-cols-[minmax(260px,_340px)_minmax(600px,_1fr)]'>
-        <div className='min-h-[300px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+      <div className={`grid grid-cols-1 gap-2 ${panelBodyPad} lg:grid-cols-[minmax(250px,_340px)_minmax(460px,_1fr)]`}>
+        <div className={`min-h-[320px] ${monitorClass} flex flex-col`}>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>NODE TABLE</span>
           </div>
@@ -225,22 +234,22 @@ export function FloorPlanPanel({
               { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
             ]}
             data={stationRows}
-            className='text-[9px]'
+            className='min-h-0 flex-1 text-[9px]'
           />
         </div>
 
-        <div className='min-h-[300px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+        <div className={`min-h-[320px] ${monitorClass} flex flex-col`}>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
-          <div ref={mapRef} className='min-h-[300px] w-full max-w-full overflow-auto px-1 pb-1'>
+          <div ref={mapRef} className='min-h-[260px] w-full max-w-full flex-1 overflow-auto pb-1 pl-1'>
             <AsciiTopology
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
               theme={theme}
               pulseMs={nowMs}
-              className='text-[12px] leading-none text-hlpMuted dark:text-hlpMutedDark'
+              className='text-[11px] leading-none text-hlpFg dark:text-hlpFgDark'
               loading={isLoading}
             />
           </div>
@@ -262,7 +271,7 @@ export function FloorPlanPanel({
               </>
             )}
           </div>
-          <div className='px-2 py-2 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
+          <div className={`${panelBodyPad} text-[9px] text-hlpMuted dark:text-hlpMutedDark`}>
             <div className='mb-1 uppercase tracking-[0.16em]'>LINK LEGEND</div>
             <div className='flex flex-wrap gap-1'>
               <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>

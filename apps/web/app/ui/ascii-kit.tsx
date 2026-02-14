@@ -94,7 +94,7 @@ export function AsciiTable<T extends Record<string, unknown>>({
               <th
                 key={String(column.key)}
                 style={column.width ? { width: column.width } : undefined}
-                className={`px-2 py-1 border-r border-b last:border-r-0 border-hlpBorder dark:border-hlpBorderDark font-semibold text-hlpMuted dark:text-hlpMutedDark ${getAlignClass(
+                className={`whitespace-normal break-words px-2 py-1 border-r border-b last:border-r-0 border-hlpBorder dark:border-hlpBorderDark font-semibold text-hlpMuted dark:text-hlpMutedDark ${getAlignClass(
                   column.align ?? 'left',
                 )}`}
               >
@@ -120,7 +120,7 @@ export function AsciiTable<T extends Record<string, unknown>>({
                 {columns.map((column) => (
                   <td
                     key={`${String(column.key)}-${rowIndex}`}
-                    className={`px-2 py-1 border-r border-hlpBorder/75 dark:border-hlpBorderDark/75 last:border-r-0 ${getAlignClass(
+                    className={`whitespace-normal break-words px-2 py-1 border-r border-hlpBorder/75 dark:border-hlpBorderDark/75 last:border-r-0 ${getAlignClass(
                       column.align ?? 'left',
                     )}`}
                   >

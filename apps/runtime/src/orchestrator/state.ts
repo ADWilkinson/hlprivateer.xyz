@@ -99,8 +99,9 @@ const runtimeCommandCounter = new promClient.Counter({
   help: 'Runtime command outcomes',
   labelNames: ['command', 'result']
 })
-const RISK_DENIAL_NOTICE_COOLDOWN_MS = 120_000
+const RISK_DENIAL_NOTICE_COOLDOWN_MS = 180_000
 const RISK_AUTO_MITIGATION_COOLDOWN_MS = 60_000
+const NO_ACTION_NOTICE_COOLDOWN_MS = 60_000
 
 void promClient.collectDefaultMetrics()
 
@@ -184,6 +185,16 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let lastRiskDeniedNoticeAtMs = 0
   let lastRiskAutoMitigationAtMs = 0
   let lastRiskAutoMitigationSignature = ''
+  let lastNoActionNoticeAtMs = 0
+  let lastNoActionSignature = ''
+
+  const normalizeRiskSignature = (message: string): string =>
+    message
+      .toLowerCase()
+      .replace(/\b\d+(?:\.\d+)?%?/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/\b[a-f0-9]{8,}\b/g, '')
+      .trim()
 
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
@@ -630,7 +641,14 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
             : urgency
               ? 'no action (urgent)'
               : 'no action'
-        await publishStateUpdate(cycleCorrelationId, message)
+        if (
+          message !== lastNoActionSignature ||
+          nowMs - lastNoActionNoticeAtMs >= NO_ACTION_NOTICE_COOLDOWN_MS
+        ) {
+          lastNoActionSignature = message
+          lastNoActionNoticeAtMs = nowMs
+          await publishStateUpdate(cycleCorrelationId, message)
+        }
         return
       }
 
@@ -721,7 +739,14 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         const reasonCodes = risk.reasons
           .map((entry) => String(entry.code).trim().toUpperCase())
           .filter((entry) => entry.length > 0)
-        const denialSignature = [...new Set(reasonCodes)].sort().join('|') || 'no_reason'
+        const detailedReasonSignature = [...new Set(risk.reasons
+          .map((entry) => `${String(entry.code ?? 'GENERIC').trim().toUpperCase()}: ${normalizeRiskSignature(String(entry.message ?? ''))}`
+          .replace(/\|+/g, '|')
+          .trim()
+        )).sort().join('|')
+        const denialSignature = reasonCodes.length > 0
+          ? [...new Set(reasonCodes)].sort().join('|')
+          : detailedReasonSignature || 'no_reason'
         const shouldPublishDenialNotice =
           nowMs - lastRiskDeniedNoticeAtMs >= RISK_DENIAL_NOTICE_COOLDOWN_MS ||
           lastRiskDeniedSignature !== denialSignature

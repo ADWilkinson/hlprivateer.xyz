@@ -235,11 +235,14 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Treat SAFE_MODE and DEPENDENCY_FAILURE as hard-reduce states: request only flat/close actions until state is cleared.',
   '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and only risk mitigation command is /flatten.',
   '- Read the floor context memory every cycle: active directive, target risk caps, allocation multipliers, and latest risk/posture tape before sizing any basket leg.',
-  '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.'
+  '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.',
+  '- Proposals must reference current positions summary (gross/net/mode), target basket notional, and estimated leverage before proposing any new growth leg.',
+  '- Execution interactions are limited to runtime channels: only /flatten is an immediate risk intervention command available to the agent cycle.'
 ]
 
 const FLOOR_TAPE_CONTEXT_LINES = 12
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
+const DECK_STATUS_HEARTBEAT_MS = 60_000
 
 type FloorTapeLine = {
   ts: string
@@ -329,6 +332,8 @@ function toInterAgentRoleContext(
 }
 
 const floorTapeHistory: FloorTapeLine[] = []
+let lastDeckStatusSignature = ''
+let lastDeckStatusHeartbeatAtMs = 0
 
 function compactReportFields(report: unknown, keep: readonly string[]): Record<string, unknown> | null {
   if (!report || typeof report !== 'object' || Array.isArray(report)) {
@@ -1940,12 +1945,20 @@ async function runOpsAgent(): Promise<void> {
   const { maxAgeMs, missing } = tickStalenessMs(universe)
 
   const level: 'INFO' | 'WARN' | 'ERROR' = maxAgeMs > 15000 || missing.length > 0 ? 'WARN' : 'INFO'
-  await publishTape({
-    correlationId: ulid(),
-    role: 'ops',
-    level,
-    line: `deck status mode=${lastMode} feedAgeMs=${Math.round(maxAgeMs)} missing=${missing.length}`
-  })
+  const deckStatusLine = `deck status mode=${lastMode} feedAgeMs=${Math.round(maxAgeMs)} missing=${missing.length}`
+  const deckStatusSignature = `${level}|${deckStatusLine}`
+  const shouldPublishDeckStatus =
+    deckStatusSignature !== lastDeckStatusSignature || now - lastDeckStatusHeartbeatAtMs >= DECK_STATUS_HEARTBEAT_MS
+  if (shouldPublishDeckStatus) {
+    lastDeckStatusSignature = deckStatusSignature
+    lastDeckStatusHeartbeatAtMs = now
+    await publishTape({
+      correlationId: ulid(),
+      role: 'ops',
+      level,
+      line: deckStatusLine
+    })
+  }
 
   // Runtime can source ticks for dynamic basket symbols on-demand via l2Book snapshots.
   void maybePublishWatchlist({ symbols: universe, reason: 'ops heartbeat' }).catch(() => undefined)

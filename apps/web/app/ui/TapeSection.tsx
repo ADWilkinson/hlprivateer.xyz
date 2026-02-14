@@ -1,7 +1,7 @@
 import { AsciiBadge } from './ascii-kit'
 import { formatTime, type TapeEntry } from './floor-dashboard'
 import type { RefObject } from 'react'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, terminalPanelClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, panelBodyPad, sectionStripClass, skeletonPulseClass, terminalPanelClass } from './ascii-style'
 
 type TapeSectionProps = {
   tape: TapeEntry[]
@@ -23,14 +23,14 @@ export function TapeSection({ tape, tapeRef, isLoading = false }: TapeSectionPro
         {isLoading
           ? Array.from({ length: 10 }).map((_, index) => (
               <div
-                className='flex min-w-0 items-baseline gap-1 px-3 py-1 text-[11px] leading-[1.45] text-hlpMuted dark:text-hlpMutedDark'
+                className={`flex min-w-0 items-baseline gap-1 ${panelBodyPad} text-[10px] leading-[1.45] text-hlpMuted dark:text-hlpMutedDark`}
                 key={`loading-${index}`}
               >
                 <span className='w-3 shrink-0 text-[10px]'>&nbsp;</span>
-                <span className='w-[72px] shrink-0'>
+                <span className='w-[66px] shrink-0'>
                   <span className={`inline-block h-3 w-12 rounded-sm ${skeletonPulseClass}`} />
                 </span>
-                <span className='w-[46px] shrink-0'>
+                <span className='w-[44px] shrink-0'>
                   <span className={`inline-block h-3 w-8 rounded-sm ${skeletonPulseClass}`} />
                 </span>
                 <span className='min-w-0 flex-1'>
@@ -49,13 +49,13 @@ export function TapeSection({ tape, tapeRef, isLoading = false }: TapeSectionPro
 
               return (
                 <div
-                  className={`flex min-w-0 items-baseline gap-1 px-3 py-1 text-[11px] leading-[1.45] ${i === 0 ? 'text-hlpFg dark:text-hlpFgDark bg-hlpSurface/75 dark:bg-hlpSurfaceDark/65 animate-hlp-hot' : ''} ${levelTone}`}
+                  className={`flex min-w-0 items-baseline gap-1 ${panelBodyPad} text-[10px] leading-[1.45] ${i === 0 ? 'text-hlpFg dark:text-hlpFgDark bg-hlpSurface/75 dark:bg-hlpSurfaceDark/65 animate-hlp-hot' : ''} ${levelTone}`}
                   key={`${i}-${entry.ts}`}
                 >
                   <span className='w-3 shrink-0 text-[10px] text-hlpFg dark:text-hlpFgDark'>{i === 0 ? '▸' : '\u00A0'}</span>
-                  <span className='w-[72px] shrink-0 text-[10px] text-hlpMuted dark:text-hlpMutedDark'>{formatTime(entry.ts)}</span>
+                  <span className='w-[66px] shrink-0 text-[10px] text-hlpMuted dark:text-hlpMutedDark'>{formatTime(entry.ts)}</span>
                   {entry.role && (
-                    <span className='w-[46px] shrink-0 text-[10px] font-bold text-hlpMuted dark:text-hlpMutedDark'>
+                    <span className='w-[44px] shrink-0 text-[10px] font-bold text-hlpMuted dark:text-hlpMutedDark'>
                       [{entry.role.slice(0, 3).toUpperCase()}]
                     </span>
                   )}

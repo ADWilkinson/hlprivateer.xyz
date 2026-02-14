@@ -169,8 +169,9 @@ function renderTopologyMap(
   pulseMs = 0,
   loading = false,
 ): string {
-  const width = Math.max(96, Math.min(170, Math.floor(widthPx / 7.2)))
-  const height = Math.max(24, Math.min(42, Math.floor(width * 0.36)))
+  const width = Math.max(72, Math.min(184, Math.floor(widthPx / 4.8)))
+  const height = Math.max(24, Math.min(62, Math.floor(width * 0.42)))
+  const compact = width < 100
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '))
 
   const pulsePhase = Math.floor(pulseMs / 280)
@@ -208,6 +209,8 @@ function renderTopologyMap(
   })
 
   orderedEdges.forEach((edge) => {
+    if (compact && edge.id.startsWith('mesh-')) return
+
     const sourcePos = map.get(edge.source)
     const targetPos = map.get(edge.target)
     if (!sourcePos || !targetPos) return
@@ -229,7 +232,7 @@ function renderTopologyMap(
       }
     }
 
-    if (edge.label && (edge.status === 'active' || edge.status === 'warning')) {
+    if (!compact && edge.label && (edge.status === 'active' || edge.status === 'warning')) {
       const label = edge.label.replace('link:', '').replace('mesh:', '').replace(' ', '')
       const short = label.slice(0, Math.min(6, label.length))
       const midX = Math.round((sourcePos.x + targetPos.x) / 2)
@@ -245,20 +248,22 @@ function renderTopologyMap(
 
     drawCore(grid, pos, node.status, pulsePhase + hash(node.id))
 
-    const label = node.label.slice(0, 7)
+    const label = node.label.slice(0, compact ? 4 : 7)
     const labelX = Math.max(1, Math.min(width - label.length - 2, pos.x - Math.floor(label.length / 2)))
     const labelY = Math.min(height - 2, pos.y + 1)
     drawText(grid, labelX, labelY, label)
 
-    const statusTag = node.status === 'online' ? 'ok' : node.status === 'warning' ? 'wrn' : 'off'
-    const statX = node.id === 'ops' ? Math.max(1, labelX) : labelX + 1
-    const meta = node.id === 'ops'
-      ? `hub ${node.metadata?.heartbeat ?? '--'}`
-      : `${statusTag} ${node.metadata?.heartbeat ?? '--'}`
-    const text = loading ? `boot ${node.id}` : meta
-    const metaText = text.slice(0, Math.max(4, Math.min(13, text.length)))
-    const metaX = Math.max(1, Math.min(width - metaText.length - 1, pos.x - Math.floor(metaText.length / 2)))
-    drawText(grid, metaX, Math.min(height - 1, pos.y + 2), metaText)
+    if (!compact || node.id === 'ops') {
+      const statusTag = node.status === 'online' ? 'ok' : node.status === 'warning' ? 'wrn' : 'off'
+      const statX = node.id === 'ops' ? Math.max(1, labelX) : labelX + 1
+      const meta = node.id === 'ops'
+        ? `hub ${node.metadata?.heartbeat ?? '--'}`
+        : `${statusTag} ${node.metadata?.heartbeat ?? '--'}`
+      const text = loading ? `boot ${node.id}` : meta
+      const metaText = text.slice(0, Math.max(4, Math.min(compact ? 6 : 13, text.length)))
+      const metaX = Math.max(1, Math.min(width - metaText.length - 1, pos.x - Math.floor(metaText.length / 2)))
+      drawText(grid, metaX, Math.min(height - 1, pos.y + 2), metaText)
+    }
 
     const ringGlyph = nodePulseRing[node.status] ?? nodePulseRing.warning
     const ring = ringGlyph[(index + pulsePhase + hash(node.id)) % ringGlyph.length] ?? ringGlyph[0]
