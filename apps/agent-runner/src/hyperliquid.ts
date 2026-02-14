@@ -49,26 +49,45 @@ function parseFiniteNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-async function postJson<T>(url: string, body: unknown, timeoutMs?: number): Promise<T> {
-  const controller = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0 ? new AbortController() : null
-  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller?.signal
-    })
-    if (!response.ok) {
-      throw new Error(`hyperliquid info http ${response.status}`)
-    }
-    return (await response.json()) as T
-  } finally {
-    if (timeout) {
+async function postJson<T>(url: string, body: unknown, timeoutMs?: number, retries = 3): Promise<T> {
+  const effectiveTimeoutMs =
+    typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : 2500
+
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+      if (!response.ok) {
+        throw new Error(`hyperliquid info http ${response.status}`)
+      }
+      return (await response.json()) as T
+    } catch (error) {
+      lastError = error
+      if (attempt >= retries) {
+        break
+      }
+      const backoffMs = 150 * (attempt + 1) + Math.floor(Math.random() * 150)
+      await sleep(backoffMs)
+    } finally {
       clearTimeout(timeout)
     }
   }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 export async function fetchMetaAndAssetCtxs(infoUrl: string): Promise<HyperliquidUniverseAsset[]> {

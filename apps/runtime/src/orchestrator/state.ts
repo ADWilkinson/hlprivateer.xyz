@@ -1416,50 +1416,59 @@ function applyL2BookSnapshotToTick(tick: NormalizedTick, snapshot: L2BookSnapsho
 }
 
 async function fetchHyperliquidL2BookSnapshot(infoUrl: string, coin: string, levels: number, timeoutMs: number): Promise<L2BookSnapshot | null> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const retries = 2
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch(infoUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'l2Book', coin }),
+        signal: controller.signal
+      })
 
-  try {
-    const response = await fetch(infoUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'l2Book', coin }),
-      signal: controller.signal
-    })
+      if (!response.ok) {
+        throw new Error(`hyperliquid l2Book http ${response.status}`)
+      }
 
-    if (!response.ok) {
-      return null
+      const payload = (await response.json()) as Partial<HyperliquidL2BookResponse>
+      const book = coerceL2BookResponse(payload)
+      if (!book) {
+        throw new Error('invalid l2Book payload')
+      }
+
+      const bids = Array.isArray(book.levels[0]) ? book.levels[0] : []
+      const asks = Array.isArray(book.levels[1]) ? book.levels[1] : []
+
+      const bestBid = parseFiniteNumber(bids[0]?.px) ?? 0
+      const bestAsk = parseFiniteNumber(asks[0]?.px) ?? 0
+      const px = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : Math.max(bestBid, bestAsk)
+      if (!Number.isFinite(px) || px <= 0) {
+        throw new Error('invalid l2Book price')
+      }
+
+      return {
+        bidPx: bestBid > 0 ? bestBid : px,
+        askPx: bestAsk > 0 ? bestAsk : px,
+        px,
+        bidDepthUsd: sumLevelsUsd(bids, levels),
+        askDepthUsd: sumLevelsUsd(asks, levels),
+        updatedAtIso: isoFromEpoch(book.time)
+      }
+    } catch {
+      if (attempt >= retries) {
+        return null
+      }
+
+      const backoffMs = 120 * (attempt + 1) + Math.floor(Math.random() * 120)
+      await new Promise((resolve) => setTimeout(resolve, backoffMs))
+    } finally {
+      clearTimeout(timeout)
     }
-
-    const payload = (await response.json()) as Partial<HyperliquidL2BookResponse>
-    const book = coerceL2BookResponse(payload)
-    if (!book) {
-      return null
-    }
-
-    const bids = Array.isArray(book.levels[0]) ? book.levels[0] : []
-    const asks = Array.isArray(book.levels[1]) ? book.levels[1] : []
-
-    const bestBid = parseFiniteNumber(bids[0]?.px) ?? 0
-    const bestAsk = parseFiniteNumber(asks[0]?.px) ?? 0
-    const px = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : Math.max(bestBid, bestAsk)
-    if (!Number.isFinite(px) || px <= 0) {
-      return null
-    }
-
-    return {
-      bidPx: bestBid > 0 ? bestBid : px,
-      askPx: bestAsk > 0 ? bestAsk : px,
-      px,
-      bidDepthUsd: sumLevelsUsd(bids, levels),
-      askDepthUsd: sumLevelsUsd(asks, levels),
-      updatedAtIso: isoFromEpoch(book.time)
-    }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timeout)
   }
+
+  return null
 }
 
 async function fetchHyperliquidL2BookSnapshotCached(params: {
