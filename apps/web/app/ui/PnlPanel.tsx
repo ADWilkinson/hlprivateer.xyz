@@ -134,9 +134,14 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
   const xAxisY = 200
   const chartHeight = xAxisY - padY
   const chartWidth = width - padX * 2
-  const min = Math.min(...ordered)
-  const max = Math.max(...ordered)
-  const range = max - min || 1
+  let min = Math.min(...ordered)
+  let max = Math.max(...ordered)
+  if (min === max) {
+    const buffer = Math.abs(min) > 0 ? Math.abs(min) * 0.1 : 1
+    min -= buffer
+    max += buffer
+  }
+  const range = max - min
   const getX = (index: number) => padX + (index / Math.max(1, pointCount - 1)) * chartWidth
   const getY = (value: number) => padY + (1 - (value - min) / range) * chartHeight
 
