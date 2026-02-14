@@ -105,39 +105,45 @@ const x402Pricing: PriceRow[] = [
 ]
 
 export function X402AgentMaterialsPanel() {
+  const baseUrl = 'https://hlprivateer.xyz'
   const docLinks = [
-    { id: 'api', label: 'API contract + endpoint map', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/API.md' },
-    { id: 'llms', label: 'llms.txt + agent discovery', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/llms.txt' },
-    { id: 'skills', label: 'Skills contracts', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/skills.md' },
-    { id: 'agent', label: 'AGENT.md', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/AGENT.md' },
-    { id: 'x402', label: 'x402 quickstart', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/docs/X402_SELLER_QUICKSTART.md' },
+    { id: 'api', label: 'API contract + endpoint map', href: `${baseUrl}/API.md` },
+    { id: 'llms', label: 'llms.txt + agent discovery', href: `${baseUrl}/llms.txt` },
+    { id: 'skills', label: 'Skills contracts', href: `${baseUrl}/skills.md` },
+    { id: 'agent', label: 'AGENT.md', href: `${baseUrl}/AGENT.md` },
+    { id: 'x402', label: 'x402 quickstart', href: `${baseUrl}/docs/X402_SELLER_QUICKSTART.md` },
   ]
 
   const curlCommands = [
     {
       id: 'curl-llms',
       title: 'llms.txt',
-      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/llms.txt',
+      command: `curl -L ${baseUrl}/llms.txt`,
     },
     {
       id: 'curl-spec',
       title: 'Open spec',
-      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/docs/SPEC.md',
+      command: `curl -L ${baseUrl}/docs/SPEC.md`,
     },
     {
       id: 'curl-skills',
       title: 'Agent skills',
-      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/skills.md',
+      command: `curl -L ${baseUrl}/skills.md`,
     },
     {
       id: 'curl-agent-doc',
       title: 'Agent docs',
-      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/AGENT.md',
+      command: `curl -L ${baseUrl}/AGENT.md`,
     },
     {
       id: 'curl-api',
       title: 'API map',
-      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/API.md',
+      command: `curl -L ${baseUrl}/API.md`,
+    },
+    {
+      id: 'curl-x402',
+      title: 'x402 quickstart',
+      command: `curl -L ${baseUrl}/docs/X402_SELLER_QUICKSTART.md`,
     },
   ]
 
