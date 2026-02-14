@@ -242,7 +242,6 @@ export default function DeckPage() {
   const [deckFeedAgeMs, setDeckFeedAgeMs] = useState<number>(0)
   const [deckMissing, setDeckMissing] = useState<number>(0)
   const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(Date.now())
-  const theme: 'light' = 'light'
   const [riskDeniedCount, setRiskDeniedCount] = useState(0)
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
@@ -537,7 +536,6 @@ export default function DeckPage() {
           deckFeedAgeMs={deckFeedAgeMs}
           deckMissing={deckMissing}
           deckHeartbeatMs={deckHeartbeatMs}
-          theme={theme}
         />
         <CrewStationsPanel
           crewLast={crewLast}

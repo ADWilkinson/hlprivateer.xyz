@@ -10,64 +10,51 @@ Quick links:
 - Cloudflare DNS sync: `scripts/cloudflare/sync-dns.sh`
 
 ## 1. Services + Ports
-Reference systemd units:
-- `hlprivateer-api.service` (REST on `:4000`)
-- `hlprivateer-ws.service` (WS on `:4100`)
-- `hlprivateer-runtime.service` (metrics on `:9400`)
-- `hlprivateer-agent-runner.service` (internal proposals + analysis)
+Compose stack services:
+- `hlprivateer-web` (UI on `:3000`)
+- `hlprivateer-api` (REST on `:4000`, `GET /healthz`)
+- `hlprivateer-ws` (WebSocket + metrics on `:4100`, `/metrics`)
+- `hlprivateer-runtime` (runtime + metrics on `:9400`, `/healthz`)
+- `hlprivateer-agent-runner` (internal proposals + analysis)
+- `redis` (event bus)
+- `postgres` (runtime persistence)
 
 Dependencies:
-- Redis: required (event bus).
-- Postgres: optional when `DRY_RUN=true`; required when `DRY_RUN=false` (LIVE readiness).
-- Cloudflare Tunnel: required for public `api.*` and `ws.*` hostnames.
+- Redis: required by all application services.
+- Postgres: required for LIVE mode (`DRY_RUN=false`) and required by most durable workflows.
+- Cloudflare Tunnel: optional when using legacy edge ingress for `api.*` and `ws.*`.
 
-## 2. Deploy (Home Server / Reference)
+## 2. Deploy (Home Server / Docker)
 1. Provision a Linux host with:
-   - Bun 1.2+
-   - systemd
-   - Docker (used for Redis/Postgres in the reference setup)
-   - cloudflared (tunnel)
+   - Docker + Docker Compose
+   - Bun 1.2+ (optional for script utilities and local wallet ops)
 2. Clone repo.
 3. Create env file:
    - `cp config/.env.example config/.env`
-4. Start Redis (or point `REDIS_URL` at an existing instance):
-   - `docker run -d --name hlprivateer-redis --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine`
-5. Bootstrap Postgres + migrations (required for LIVE):
-   - `bash scripts/ops/bootstrap-postgres.sh`
-   - set `DATABASE_URL_FILE=.../secrets/hl_postgres_database_url` in `config/.env`
+4. Start stack:
+   - `npm run deploy:docker`
+   - optional: set `HOST_PROJECT_PATH` to your repo root if host paths differ from `/home/dappnode/projects/hlprivateer.xyz`
+5. Confirm service state:
+   - `npm run compose:ps`
 6. Generate a trading wallet (used by the live OMS, optionally also by x402 `payTo`):
    - `bun scripts/ops/generate-trading-wallet.ts`
-   - set `HL_PRIVATE_KEY_FILE=.../secrets/hl_trading_private_key` in `config/.env`
-7. Build:
-   - `bun install && bun run build`
-8. Install/enable systemd units:
-   - Copy your preferred unit set into `/etc/systemd/system/` and `sudo systemctl daemon-reload`.
-   - This repo includes hardened reference units under `infra/systemd/` (separate user + systemd credentials),
-     but a simpler local unit set is also acceptable for a home server.
-9. Configure Cloudflare Tunnel (cloudflared):
-   - Ensure tunnel ingress routes:
-     - `api.hlprivateer.xyz -> http://127.0.0.1:4000`
-     - `ws.hlprivateer.xyz -> http://127.0.0.1:4100`
-10. Sync Cloudflare DNS:
-   - `CF_API_TOKEN=<token with Zone:DNS:Edit> bash scripts/cloudflare/sync-dns.sh hlprivateer.xyz`
-11. Deploy web UI to Cloudflare Pages:
-   - `bun run deploy:web:cloudflare`
-12. Start services:
-   - `sudo systemctl enable --now hlprivateer-api hlprivateer-runtime hlprivateer-ws hlprivateer-agent-runner`
+   - set `HL_PRIVATE_KEY` or `HL_PRIVATE_KEY_FILE` in `config/.env`
+7. Run local smoke checks:
+   - `LOCAL=1 bash scripts/readiness/smoke.sh`
+
+8. Legacy cleanup (deprecated):
+   - `npm run deploy:legacy-clean` if old systemd units are still present
+   - `NUKE_LEGACY=1 npm run deploy:docker:full` to force full compose takeover
 
 ## 3. Startup Checks
 - Services:
-  - `systemctl status hlprivateer-api hlprivateer-runtime hlprivateer-ws hlprivateer-agent-runner`
-  - `journalctl -u hlprivateer-runtime -n 50 --no-pager`
+  - `npm run compose:ps`
+  - `npm run compose:logs`
 - Local probes:
   - `curl -sf http://127.0.0.1:4000/healthz`
   - `curl -sf http://127.0.0.1:4000/v1/public/pnl` (expects `pnlPct`)
   - `curl -sf http://127.0.0.1:4100/metrics`
   - `curl -sf http://127.0.0.1:9400/healthz`
-- Public probes:
-  - `curl -sf https://hlprivateer.xyz/ >/dev/null`
-  - `curl -sf https://api.hlprivateer.xyz/v1/public/pnl`
-  - `curl -sf https://ws.hlprivateer.xyz/metrics >/dev/null`
 - End-to-end smoke:
   - `LOCAL=1 bash scripts/readiness/smoke.sh`
 

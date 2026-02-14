@@ -24,11 +24,11 @@ type AsciiTableProps<T> = {
 } & Omit<HTMLAttributes<HTMLTableElement>, 'children' | 'className'>
 
 const badgeToneClass: Record<BadgeTone, string> = {
-  neutral: 'border-hlpBorder dark:border-hlpBorderDark text-hlpMuted dark:text-hlpMutedDark',
-  positive: 'border-hlpPositive/80 dark:border-hlpPositiveDark/80 text-hlpPositive dark:text-hlpPositiveDark',
-  warning: 'border-hlpWarning/80 dark:border-hlpWarningDark/80 text-hlpWarning dark:text-hlpWarningDark',
-  error: 'border-hlpNegative/80 dark:border-hlpNegativeDark/80 text-hlpNegative dark:text-hlpNegativeDark',
-  info: 'border-hlpMuted/80 dark:border-hlpMutedDark/80 text-hlpMuted dark:text-hlpMutedDark',
+  neutral: 'border-hlpBorder text-hlpMuted',
+  positive: 'border-hlpPositive/80 text-hlpPositive',
+  warning: 'border-hlpWarning/80 text-hlpWarning',
+  error: 'border-hlpNegative/80 text-hlpNegative',
+  info: 'border-hlpMuted/80 text-hlpMuted',
 }
 
 const badgeGlyphs: Record<BadgeVariant, [string, string]> = {
@@ -84,17 +84,17 @@ export function AsciiTable<T extends Record<string, unknown>>({
   ...props
 }: AsciiTableProps<T>) {
   return (
-    <div className={`overflow-hidden ${panelRadiusSubtle} border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark ${className}`}>
-      {caption && <div className='border-b border-hlpBorder dark:border-hlpBorderDark px-2 py-1 text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>{caption}</div>}
+    <div className={`overflow-hidden ${panelRadiusSubtle} border border-hlpBorder bg-hlpSurface ${className}`}>
+      {caption && <div className='border-b border-hlpBorder px-2 py-1 text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>{caption}</div>}
 
       <table {...props} className='w-full border-collapse text-[10px]'>
         <thead>
-          <tr className='bg-hlpPanel dark:bg-hlpPanelDark'>
+          <tr className='bg-hlpPanel'>
             {columns.map((column) => (
               <th
                 key={String(column.key)}
                 style={column.width ? { width: column.width } : undefined}
-                className={`whitespace-normal break-words px-2 py-1 border-r border-b last:border-r-0 border-hlpBorder dark:border-hlpBorderDark font-semibold text-hlpMuted dark:text-hlpMutedDark ${getAlignClass(
+                className={`whitespace-normal break-words px-2 py-1 border-r border-b last:border-r-0 border-hlpBorder font-semibold text-hlpMuted ${getAlignClass(
                   column.align ?? 'left',
                 )}`}
               >
@@ -107,7 +107,7 @@ export function AsciiTable<T extends Record<string, unknown>>({
         <tbody>
           {data.length === 0 ? (
             <tr>
-              <td className='px-4 py-6 text-center text-hlpMuted dark:text-hlpMutedDark' colSpan={columns.length}>
+              <td className='px-4 py-6 text-center text-hlpMuted' colSpan={columns.length}>
                 {emptyText}
               </td>
             </tr>
@@ -115,12 +115,12 @@ export function AsciiTable<T extends Record<string, unknown>>({
             data.map((row, rowIndex) => (
               <tr
                 key={String((row as { id?: string }).id ?? rowIndex)}
-                className={rowIndex % 2 === 0 ? 'bg-transparent' : 'bg-hlpPanel/35 dark:bg-hlpPanelDark/35'}
+                className={rowIndex % 2 === 0 ? 'bg-transparent' : 'bg-hlpPanel/35'}
               >
                 {columns.map((column) => (
                   <td
                     key={`${String(column.key)}-${rowIndex}`}
-                    className={`whitespace-normal break-words px-2 py-1 border-r border-hlpBorder/75 dark:border-hlpBorderDark/75 last:border-r-0 ${getAlignClass(
+                    className={`whitespace-normal break-words px-2 py-1 border-r border-hlpBorder/75 last:border-r-0 ${getAlignClass(
                       column.align ?? 'left',
                     )}`}
                   >

@@ -5,11 +5,12 @@ This page is the operational checklist to run HL Privateer in **LIVE** mode (rea
 If you are just developing locally, use `DRY_RUN=true` and follow `README.md` instead.
 
 ## 0) Preconditions
-- Cloudflare is already serving:
-  - UI via Pages: `https://hlprivateer.xyz`
-  - API via Tunnel: `https://api.hlprivateer.xyz`
-  - WS via Tunnel: `wss://ws.hlprivateer.xyz`
-- Redis is running and reachable from the services (`REDIS_URL`).
+- If you use Cloudflare ingress, confirm DNS/TLS and tunnel endpoints are already updated.
+- Docker Compose stack is reachable for trading endpoints:
+  - UI: `http://<host>:3000`
+  - API: `http://<host>:4000`
+  - WS: `ws://<host>:4100`
+- Redis and Postgres are managed by Compose services.
 - You understand the operator commands: `/halt`, `/resume`, `/flatten`.
 
 ## 1) Create A Trading Wallet (EVM key)
@@ -34,16 +35,16 @@ Notes:
 ## 2) Start Postgres (required for LIVE)
 In LIVE (`DRY_RUN=false`), Postgres is a hard dependency (audit + state must be durable).
 
-Bootstrap the local Postgres container + apply migrations:
+Bootstrap the local Postgres container + apply migrations (if Postgres is not yet provisioned):
 ```bash
 cd /home/dappnode/projects/hlprivateer.xyz
-bash scripts/ops/bootstrap-postgres.sh
+docker compose -f infra/docker-compose.yml --env-file config/.env up -d postgres
 ```
 
 This will:
-- Start `hlprivateer-postgres` (docker) bound to `127.0.0.1:5432`.
+- Start `postgres` service and run migration `apps/runtime/migrations/0001_init.sql` from the compose-mounted file on first init.
 - Create `secrets/hl_postgres_database_url` (mode `600`).
-- Apply `apps/runtime/migrations/0001_init.sql` (idempotent).
+- Use `DATABASE_URL_FILE` or `DATABASE_URL` to point runtime at the database.
 
 ## 3) Configure LIVE + x402 (config/.env)
 Edit `config/.env` to point at secret files and enable LIVE:
@@ -78,9 +79,7 @@ curl -fsS https://facilitator.payai.network/supported | head -c 400 && echo
 ## 4) Build + Restart Services
 ```bash
 cd /home/dappnode/projects/hlprivateer.xyz
-bun install
-bun run build
-sudo systemctl restart hlprivateer-api hlprivateer-ws hlprivateer-runtime hlprivateer-agent-runner
+npm run deploy:docker
 ```
 
 Run the local+public smoke:
@@ -145,19 +144,14 @@ Expected:
 ## 8) 24h Burn-In (public E2E)
 The burn-in repeatedly runs `scripts/readiness/smoke.sh` for 24h to catch DNS/TLS/tunnel flaps.
 
-Start it as a transient systemd unit:
+Run it as a background process and capture logs:
 ```bash
 cd /home/dappnode/projects/hlprivateer.xyz
 TS=$(date -u +%Y%m%dT%H%M%SZ)
-sudo systemd-run --unit=hlprivateer-burnin --collect \\
-  --property=WorkingDirectory=/home/dappnode/projects/hlprivateer.xyz \\
-  --property=User=dappnode --property=Group=dappnode \\
-  --setenv=OUT=burnin-${TS}.log --setenv=LOCAL=1 \\
-  /bin/bash scripts/readiness/burnin.sh
+nohup bash scripts/readiness/burnin.sh LOCAL=1 > "burnin-${TS}.log" 2>&1 &
 ```
 
 Monitor:
 ```bash
-systemctl status hlprivateer-burnin.service
 tail -f burnin-*.log
 ```

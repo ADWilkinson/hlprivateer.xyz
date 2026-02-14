@@ -36,7 +36,6 @@ type FloorPlanPanelProps = {
   deckFeedAgeMs: number
   deckMissing: number
   deckHeartbeatMs: number
-  theme: 'light' | 'dark'
   isLoading?: boolean
 }
 
@@ -124,7 +123,6 @@ export function FloorPlanPanel({
   deckFeedAgeMs,
   deckMissing,
   deckHeartbeatMs,
-  theme,
   isLoading = false,
 }: FloorPlanPanelProps) {
   const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs, isLoading), [crewHeartbeat, nowMs, isLoading])
@@ -215,7 +213,7 @@ export function FloorPlanPanel({
         <div>
           <div className={sectionTitleClass}>FLOOR PLAN MAP</div>
         </div>
-        <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
+        <AsciiBadge tone='positive' className='text-hlpPositive'>
           {isLoading ? 'warming map' : 'topology mode'}
         </AsciiBadge>
       </div>
@@ -231,8 +229,7 @@ export function FloorPlanPanel({
               edges={topology.edges}
               width={networkWidth}
               height={300}
-              theme={theme}
-              className='text-hlpFg dark:text-hlpFgDark'
+              className='text-hlpFg'
               loading={isLoading}
             />
           </div>
