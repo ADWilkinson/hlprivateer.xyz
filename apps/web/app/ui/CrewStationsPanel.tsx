@@ -73,7 +73,7 @@ export function CrewStationsPanel({
         </AsciiBadge>
       </div>
 
-      <div className='grid grid-cols-1 gap-2 p-1 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]'>
+      <div className='grid gap-2 p-1 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]'>
         {roles.map((role) => {
           const last = isLoading ? null : crewLast[role]
           const lastMs = last?.ts ? Date.parse(last.ts) : 0
@@ -91,7 +91,7 @@ export function CrewStationsPanel({
 
           return (
             <article
-              className={`${monitorClass} min-h-[200px] transition-colors ${
+              className={`${monitorClass} min-h-[114px] transition-colors ${
                 active
                   ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel/95 dark:bg-hlpPanelDark/95'
                   : 'border-hlpBorder dark:border-hlpBorderDark'

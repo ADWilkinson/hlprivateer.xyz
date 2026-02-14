@@ -409,45 +409,51 @@ export default function DeckPage() {
   return (
     <main className={pageShellClass}>
       <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
-      <div className='grid gap-2 sm:gap-2 xl:gap-2 xl:grid-cols-12'>
-        <div className='xl:col-span-8'>
-          <StatusStrip
-            isLoading={isBootstrapping}
-            snapshot={snapshot}
-            wsState={wsState}
-            suppressedNoAction={suppressedNoAction}
-            riskDeniedCount={riskDeniedCount}
-            riskDeniedSuppressed={riskDeniedSuppressed}
-            riskDeniedReason={riskDeniedReason}
-            heartbeatAgeMs={heartbeatMs}
-            snapshotAgeMs={snapshotAgeMs}
-            deckFeedAgeMs={deckFeedAgeMs}
-            deckMissing={deckMissing}
-          />
+      <div className='space-y-2'>
+        <div className='grid gap-2 sm:gap-2 xl:grid-cols-12'>
+          <div className='xl:col-span-7'>
+            <StatusStrip
+              isLoading={isBootstrapping}
+              snapshot={snapshot}
+              wsState={wsState}
+              suppressedNoAction={suppressedNoAction}
+              riskDeniedCount={riskDeniedCount}
+              riskDeniedSuppressed={riskDeniedSuppressed}
+              riskDeniedReason={riskDeniedReason}
+              heartbeatAgeMs={heartbeatMs}
+              snapshotAgeMs={snapshotAgeMs}
+              deckFeedAgeMs={deckFeedAgeMs}
+              deckMissing={deckMissing}
+            />
+          </div>
+          <div className='xl:col-span-5'>
+            <PnlPanel snapshot={snapshot} chart={chart} isLoading={isBootstrapping} />
+          </div>
         </div>
-        <div className='xl:col-span-4'>
-          <PnlPanel snapshot={snapshot} chart={chart} isLoading={isBootstrapping} />
+
+        <div className='grid gap-2 sm:gap-2 xl:grid-cols-12'>
+          <div className='xl:col-span-7'>
+            <FloorPlanPanel
+              isLoading={isBootstrapping}
+              crewHeartbeat={crewHeartbeat}
+              nowMs={crewNow}
+              deckFeedAgeMs={deckFeedAgeMs}
+              deckMissing={deckMissing}
+              deckHeartbeatMs={deckHeartbeatMs}
+              theme={theme}
+            />
+          </div>
+          <div className='xl:col-span-5'>
+            <CrewStationsPanel
+              crewLast={crewLast}
+              crewHeartbeat={crewHeartbeat}
+              crewSignals={crewSignals}
+              nowMs={crewNow}
+              isLoading={isBootstrapping}
+            />
+          </div>
         </div>
-        <div className='xl:col-span-8'>
-          <FloorPlanPanel
-            isLoading={isBootstrapping}
-            crewHeartbeat={crewHeartbeat}
-            nowMs={crewNow}
-            deckFeedAgeMs={deckFeedAgeMs}
-            deckMissing={deckMissing}
-            deckHeartbeatMs={deckHeartbeatMs}
-            theme={theme}
-          />
-        </div>
-        <div className='xl:col-span-4'>
-          <CrewStationsPanel
-            crewLast={crewLast}
-            crewHeartbeat={crewHeartbeat}
-            crewSignals={crewSignals}
-            nowMs={crewNow}
-            isLoading={isBootstrapping}
-          />
-        </div>
+
         <div className='xl:col-span-12'>
           <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
         </div>

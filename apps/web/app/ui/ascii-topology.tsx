@@ -48,18 +48,18 @@ const nodePulseRing: Record<NodeStatus, string[]> = {
 
 const edgeGlyph: Record<'light' | 'dark', Record<EdgeStatus, string[]>> = {
   light: {
-    active: ['━', '╌', '⎯', '═'],
-    inactive: ['╌', '─', '╌', '─'],
-    congested: ['┄', '┅', '┄', '┅'],
-    error: ['⟹', '➤', '═', '⟶'],
-    warning: ['┈', '┄', '┈', '┄'],
+    active: ['━', '═', '⎯'],
+    inactive: ['·', '╌', '·'],
+    congested: ['┄', '┈', '┄', '┅'],
+    error: ['⟶', '⟹', '➤'],
+    warning: ['┈', '┅', '┈'],
   },
   dark: {
-    active: ['━', '╌', '═', '⎯'],
-    inactive: ['╌', '╌', '╌', '╌'],
-    congested: ['┄', '┅', '┄', '┅'],
-    error: ['⟹', '═', '⟶', '➤'],
-    warning: ['┈', '┄', '┈', '┄'],
+    active: ['━', '⎯', '═'],
+    inactive: ['·', '┄', '·'],
+    congested: ['┄', '┈', '┄', '┅'],
+    error: ['⟶', '⟹', '➤'],
+    warning: ['┈', '┅', '┈'],
   },
 }
 
@@ -124,13 +124,13 @@ function drawLine(grid: string[][], p0: NodePos, p1: NodePos, fill: string) {
 function renderAmbientNoise(grid: string[][], pulsePhase: number) {
   const width = grid[0]!.length
   const height = grid.length
-  const density = Math.max(10, Math.floor((width * height) / 190))
+  const density = Math.max(8, Math.floor((width * height) / 320))
   for (let i = 0; i < density; i += 1) {
     const seed = hash(`${pulsePhase}:${i}`)
     const x = seed % width
     const y = (seed >>> 4) % height
-    if ((x + y + pulsePhase) % 6 !== 0) continue
-    placeCell(grid, x, y, (i + pulsePhase) % 3 ? '·' : '·')
+    if ((x + pulsePhase + i) % 5 !== 0) continue
+    placeCell(grid, x, y, i % 4 === 0 ? '·' : ' ')
   }
 }
 
@@ -169,8 +169,8 @@ function renderTopologyMap(
   pulseMs = 0,
   loading = false,
 ): string {
-  const width = Math.max(84, Math.min(154, Math.floor(widthPx / 9)))
-  const height = Math.max(20, Math.min(34, Math.floor(width * 0.42)))
+  const width = Math.max(96, Math.min(170, Math.floor(widthPx / 7.2)))
+  const height = Math.max(24, Math.min(42, Math.floor(width * 0.36)))
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '))
 
   const pulsePhase = Math.floor(pulseMs / 280)
@@ -179,7 +179,7 @@ function renderTopologyMap(
   const framePadX = Math.max(3, Math.floor(width * 0.045))
   const framePadY = Math.max(2, Math.floor(height * 0.08))
   const centerX = Math.floor(width / 2)
-  const centerY = Math.floor(height / 2) + 1
+  const centerY = Math.floor(height / 2) - 1
   const map = new Map<string, NodePos>()
 
   const hub = nodes.find((node) => node.id === 'ops') ?? nodes[0]
@@ -188,8 +188,8 @@ function renderTopologyMap(
   }
 
   const outer = nodes.filter((node) => node.id !== hub?.id)
-  const outerRadiusX = Math.max(12, Math.floor((width - 12) * 0.44))
-  const outerRadiusY = Math.max(5, Math.floor((height - 7) * 0.39))
+  const outerRadiusX = Math.max(10, Math.floor((width - 10) * 0.43))
+  const outerRadiusY = Math.max(5, Math.floor((height - 6) * 0.45))
 
   outer.forEach((node, index) => {
     const angle = (index / Math.max(1, outer.length)) * Math.PI * 2
@@ -230,8 +230,8 @@ function renderTopologyMap(
     }
 
     if (edge.label && (edge.status === 'active' || edge.status === 'warning')) {
-      const label = edge.label.replace('link:', '').replace('mesh:', '').toLowerCase().replace(' -> ', '>')
-      const short = label.slice(0, Math.min(7, label.length))
+      const label = edge.label.replace('link:', '').replace('mesh:', '').replace(' ', '')
+      const short = label.slice(0, Math.min(6, label.length))
       const midX = Math.round((sourcePos.x + targetPos.x) / 2)
       const midY = Math.round((sourcePos.y + targetPos.y) / 2) + (pulsePhase % 2 === 0 ? -1 : 1)
       const labelX = Math.max(1, Math.min(width - short.length - 2, midX - Math.floor(short.length / 2)))
