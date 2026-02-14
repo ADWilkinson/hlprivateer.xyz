@@ -12,6 +12,9 @@ export const inlineBadgeClass =
 export const buttonClass =
   'inline-flex h-8 items-center rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/65 px-2.5 text-[9px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark transition-colors hover:border-hlpBorderStrong dark:hover:border-hlpBorderStrongDark hover:text-hlpFg dark:hover:text-hlpFgDark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hlpPositive/70 focus-visible:dark:ring-hlpPositiveDark/80'
 
+export const skeletonPulseClass =
+  'animate-pulse bg-hlpSurface/70 dark:bg-hlpSurfaceDark/60 border border-hlpBorder dark:border-hlpBorderDark'
+
 export const sectionTitleClass = 'text-[9px] uppercase tracking-[0.24em] text-hlpMuted dark:text-hlpMutedDark'
 export const mutedTextClass = 'text-[9px] text-hlpMuted dark:text-hlpMutedDark'
 export const mutedPanelClass = 'border-t border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark'

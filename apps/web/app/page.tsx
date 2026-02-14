@@ -16,7 +16,6 @@ import {
   shouldSuppressTapeLine,
   EMPTY_HEARTBEAT,
   EMPTY_STATS,
-  SILENCE_REFRESH_MS,
 } from './ui/floor-dashboard'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
 import { FloorPlanPanel } from './ui/FloorPlanPanel'
@@ -33,6 +32,7 @@ type CrewLast = Record<CrewRole, TapeEntry | null>
 
 const chartWidth = 64
 const chartHeight = 12
+const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 45_000
 
 function normalizeTapePrefix(line: string): string {
@@ -110,10 +110,11 @@ export default function DeckPage() {
   const [deckFeedAgeMs, setDeckFeedAgeMs] = useState<number>(0)
   const [deckMissing, setDeckMissing] = useState<number>(0)
   const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(Date.now())
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [riskDeniedCount, setRiskDeniedCount] = useState(0)
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
+  const [isBootstrapping, setIsBootstrapping] = useState(true)
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
   const seenTapeRef = useRef<Set<string>>(new Set())
 
@@ -134,7 +135,7 @@ export default function DeckPage() {
   }, [])
 
   useEffect(() => {
-    const tick = setInterval(() => setNowTick(Date.now()), SILENCE_REFRESH_MS)
+    const tick = setInterval(() => setNowTick(Date.now()), UI_TICK_MS)
     return () => clearInterval(tick)
   }, [])
 
@@ -218,15 +219,8 @@ export default function DeckPage() {
         riskDenialRef.current = { signature, atMs: now }
         setRiskDeniedCount((value) => value + 1)
         setRiskDeniedReason(display)
-      }
 
-      if (isRiskDenial) {
-        const signature = `${entry.ts}|${entry.level ?? 'INFO'}|${normalizedLine}`
-        if (seenTapeRef.current.has(signature)) {
-          return false
-        }
-        seenTapeRef.current.add(signature)
-        trimTapeDedupWindow()
+        return false
       }
 
       if (shouldSuppressTapeLine(entry.line)) {
@@ -288,6 +282,10 @@ export default function DeckPage() {
         }
       } catch {
         // initial load network issues are non-fatal
+      } finally {
+        if (running) {
+          setIsBootstrapping(false)
+        }
       }
     }
 
@@ -412,8 +410,9 @@ export default function DeckPage() {
     <main className={pageShellClass}>
       <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
       <div className='grid gap-3 xl:grid-cols-12'>
-        <div className='xl:col-span-7'>
+        <div className='xl:col-span-8'>
           <StatusStrip
+            isLoading={isBootstrapping}
             snapshot={snapshot}
             wsState={wsState}
             suppressedNoAction={suppressedNoAction}
@@ -426,13 +425,14 @@ export default function DeckPage() {
             deckMissing={deckMissing}
           />
         </div>
-        <div className='xl:col-span-5'>
-          <PnlPanel snapshot={snapshot} chart={chart} />
+        <div className='xl:col-span-4'>
+          <PnlPanel snapshot={snapshot} chart={chart} isLoading={isBootstrapping} />
         </div>
       </div>
       <div className='grid gap-3 xl:grid-cols-12'>
-        <div className='xl:col-span-7'>
+        <div className='xl:col-span-8'>
           <FloorPlanPanel
+            isLoading={isBootstrapping}
             crewHeartbeat={crewHeartbeat}
             nowMs={crewNow}
             deckFeedAgeMs={deckFeedAgeMs}
@@ -441,11 +441,17 @@ export default function DeckPage() {
             theme={theme}
           />
         </div>
-        <div className='xl:col-span-5'>
-          <CrewStationsPanel crewLast={crewLast} crewHeartbeat={crewHeartbeat} crewSignals={crewSignals} nowMs={crewNow} />
+        <div className='xl:col-span-4'>
+          <CrewStationsPanel
+            crewLast={crewLast}
+            crewHeartbeat={crewHeartbeat}
+            crewSignals={crewSignals}
+            nowMs={crewNow}
+            isLoading={isBootstrapping}
+          />
         </div>
       </div>
-      <TapeSection tape={tape} tapeRef={tapeRef} />
+      <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
       <FloorFooter apiEndpoint={apiUrl('/v1/agent/analysis/latest')} />
     </main>
   )

@@ -230,7 +230,10 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Prioritize stability and avoid unnecessary churn.',
   '- Use latest risk decisions to drive recovery: when a recent DENY cites DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE, require immediate risk-reduction first.',
   '- If risk posture requires reduction, do not scale up notional or propose growth-facing changes.',
-  '- Preserve market neutrality and risk budgets: prioritize reduced gross first, then re-enable sizing only after reduced-risk state is confirmed.'
+  '- Preserve market neutrality and risk budgets: prioritize reduced gross first, then re-enable sizing only after reduced-risk state is confirmed.',
+  '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and only risk mitigation command is /flatten.',
+  '- Read the floor context memory every cycle: active directive, target risk caps, allocation multipliers, and latest risk/posture tape before sizing any basket leg.',
+  '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.'
 ]
 
 const FLOOR_TAPE_CONTEXT_LINES = 12
@@ -629,10 +632,25 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
       notionalBounds: {
         min: env.AGENT_NOTIONAL_MULTIPLIER_MIN,
         max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
+      },
+      riskLimits: {
+        maxLeverage: env.RISK_MAX_LEVERAGE,
+        maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
+        maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
+        maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
+        staleDataMs: env.RISK_STALE_DATA_MS,
+        liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+        notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+      },
+      runtimeRecovery: {
+        automaticExitSignal: 'AUTO_EXIT when risk decisions block with DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE/LIQUIDITY/STALE_DATA/SYSTEM_GATED',
+        defaultRecoveryCommand: '/flatten'
       }
     }
   }
 }
+
+const EXIT_NOTIONAL_EPSILON_USD = 0
 
 function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
   if (!decision || !Array.isArray(decision.reasons)) {
@@ -1246,7 +1264,7 @@ function signedNotionalBySymbol(positions: OperatorPosition[]): Map<string, numb
 
 function buildFlatSignature(positions: OperatorPosition[]): string {
   const rows = positions
-    .filter((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) >= 5)
+    .filter((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) >= EXIT_NOTIONAL_EPSILON_USD)
     .map((position) => ({
       symbol: String(position.symbol).toUpperCase(),
       side: position.side,
@@ -1388,7 +1406,7 @@ function buildExitProposal(params: {
   const legs = symbols
     .map((symbol) => {
       const current = currentBySymbol.get(symbol) ?? 0
-      if (!Number.isFinite(current) || Math.abs(current) < 5) {
+      if (!Number.isFinite(current) || Math.abs(current) < EXIT_NOTIONAL_EPSILON_USD) {
         return null
       }
       const side: 'BUY' | 'SELL' = current > 0 ? 'SELL' : 'BUY'

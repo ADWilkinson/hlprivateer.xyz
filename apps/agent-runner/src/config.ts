@@ -63,6 +63,13 @@ export const env = z
     // Legacy seed only (basket selection is dynamic; see AGENT_BASKET_*).
     BASKET_SYMBOLS: z.string().default(''),
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(1000),
+    RISK_MAX_LEVERAGE: z.coerce.number().positive().default(2),
+    RISK_MAX_DRAWDOWN_PCT: z.coerce.number().positive().default(5),
+    RISK_MAX_NOTIONAL_USD: z.coerce.number().positive().default(10000),
+    RISK_MAX_SLIPPAGE_BPS: z.coerce.number().positive().default(20),
+    RISK_STALE_DATA_MS: z.coerce.number().positive().default(3000),
+    RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().positive().default(1.1),
+    RISK_NOTIONAL_PARITY_TOLERANCE: z.number().min(0).max(1).default(0.015),
 
     // Hyperliquid info endpoint for universe selection.
     HL_INFO_URL: z.string().default('https://api.hyperliquid.xyz/info'),
