@@ -48,7 +48,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         return
       }
 
-      const claims = (request as { user?: OperatorClaims }).user
+      const claims = payload
       const requestHasRole = roles.some((role) => claims?.roles?.includes(role))
       if (!requestHasRole) {
         void reply.code(403).send({ error: 'FORBIDDEN', message: `role required: ${roles.join(',')}` })
@@ -63,14 +63,16 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   })
 }
 
-export function hasRole(request: FastifyRequest, role: string): boolean {
-    const token = request.headers.authorization?.replace('Bearer ', '')
+
+export async function hasRole(request: FastifyRequest, role: string): Promise<boolean> {
+  const token = request.headers.authorization?.replace('Bearer ', '')
   if (!token) {
     return false
   }
 
   try {
-    const claims = (request as { user?: OperatorClaims }).user
+    const existingClaims = (request as { user?: OperatorClaims }).user
+    const claims = existingClaims ?? ((await request.jwtVerify()) as OperatorClaims)
     return (claims?.roles ?? []).includes(role)
   } catch (error) {
     request.log.warn({ err: error }, 'failed to read role from jwt payload')
