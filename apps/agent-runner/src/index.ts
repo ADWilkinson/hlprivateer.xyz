@@ -75,6 +75,14 @@ function safeDateMs(value: unknown): number | null {
   return parsed
 }
 
+function msSince(valueMs: number | null, nowMs: number): number | null {
+  if (!Number.isFinite(valueMs) || !valueMs) {
+    return null
+  }
+  const ageMs = nowMs - valueMs
+  return Number.isFinite(ageMs) && ageMs >= 0 ? ageMs : 0
+}
+
 function roleActorId(role: FloorRole): string {
   return `${env.AGENT_ID}:${role}`
 }
@@ -207,6 +215,409 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
   const max = clamp(Math.round(expected * 2), expected, 20)
 
   return { expectedSlippageBps: expected, maxSlippageBps: max }
+}
+
+const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
+  'Core floor rules:',
+  `- Objective: maintain LONG ${BASE_LONG_SYMBOL} and SHORT basket-only exposure with market-neutral behavior.`,
+  '- Market-neutral execution safety dominates all recommendations.',
+  '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
+  '- If context is stale, contradictory, or incomplete, choose conservative actions.',
+  '- Never invent symbols, metrics, or events not present in context.',
+  '- Return strictly structured JSON only, no commentary.',
+  '- Prioritize stability and avoid unnecessary churn.'
+]
+
+const FLOOR_TAPE_CONTEXT_LINES = 12
+const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
+
+type FloorTapeLine = {
+  ts: string
+  role: string
+  level: 'INFO' | 'WARN' | 'ERROR'
+  line: string
+}
+
+type FloorTapePromptEntry = {
+  role: string
+  level: 'INFO' | 'WARN' | 'ERROR'
+  ageMs: number | null
+  line: string
+}
+
+type InterAgentRoleContext = {
+  lastRunAtMs: number | null
+  ageMs: number | null
+  status: 'never' | 'stale' | 'fresh'
+  source: 'memory' | 'heartbeat'
+}
+
+function summarizeInterAgentContext(nowMs = Date.now()): Record<string, InterAgentRoleContext> {
+  const staleThresholdMs = Math.max(STRATEGY_CONTEXT_MAX_AGE_MS, env.AGENT_OPS_INTERVAL_MS * 3)
+
+  const entries: Record<string, InterAgentRoleContext> = {}
+  entries.research = toInterAgentRoleContext(lastResearchAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.risk = toInterAgentRoleContext(lastRiskAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.strategist = toInterAgentRoleContext(lastDirectiveAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.scribe = toInterAgentRoleContext(lastAnalysisAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.ops = toInterAgentRoleContext(lastOpsAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.scout = toInterAgentRoleContext(lastProposalPublishedAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.execution = toInterAgentRoleContext(lastProposalPublishedAt, nowMs, staleThresholdMs, 'heartbeat')
+  return entries
+}
+
+function toInterAgentRoleContext(
+  lastAtMs: number,
+  nowMs: number,
+  staleThresholdMs: number,
+  source: 'memory' | 'heartbeat'
+): InterAgentRoleContext {
+  const ageMs = msSince(lastAtMs, nowMs)
+  if (ageMs === null) {
+    return { lastRunAtMs: null, ageMs: null, status: 'never', source }
+  }
+  return {
+    lastRunAtMs: lastAtMs,
+    ageMs,
+    status: ageMs > staleThresholdMs ? 'stale' : 'fresh',
+    source
+  }
+}
+
+const floorTapeHistory: FloorTapeLine[] = []
+
+function compactReportFields(report: unknown, keep: readonly string[]): Record<string, unknown> | null {
+  if (!report || typeof report !== 'object' || Array.isArray(report)) {
+    return null
+  }
+
+  const source = report as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of keep) {
+    if (!(key in source)) {
+      continue
+    }
+    const value = source[key]
+    if (Array.isArray(value)) {
+      out[key] = value.slice(0, 4)
+    } else if (typeof value === 'string') {
+      out[key] = value.slice(0, 260)
+    } else {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+type LatestSignalEntry = {
+  pluginId: string
+  value: number
+  ts: string
+  ageMs: number | null
+}
+
+function summarizeLatestSignals(nowMs = Date.now()): Record<string, LatestSignalEntry[]> {
+  const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now()
+  const latest: Record<string, LatestSignalEntry[]> = {}
+
+  for (const signal of latestSignals.values()) {
+    if (typeof signal.signalType !== 'string' || !Number.isFinite(signal.value)) {
+      continue
+    }
+
+    const tsMs = safeDateMs(signal.ts)
+    if (tsMs === null) {
+      continue
+    }
+    const entries = latest[signal.signalType] ?? []
+    entries.push({
+      pluginId: String(signal.pluginId ?? 'unknown'),
+      value: Number(signal.value),
+      ts: typeof signal.ts === 'string' ? signal.ts : new Date(tsMs).toISOString(),
+      ageMs: msSince(tsMs, safeNowMs)
+    })
+    latest[signal.signalType] = entries
+  }
+
+  const out: Record<string, LatestSignalEntry[]> = {}
+  for (const [signalType, entries] of Object.entries(latest)) {
+    out[signalType] = entries
+      .map((entry) => ({ ...entry }))
+      .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+      .slice(0, 3)
+  }
+  return out
+}
+
+function latestSignalFromPack(
+  signals: Record<string, LatestSignalEntry[]>,
+  signalType: string
+): { value: number; ts: string } | null {
+  const latest = signals[signalType]?.[0]
+  if (!latest || !Number.isFinite(latest.value)) {
+    return null
+  }
+  return {
+    value: latest.value,
+    ts: latest.ts
+  }
+}
+
+function summarizePositionsForPrompt(positions: OperatorPosition[]): {
+  count: number
+  symbols: string[]
+  longNotionalUsd: number
+  shortNotionalUsd: number
+  grossNotionalUsd: number
+  netNotionalUsd: number
+  drift: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
+  posture: 'GREEN' | 'AMBER' | 'RED'
+  topPositions: Array<{
+    symbol: string
+    side: 'LONG' | 'SHORT'
+    notionalBucket: string
+    absNotionalUsd: number
+  }>
+} {
+  const drift = summarizePositionsForAgents(positions)
+  let longNotionalUsd = 0
+  let shortNotionalUsd = 0
+
+  const topPositions = positions
+    .filter((position) => Number.isFinite(position.notionalUsd))
+    .map((position) => {
+      const side = position.side
+      const absNotionalUsd = Math.abs(position.notionalUsd)
+      if (side === 'LONG') {
+        longNotionalUsd += absNotionalUsd
+      } else {
+        shortNotionalUsd += absNotionalUsd
+      }
+
+      return {
+        symbol: String(position.symbol ?? '').toUpperCase(),
+        side,
+        notionalBucket: bucketNotional(absNotionalUsd),
+        absNotionalUsd: Number(absNotionalUsd.toFixed(2))
+      }
+    })
+    .sort((a, b) => b.absNotionalUsd - a.absNotionalUsd)
+    .slice(0, 12)
+
+  return {
+    count: positions.length,
+    symbols: [...new Set(positions.map((position) => String(position.symbol ?? '').toUpperCase()))].sort(),
+    longNotionalUsd: Number(longNotionalUsd.toFixed(2)),
+    shortNotionalUsd: Number(shortNotionalUsd.toFixed(2)),
+    grossNotionalUsd: Number((longNotionalUsd + shortNotionalUsd).toFixed(2)),
+    netNotionalUsd: Number((longNotionalUsd - shortNotionalUsd).toFixed(2)),
+    drift: drift.drift,
+    posture: drift.posture,
+    topPositions
+  }
+}
+
+function summarizeFloorTapeForPrompt(nowMs = Date.now()): FloorTapePromptEntry[] {
+  return floorTapeHistory.map((entry) => ({
+    role: entry.role,
+    level: entry.level,
+    ageMs: msSince(safeDateMs(entry.ts) ?? nowMs, nowMs),
+    line: entry.line
+  }))
+}
+
+function summarizeProposalForContext(proposal: StrategyProposal | null): Record<string, unknown> | null {
+  if (!proposal) {
+    return null
+  }
+
+  const firstAction = proposal.actions?.[0]
+  return {
+    proposalId: proposal.proposalId,
+    summary: proposal.summary,
+    actionType: firstAction?.type,
+    confidence: proposal.confidence,
+    requestedMode: proposal.requestedMode,
+    rationale: firstAction?.rationale,
+    expectedSlippageBps: firstAction?.expectedSlippageBps,
+    maxSlippageBps: firstAction?.maxSlippageBps
+  }
+}
+
+function ageBucket(ms: number | null): 'fresh' | 'aging' | 'stale' | 'absent' {
+  if (ms === null) {
+    return 'absent'
+  }
+  if (ms <= 30_000) {
+    return 'fresh'
+  }
+  if (ms <= 120_000) {
+    return 'aging'
+  }
+  return 'stale'
+}
+
+function summarizeActiveBasketContext(context: BasketSelection['context'] | undefined): Record<string, unknown> | null {
+  if (!context) {
+    return null
+  }
+
+  return {
+    featureWindowMin: context.featureWindowMin,
+    hasPriceBase: !!context.priceBase,
+    priceSymbols: Object.keys(context.priceBySymbol ?? {}).sort().slice(0, 12),
+    coingecko: context.coingecko
+      ? {
+        enabled: context.coingecko.enabled,
+        coveragePct: context.coingecko.coveragePct,
+        sectorTopGainers: (context.coingecko.sectorTopGainers ?? []).slice(0, 3),
+        sectorTopLosers: (context.coingecko.sectorTopLosers ?? []).slice(0, 3)
+      }
+      : null
+  }
+}
+
+const PROMPT_CONTEXT_MAX_CHARS = 9000
+
+function toPromptPayload(value: unknown): string {
+  const raw = JSON.stringify(value)
+  if (raw.length <= PROMPT_CONTEXT_MAX_CHARS) {
+    return raw
+  }
+
+  const fallback = {
+    truncated: true,
+    length: raw.length,
+    limit: PROMPT_CONTEXT_MAX_CHARS,
+    payload: raw.slice(0, Math.max(0, PROMPT_CONTEXT_MAX_CHARS - 200))
+  }
+  return JSON.stringify(fallback)
+}
+
+function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now()
+  const signals = summarizeLatestSignals(now)
+  const marketUniverse = [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols]
+  const marketFeed = tickStalenessMs(marketUniverse)
+  const signalAges = Object.values(signals)
+    .flatMap((entries) => entries.map((entry) => entry.ageMs ?? null))
+    .filter((entry): entry is number => entry !== null)
+
+  const freshSignalAges = signalAges.filter((ageMs) => ageMs <= 30_000).length
+  const staleSignalAges = signalAges.filter((ageMs) => ageMs > 120_000).length
+
+  const basketAgeMs = msSince(Date.parse(activeBasket.selectedAt), now)
+
+  return {
+    objective: `LONG ${BASE_LONG_SYMBOL} vs SHORT basket exposure, deterministic market-neutral + risk-first execution.`,
+    generatedAt: new Date(now).toISOString(),
+    mode: lastMode,
+    requestedMode: requestedModeFromEnv(),
+    stateUpdate: lastStateUpdate ?? null,
+    risk: {
+      autoHaltActive,
+      autoHaltHealthySinceMs: autoHaltHealthySinceMs > 0 ? now - autoHaltHealthySinceMs : 0,
+      lastRiskDecision
+    },
+    market: {
+      universe: marketUniverse,
+      tickAgeMs: marketFeed.maxAgeMs,
+      missingTickSymbols: marketFeed.missing,
+      stalenessBucket: ageBucket(marketFeed.maxAgeMs),
+      signalCoverage: {
+        signalTypes: Object.keys(signals).length,
+        latestSignalCount: signalAges.length,
+        freshSignalCount: freshSignalAges,
+        staleSignalCount: staleSignalAges
+      }
+    },
+    signals: signals,
+    positions: summarizePositionsForPrompt(lastPositions),
+    directive: activeDirective,
+    basket: {
+      symbols: activeBasket.basketSymbols,
+      rationale: activeBasket.rationale,
+      selectedAt: activeBasket.selectedAt,
+      ageMs: basketAgeMs,
+      ageBucket: ageBucket(basketAgeMs),
+      context: summarizeActiveBasketContext(activeBasket.context)
+    },
+    pivot:
+      basketPivot === null
+        ? null
+    : {
+        startedAt: new Date(basketPivot.startedAtMs).toISOString(),
+        expiresAt: new Date(basketPivot.expiresAtMs).toISOString(),
+        remainingMs: basketPivot.expiresAtMs - Date.now(),
+        symbols: basketPivot.basketSymbols
+      },
+    floorAgents: {
+      heartbeatMs: STRATEGY_CONTEXT_MAX_AGE_MS,
+      roles: summarizeInterAgentContext(now),
+      lastReports: {
+        research: compactReportFields(lastResearchReport, ['headline', 'regime', 'recommendation', 'confidence', 'computedAt']),
+        risk: compactReportFields(lastRiskReport, ['headline', 'posture', 'risks', 'confidence', 'computedAt']),
+        scribe: compactReportFields(lastScribeAnalysis, ['headline', 'thesis', 'risks', 'confidence', 'computedAt']),
+        strategistDirective: {
+          decision: activeDirective.decision,
+          confidence: activeDirective.confidence,
+          decidedAt: activeDirective.decidedAt,
+          rationale: activeDirective.rationale,
+          targetNotionalMultiplier: activeDirective.targetNotionalMultiplier
+        },
+        latestProposal: summarizeProposalForContext(lastProposal)
+      },
+      tape: summarizeFloorTapeForPrompt(now).slice(-FLOOR_TAPE_CONTEXT_LINES)
+    },
+    memory: {
+      lastProposal: lastProposal
+        ? {
+          proposalId: lastProposal.proposalId,
+          actionType: lastProposal.actions?.[0]?.type,
+          summary: lastProposal.summary,
+          requestedMode: lastProposal.requestedMode,
+          confidence: lastProposal.confidence
+        }
+        : null,
+      research: compactReportFields(lastResearchReport, ['headline', 'regime', 'recommendation', 'confidence', 'computedAt']),
+      risk: compactReportFields(lastRiskReport, ['headline', 'posture', 'risks', 'confidence', 'computedAt']),
+      scribe: compactReportFields(lastScribeAnalysis, ['headline', 'thesis', 'risks', 'confidence', 'computedAt'])
+    },
+    governance: {
+      basketSize: env.AGENT_BASKET_SIZE,
+      featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
+      targetNotionalUsd: env.BASKET_TARGET_NOTIONAL_USD,
+      notionalBounds: {
+        min: env.AGENT_NOTIONAL_MULTIPLIER_MIN,
+        max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
+      }
+    }
+  }
+}
+
+function buildAgentPrompt(params: {
+  role: string
+  mission: string
+  rules: readonly string[]
+  schemaHint: string
+  context: Record<string, unknown>
+}): string {
+  const nowMs = Date.now()
+  return [
+    `You are HL Privateer ${params.role}.`,
+    `Mission: ${params.mission}`,
+    '',
+    ...COMMON_AGENT_PROMPT_PREAMBLE,
+    '',
+    'Role-specific constraints:',
+    ...params.rules.map((rule) => `- ${rule}`),
+    '',
+    params.schemaHint,
+    '',
+    `BUILD_CONTEXT_MS=${nowMs}`,
+    `FLOOR_CONTEXT=${toPromptPayload(buildCrewFloorContext(nowMs))}`,
+    `TASK_CONTEXT=${toPromptPayload(params.context)}`
+  ].join('\n')
 }
 
 const BASE_LONG_SYMBOL = 'HYPE'
@@ -411,20 +822,25 @@ async function generateBasketSelection(params: {
   }
 
   const prompt = [
-    'You are HL Privateer basket-selector.',
-    'Pick the short basket symbols to trade against HYPE for a market-neutral relative value trade.',
-    'Constraints:',
-    '- Choose ONLY from the provided candidate symbols.',
-    '- Do NOT include HYPE.',
-    '- Prefer high liquidity (day notional volume, open interest).',
-    '- Prefer shorts with positive funding (we earn it), all else equal.',
-    '- Prefer shorts that have underperformed HYPE over the feature window (hist.relRetWindowPct < 0).',
-    '- Prefer candidates that stay correlated to HYPE (hist.corrToBase high) to keep the hedge stable.',
-    '- Use CoinGecko spot metrics when available (cg.change24hPct/cg.change7dPct, cg.marketCapUsd, cg.volume24hUsd).',
-    '- Keep it diversified; avoid selecting extremely illiquid long-tail.',
-    'Return only JSON that matches the provided schema.',
-    '',
-    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+    buildAgentPrompt({
+      role: 'basket-selector',
+      mission: `Select the short basket for the next ${BASE_LONG_SYMBOL}-hedged relative value cycle.`,
+      rules: [
+        'Choose ONLY from the provided candidate symbols.',
+        `Do NOT include ${BASE_LONG_SYMBOL}.`,
+        'Prefer high liquidity (day notional volume + open interest).',
+        'Prefer candidates with positive or neutral funding (all else equal).',
+        `Prefer baskets with lower relative drift and higher correlation to ${BASE_LONG_SYMBOL}.`,
+        'Use CoinGecko context only when present, especially coverage and sector drift.',
+        'Prefer diversified, liquid selections over concentrated micro-cap names.',
+        'If context is weak, keep a conservative, stable basket.'
+      ],
+      schemaHint: 'Return only JSON that matches the provided schema.',
+      context: {
+        ...params.input,
+        activeDirective: activeDirective
+      }
+    })
   ].join('\n')
 
   const raw =
@@ -583,6 +999,12 @@ async function maybeSelectBasket(params: {
       hist: pricePack.bySymbol[candidate.symbol] ?? null,
       cg: cgMarketsBySymbol[candidate.symbol] ?? null
     }))
+    const signalPack = summarizeLatestSignals(nowMs)
+    const latestBasketSignals = {
+      volatility: latestSignalFromPack(signalPack, 'volatility')?.value ?? null,
+      correlation: latestSignalFromPack(signalPack, 'correlation')?.value ?? null,
+      funding: latestSignalFromPack(signalPack, 'funding')?.value ?? null
+    }
 
     const input = {
       ts: new Date().toISOString(),
@@ -606,10 +1028,8 @@ async function maybeSelectBasket(params: {
         : { enabled: false },
       candidates: candidatesForLlm,
       signals: {
-        // Provide the latest global signals as hints (these are primarily about HYPE, but still useful context).
-        volatility: [...params.signals].reverse().find((s) => s.signalType === 'volatility')?.value ?? null,
-        correlation: [...params.signals].reverse().find((s) => s.signalType === 'correlation')?.value ?? null,
-        funding: [...params.signals].reverse().find((s) => s.signalType === 'funding')?.value ?? null
+        all: signalPack,
+        latest: latestBasketSignals
       }
     }
 
@@ -844,7 +1264,7 @@ function buildTargetProposal(params: {
   const actionType = params.positions.length > 0 ? 'REBALANCE' : 'ENTER'
   const summaryPrefix = params.summaryPrefix ?? 'agent delta-to-target'
   const confidence = typeof params.confidence === 'number' ? clamp(params.confidence, 0, 1) : 0.65
-  const rationale = params.rationale ?? 'agent-driven rebalance to target exposure (HYPE vs basket)'
+  const rationale = params.rationale ?? `agent-driven rebalance to target exposure (${BASE_LONG_SYMBOL} vs basket)`
 
   return {
     proposalId,
@@ -951,19 +1371,26 @@ async function generateAnalysis(params: {
   if (params.llm === 'none') {
     return {
       headline: 'Delta-to-target rebalance',
-      thesis: 'Maintain market-neutral HYPE vs basket exposure by rebalancing notionals to the target.',
+      thesis: `Maintain market-neutral ${BASE_LONG_SYMBOL} vs basket exposure by rebalancing notionals to the target.`,
       risks: ['Funding regime shift', 'Liquidity slippage during volatility', 'Model-free signal blindness'],
       confidence: 0.4
     }
   }
 
   const prompt = [
-    'You are HL Privateer, a concise trading-floor analyst for a HYPE-vs-basket market-neutral strategy.',
-    'Given the JSON context below, write a short analysis for the next rebalance.',
-    'If basketContext is present, use its historic returns/correlation + any sector/spot context to justify the basket.',
-    'Return only JSON that matches the provided schema.',
-    '',
-    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+    buildAgentPrompt({
+      role: 'scribe',
+      mission: 'Write concise post-decision floor analysis tied to execution rationale and current risk posture.',
+      rules: [
+        'Use the latest floor context before writing interpretation.',
+        'Keep output tight and concrete.',
+        'If confidence is low, reflect uncertainty explicitly.',
+        'Do not include raw order tickets, signatures, or venue credentials.',
+        'Each risk item should be specific and observable.'
+      ],
+      schemaHint: 'Return only JSON that matches the provided schema.',
+      context: params.input
+    })
   ].join('\n')
 
   const raw =
@@ -1016,12 +1443,18 @@ async function generateResearchReport(params: {
   }
 
   const prompt = [
-    'You are HL Privateer research-agent.',
-    'Given the JSON context below, classify the regime and suggest one actionable note for the strategist.',
-    'Do not output position sizes. Keep it short and concrete.',
-    'Return only JSON that matches the provided schema.',
-    '',
-    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+    buildAgentPrompt({
+      role: 'research-agent',
+      mission: 'Classify current market regime and return one actionable recommendation.',
+      rules: [
+        'Use only context and observed signals; do not speculate on external events.',
+        'Output one recommendation, not a portfolio plan.',
+        'If data indicates regime shift, indicate it explicitly in regime.',
+        'Prefer basket-stability guidance when correlation deteriorates or signals are mixed.'
+      ],
+      schemaHint: 'Return only JSON that matches the provided schema.',
+      context: params.input
+    })
   ].join('\n')
 
   const raw =
@@ -1073,12 +1506,19 @@ async function generateRiskReport(params: {
   }
 
   const prompt = [
-    'You are HL Privateer risk-agent.',
-    'Given the JSON context below, summarize risk posture for a HYPE vs basket strategy.',
-    'Do not output position sizes. Use posture GREEN/AMBER/RED and list concrete risks.',
-    'Return only JSON that matches the provided schema.',
-    '',
-    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+    buildAgentPrompt({
+      role: 'risk-agent',
+      mission: 'Assess immediate risk posture and list concrete blockers or residual risks.',
+      rules: [
+        'Only return posture GREEN/AMBER/RED.',
+        'Prioritize stale data, volatility regime, and drift imbalance.',
+        'Tie each risk item to specific observable context.',
+        'When posture is RED, favor conservative action and explicit blockers.',
+        'Do not output execution mechanics.'
+      ],
+      schemaHint: 'Return only JSON that matches the provided schema.',
+      context: params.input
+    })
   ].join('\n')
 
   const raw =
@@ -1131,22 +1571,20 @@ async function generateStrategistDirective(params: {
   }
 
   const prompt = [
-    'You are HL Privateer strategist-directive agent.',
-    'You control the autonomous pair-trade strategy: LONG HYPE vs SHORT basket.',
-    'You may choose:',
-    '- MAINTAIN: keep the current basket and keep rebalancing to target.',
-    '- ROTATE: rotate the short basket (the system will close removed shorts and open new ones).',
-    '- EXIT: close all positions and go flat (risk-off).',
-    '',
-    'You may also adjust targetNotionalMultiplier within the allowed min/max in the context JSON.',
-    'Guidelines:',
-    '- Prefer MAINTAIN by default; avoid churn.',
-    '- Choose ROTATE only if thesis changed, correlation structure shifted, or better hedge/liquidity set exists.',
-    '- Choose EXIT if hedge is breaking, risk posture is RED, dependencies are unhealthy, or drawdown risk is unacceptable.',
-    '- Never propose leverage growth during SAFE_MODE.',
-    'Return only JSON that matches the provided schema.',
-    '',
-    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+    buildAgentPrompt({
+      role: 'strategist-directive agent',
+      mission: 'Choose the best directive for the next cycle and optionally scale notional.',
+      rules: [
+        'Allowed decisions: MAINTAIN, ROTATE, EXIT only.',
+        'Prefer MAINTAIN unless there is clear evidence to rotate or exit.',
+        'Use ROTATE only when hedge quality or liquidity improves materially.',
+        'Use EXIT if correlation breaks, volatility is extreme, or risk posture is RED.',
+        'Respect min/max notional multipliers and avoid growth in SAFE_MODE.',
+        'Prefer lower multipliers when uncertainty rises.'
+      ],
+      schemaHint: 'Return only JSON that matches the provided schema.',
+      context: params.input
+    })
   ].join('\n')
 
   const raw =
@@ -1189,6 +1627,7 @@ let lastRiskAt = 0
 let lastOpsAt = 0
 let lastDirectiveAt = 0
 let lastProposal: StrategyProposal | null = null
+let lastProposalPublishedAt = 0
 let lastRiskDecision: { decision?: string; computedAt?: string } | null = null
 let lastStateUpdate:
   | {
@@ -1232,8 +1671,15 @@ async function publishProposal(params: { actorId: string; proposal: StrategyProp
 
 async function publishTape(params: { correlationId: string; role: string; line: string; level?: 'INFO' | 'WARN' | 'ERROR' }): Promise<void> {
   const line = sanitizeLine(params.line, 240)
+  const role = sanitizeLine(params.role, 32)
+  const level: 'INFO' | 'WARN' | 'ERROR' = params.level ?? 'INFO'
+  const ts = new Date().toISOString()
   if (!line) {
     return
+  }
+  floorTapeHistory.push({ ts, role, level, line })
+  if (floorTapeHistory.length > FLOOR_TAPE_CONTEXT_LINES) {
+    floorTapeHistory.splice(0, floorTapeHistory.length - FLOOR_TAPE_CONTEXT_LINES)
   }
 
   await bus.publish('hlp.ui.events', {
@@ -1244,9 +1690,9 @@ async function publishTape(params: { correlationId: string; role: string; line: 
     actorType: 'internal_agent',
     actorId: env.AGENT_ID,
     payload: {
-      ts: new Date().toISOString(),
-      role: sanitizeLine(params.role, 32),
-      level: params.level ?? 'INFO',
+      ts,
+      role,
+      level,
       line
     }
   })
@@ -1445,10 +1891,10 @@ async function runResearchAgent(): Promise<void> {
   }
   lastResearchAt = now
 
-  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-  const latestVol = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
-  const latestCorr = [...signals].reverse().find((signal) => signal.signalType === 'correlation')
-  const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
+  const signalPack = summarizeLatestSignals(now)
+  const latestVol = latestSignalFromPack(signalPack, 'volatility')
+  const latestCorr = latestSignalFromPack(signalPack, 'correlation')
+  const latestFunding = latestSignalFromPack(signalPack, 'funding')
   const regime =
     latestVol && Math.abs(latestVol.value) > 15
       ? 'high vol'
@@ -1461,9 +1907,12 @@ async function runResearchAgent(): Promise<void> {
     mode: lastMode,
     basketSymbols: activeBasket.basketSymbols.join(','),
     signals: {
-      vol: latestVol?.value ?? null,
-      corr: latestCorr?.value ?? null,
-      funding: latestFunding?.value ?? null
+      all: signalPack,
+      latest: {
+        vol: latestVol?.value ?? null,
+        corr: latestCorr?.value ?? null,
+        funding: latestFunding?.value ?? null
+      }
     },
     inferredRegime: regime
   }
@@ -1537,8 +1986,8 @@ async function runRiskAgent(): Promise<void> {
   lastRiskAt = now
 
   const summary = summarizePositionsForAgents(lastPositions)
-  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-  const latestVol = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
+  const signalPack = summarizeLatestSignals(now)
+  const latestVol = latestSignalFromPack(signalPack, 'volatility')
 
   const input = {
     ts: new Date().toISOString(),
@@ -1546,6 +1995,11 @@ async function runRiskAgent(): Promise<void> {
     drift: summary.drift,
     postureHint: summary.posture,
     vol1hPct: latestVol?.value ?? null,
+    signalCoverage: {
+      types: Object.keys(signalPack).length,
+      signalCount: Object.values(signalPack).reduce((count, entries) => count + entries.length, 0)
+    },
+    signals: signalPack,
     lastRiskDecision
   }
 
@@ -1657,9 +2111,10 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
   try {
     const summary = summarizePositionsForAgents(params.positions)
     const heldBasket = basketFromPositions(params.positions)
-    const latestVol = [...params.signals].reverse().find((signal) => signal.signalType === 'volatility')
-    const latestCorr = [...params.signals].reverse().find((signal) => signal.signalType === 'correlation')
-    const latestFunding = [...params.signals].reverse().find((signal) => signal.signalType === 'funding')
+    const signalPack = summarizeLatestSignals(nowMs)
+    const latestVol = latestSignalFromPack(signalPack, 'volatility')
+    const latestCorr = latestSignalFromPack(signalPack, 'correlation')
+    const latestFunding = latestSignalFromPack(signalPack, 'funding')
 
     const input = {
       ts: new Date().toISOString(),
@@ -1682,9 +2137,12 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
         updatedAt: position.updatedAt
       })),
       signals: {
-        volatility: latestVol?.value ?? null,
-        correlation: latestCorr?.value ?? null,
-        funding: latestFunding?.value ?? null
+        all: signalPack,
+        latest: {
+          volatility: latestVol?.value ?? null,
+          correlation: latestCorr?.value ?? null,
+          funding: latestFunding?.value ?? null
+        }
       },
       lastRiskDecision,
       lastResearchReport,
@@ -1916,26 +2374,28 @@ async function runStrategistCycle(): Promise<void> {
   })
 
   lastProposal = parsed.proposal
+  lastProposalPublishedAt = now
 
   if (now - lastAnalysisAt < env.AGENT_ANALYSIS_INTERVAL_MS) {
     return
   }
   lastAnalysisAt = now
 
-  await runScribeAnalysis(parsed.proposal, { signals, targetNotionalUsd: scaledTargetNotionalUsd })
+  await runScribeAnalysis(parsed.proposal, { targetNotionalUsd: scaledTargetNotionalUsd })
 }
 
-async function runScribeAnalysis(proposal: StrategyProposal, context: { signals: PluginSignal[]; targetNotionalUsd: number }): Promise<void> {
+async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNotionalUsd: number }): Promise<void> {
   const nowMs = Date.now()
   const universe = new Set<string>([BASE_LONG_SYMBOL, ...activeBasket.basketSymbols])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
+  const signalPack = summarizeLatestSignals(nowMs)
   const analysisInput = {
     ts: new Date().toISOString(),
     mode: lastMode,
     targetNotionalUsd: context.targetNotionalUsd,
     basketSymbols: activeBasket.basketSymbols.join(','),
     basketContext: activeBasket.context ?? null,
-    signals: context.signals,
+    signals: signalPack,
     ticks: tickSnapshot,
     positions: lastPositions,
     proposal
