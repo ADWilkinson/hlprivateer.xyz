@@ -1,5 +1,5 @@
-import { AsciiBadge } from 'react-ascii-ui'
-import { cardClass, cardHeaderClass, inlineBadgeClass, mutedPanelClass, statusCellClass } from './ascii-style'
+import { AsciiBadge } from './ascii-kit'
+import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, statusCellClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -45,9 +45,14 @@ export function StatusStrip({
 
   return (
     <section className={cardClass}>
-      <div className={cardHeaderClass}>FLOOR STATUS</div>
+      <div className={cardHeaderClass}>
+        <span>FLOOR STATUS</span>
+        <AsciiBadge tone='info' variant='angle'>
+          telemetry layer
+        </AsciiBadge>
+      </div>
 
-      <div className='grid grid-cols-1 border border-hlpBorder dark:border-hlpBorderDark bg-hlpBorder dark:bg-hlpBorderDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
+      <div className='grid grid-cols-1 border-x border-b border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
         <div className={statusCellClass}>
           <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</span>
           <span className='text-[11px] font-bold'>{snapshot.mode}</span>
@@ -88,7 +93,11 @@ export function StatusStrip({
         </div>
       </div>
 
-      <div className={`flex flex-wrap gap-1.5 border-t border-hlpBorder/80 dark:border-hlpBorderDark/80 px-3 py-2 ${mutedPanelClass}`}>
+      <div className={`${sectionStripClass} ${inlineBadgeClass.includes('dark') ? '' : ''}`}>
+        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark flex items-center gap-1'>
+          <span>ops stream:</span>
+          <span className='h-1.5 w-1.5 rounded-full bg-hlpPositive/80 dark:bg-hlpPositiveDark/80 animate-hlp-led' />
+        </span>
         <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
         <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
         <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
@@ -98,7 +107,8 @@ export function StatusStrip({
         <span className={inlineBadgeClass}>status=LIVE</span>
         <span className={inlineBadgeClass}>
           <AsciiBadge
-            color={isFeedStale ? 'warning' : 'success'}
+            tone={isFeedStale ? 'warning' : 'positive'}
+            variant='curly'
             className={isFeedStale ? 'text-hlpWarning dark:text-hlpWarningDark' : 'text-hlpPositive dark:text-hlpPositiveDark'}
           >
             {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
