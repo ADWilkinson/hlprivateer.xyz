@@ -4,11 +4,11 @@ import correlation from './correlation'
 import volatility from './volatility'
 import type { PluginContext } from '@hl/privateer-plugin-sdk'
 
-function mockContext(): PluginContext {
+function mockContext(config: Record<string, string | undefined> = {}): PluginContext {
   return {
     pluginId: 'test',
     eventBusPublish: async () => 'test',
-    getConfig: () => undefined,
+    getConfig: (key: string) => config[key],
     logger: () => undefined
   }
 }
@@ -56,7 +56,7 @@ describe('runtime plugins', () => {
 
   it('correlation plugin emits correlation signal', async () => {
     mockFetch()
-    await correlation.initialize(mockContext())
+    await correlation.initialize(mockContext({ BASKET_SYMBOLS: 'BTC,ETH' }))
     const signals = await correlation.poll()
     expect(signals.length).toBeGreaterThan(0)
     expect(signals[0]?.signalType).toBe('correlation')

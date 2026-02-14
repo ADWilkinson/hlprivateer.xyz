@@ -239,6 +239,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let cachedLiveWalletAddress = ''
   let agentWatchlistSymbols: string[] = []
   let lastSafeModeHoldNoticeAtMs = 0
+  let lastSafeModeNoExposureHoldNoticeAtMs = 0
   let lastRiskDeniedSignature = ''
   let lastRiskDeniedNoticeAtMs = 0
   let lastRiskAutoMitigationAtMs = 0
@@ -765,6 +766,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       if (state.mode === 'SAFE_MODE') {
         if (hasAnyExposure()) {
+          lastSafeModeNoExposureHoldNoticeAtMs = 0
           const flattened = await attemptRiskAutoMitigation(
             cycleCorrelationId,
             'SAFE_MODE active with open exposure',
@@ -787,8 +789,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         const dependencyHealth = await bus.health()
         const databaseHealth = env.DRY_RUN ? true : await store.health()
         const canExitSafeMode = dependencyHealth.ok && databaseHealth
-        if (canExitSafeMode && !hasAnyExposure()) {
+        if (canExitSafeMode) {
+          lastSafeModeHoldNoticeAtMs = 0
+          lastSafeModeNoExposureHoldNoticeAtMs = 0
           await setMode('READY', 'safe mode auto-resolve: no open exposure')
+          return
         } else if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
           lastSafeModeHoldNoticeAtMs = nowMs
           await publishStateUpdate(
@@ -798,8 +803,10 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         }
 
         runtimeProposalCounter.inc({ status: 'safe_mode_flat_hold' })
-        if (nowMs - lastSafeModeHoldNoticeAtMs >= 60_000) {
-          lastSafeModeHoldNoticeAtMs = nowMs
+        if (lastSafeModeNoExposureHoldNoticeAtMs === 0) {
+          lastSafeModeNoExposureHoldNoticeAtMs = nowMs
+        } else if (nowMs - lastSafeModeNoExposureHoldNoticeAtMs >= 60_000) {
+          lastSafeModeNoExposureHoldNoticeAtMs = nowMs
           await publishStateUpdate(cycleCorrelationId, 'safe mode hold: no open exposure, awaiting recovery conditions')
         }
         return
@@ -1410,6 +1417,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const closeOrders: Array<{ symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number }> = []
       for (const position of current.positions) {
         const notionalUsd = Math.abs(position.notionalUsd)
+        if (!Number.isFinite(notionalUsd) || notionalUsd <= 0) {
+          continue
+        }
         if (notionalUsd <= minimumFlatExposureUsd) {
           continue
         }
