@@ -1,7 +1,7 @@
 import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
-import { crewLabel, type CrewHeartbeat, type CrewRole, type CrewStats, formatAge, formatTime, heartbeatLevel, floorHeartbeatGlyph } from './floor-dashboard'
+import { crewLabel, type CrewHeartbeat, type CrewRole, type CrewStats, formatAge, formatTime, heartbeatLevel, floorHeartbeatGlyph, type TapeEntry } from './floor-dashboard'
 
-type CrewLast = Record<CrewRole, { ts: string; role: CrewRole; level: 'INFO' | 'WARN' | 'ERROR'; line: string } | null>
+type CrewLast = Record<CrewRole, TapeEntry | null>
 
 type CrewStationsPanelProps = {
   crewLast: CrewLast
