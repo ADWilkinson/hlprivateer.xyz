@@ -78,9 +78,8 @@ function formatTime(iso: string): string {
 
 function asciiLogo(): string {
   return [
-    '\u256B \u256B\u256B  \u250F\u2501\u2513\u250F\u2501\u2513\u256B\u256B \u256B\u250F\u2501\u2513\u257A\u2533\u2578\u250F\u2501\u2578\u250F\u2501\u2578\u250F\u2501\u2513',
-    '\u2523\u2501\u252B\u2503  \u2523\u2501\u251B\u2523\u2533\u251B\u2503\u2503\u250F\u251B\u2523\u2501\u252B \u2503 \u2523\u2578 \u2523\u2578 \u2523\u2533\u251B',
-    '\u2579 \u2579\u2517\u2501\u2578\u2579  \u2579\u2517\u2578\u2579\u2517\u251B \u2579 \u2579 \u2579 \u2517\u2501\u2578\u2517\u2501\u2578\u2579\u2517\u2578',
+    '\u2588 \u2588 \u2588      \u2588\u2580\u2588 \u2588\u2580\u2588  \u2588  \u2588 \u2588 \u2584\u2580\u2584 \u2580\u2588\u2580 \u2588\u2580\u2580 \u2588\u2580\u2580 \u2588\u2580\u2588',
+    '\u2588\u2580\u2588 \u2588\u2584\u2584    \u2588\u2580\u2580 \u2588\u2580\u2584  \u2588  \u2580\u2584\u2580 \u2588\u2580\u2588  \u2588  \u2588\u2584\u2584 \u2588\u2584\u2584 \u2588\u2580\u2584',
   ].join('\n')
 }
 
@@ -291,7 +290,6 @@ export default function DeckPage() {
   }, [])
 
   const crewNow = Date.now()
-  const modeClass = `mode-${snapshot.mode.toLowerCase().replace(/_/g, '-')}`
 
   return (
     <main className="floor">
@@ -308,7 +306,6 @@ export default function DeckPage() {
             <span className="header-live-text">{wsState === 'OPEN' ? 'LIVE' : wsState}</span>
           </div>
           <div className="header-subtitle">TRADING FLOOR</div>
-          <div className="header-tagline">&quot;We do not predict. We hard-gate.&quot;</div>
           <div className="header-endpoints">{apiUrl('')}</div>
         </div>
       </header>
@@ -316,7 +313,7 @@ export default function DeckPage() {
       <div className="strip">
         <div className="strip-item">
           <span className="strip-label">MODE</span>
-          <span className={`strip-value ${modeClass}`}>{snapshot.mode}</span>
+          <span className="strip-value">{snapshot.mode}</span>
         </div>
         <span className="strip-sep">{'\u2502'}</span>
         <div className="strip-item">
