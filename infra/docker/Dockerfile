@@ -10,6 +10,7 @@ COPY bun.lock package.json turbo.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
 COPY config ./config
+COPY scripts ./scripts
 
 RUN bun install --frozen-lockfile
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL

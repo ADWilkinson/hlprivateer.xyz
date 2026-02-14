@@ -90,7 +90,7 @@ export function CrewStationsPanel({
             <article
               className={`${monitorClass} min-h-[202px] transition-colors ${
                 active
-              ? 'border-hlpPositive/70 bg-hlpPanel/95'
+              ? 'border-hlpBorder bg-hlpPanel/95'
               : 'border-hlpBorder'
             }`}
               key={role}
@@ -139,7 +139,7 @@ export function CrewStationsPanel({
                   {isLoading ? <span className={`block h-full rounded-sm ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
                   {!isLoading ? (
                     <span
-                      className='block h-full rounded-sm bg-gradient-to-r from-hlpPositive to-hlpPositive/60'
+                      className='block h-full rounded-sm bg-hlpPositive'
                       style={{ width: getActivityWidth(beatScore) }}
                     />
                   ) : null}
