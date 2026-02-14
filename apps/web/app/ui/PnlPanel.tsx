@@ -178,7 +178,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
               </div>
             </div>
             <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-              <div className='rounded-sm border border-hlpBorder bg-hlpSurface/65 px-2 py-1'>
+              <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</div>
                 <div className='text-[11px] font-semibold'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
               </div>
@@ -197,13 +197,13 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
           </div>
           <div className='px-3 pb-3 pt-2'>
             {isLoading || pnlStats.samples < 1 ? (
-              <div className='grid min-h-[190px] items-center gap-3 rounded-sm border border-hlpBorder/70 bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
+              <div className='grid min-h-[190px] items-center gap-3 rounded-sm bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
                 <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
                 <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
                 <span className='inline-block h-32 w-full rounded-sm bg-hlpSurface/85 animate-pulse' />
               </div>
             ) : (
-                <div className='relative h-[220px] w-full overflow-hidden rounded-sm border border-hlpBorder bg-hlpPanel/90'>
+                <div className='relative h-[220px] w-full overflow-hidden rounded-sm bg-hlpPanel/90'>
                 <svg
                   viewBox={`0 0 ${pnlStats.width} ${pnlStats.height}`}
                   preserveAspectRatio='none'

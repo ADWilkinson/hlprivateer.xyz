@@ -155,15 +155,31 @@ export const EMPTY_STATS: CrewStats = CREW.reduce(
 )
 
 export function badgeVariantForHealth(code: string): 'ok' | 'warn' | 'danger' {
-  if (code === 'GREEN') return 'ok'
-  if (code === 'YELLOW') return 'warn'
+  const status = code.toUpperCase().trim()
+  if (status === 'GREEN') return 'ok'
+  if (status === 'YELLOW') return 'warn'
   return 'danger'
 }
 
+export function healthStatusLabel(code: string): string {
+  const status = code.toUpperCase().trim()
+  if (status === 'GREEN') return 'HEALTHY'
+  if (status === 'YELLOW') return 'CAUTION'
+  return 'DEGRADED'
+}
+
 export function badgeVariantForDrift(state: string): 'ok' | 'warn' | 'danger' {
-  if (state === 'IN_TOLERANCE') return 'ok'
-  if (state === 'POTENTIAL_DRIFT') return 'warn'
+  const next = state.toUpperCase().trim()
+  if (next === 'IN_TOLERANCE') return 'ok'
+  if (next === 'POTENTIAL_DRIFT') return 'warn'
   return 'danger'
+}
+
+export function driftStatusLabel(state: string): string {
+  const drift = state.toUpperCase().trim()
+  if (drift === 'IN_TOLERANCE') return 'STABLE'
+  if (drift === 'POTENTIAL_DRIFT') return 'DRIFTING'
+  return 'ALERT'
 }
 
 export function crewLabel(role: CrewRole): string {

@@ -3,6 +3,8 @@ import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, skelet
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
+  driftStatusLabel,
+  healthStatusLabel,
   type Snapshot,
   type WsState,
   formatAge,
@@ -39,6 +41,8 @@ export function StatusStrip({
 }: StatusStripProps) {
   const health = badgeVariantForHealth(snapshot.healthCode)
   const drift = badgeVariantForDrift(snapshot.driftState)
+  const healthLabel = healthStatusLabel(snapshot.healthCode)
+  const driftLabel = driftStatusLabel(snapshot.driftState)
   const isFeedStale = snapshotAgeMs > 12_000
 
   return (
@@ -98,14 +102,14 @@ export function StatusStrip({
               <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEALTH</span>
               <span className='flex items-center gap-2'>
                 <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
-                <span className='text-[11px] font-bold'>{snapshot.healthCode}</span>
+                <span className='text-[11px] font-bold'>{healthLabel}</span>
               </span>
             </div>
             <div className={statusCellClass}>
               <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DRIFT</span>
               <span className='flex items-center gap-2'>
                 <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[drift]}`} />
-                <span className='text-[11px] font-bold'>{snapshot.driftState}</span>
+                <span className='text-[11px] font-bold'>{driftLabel}</span>
               </span>
             </div>
             <div className={statusCellClass}>

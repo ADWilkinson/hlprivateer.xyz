@@ -29,9 +29,13 @@ type LiveTopologyGraphProps = {
 }
 
 const NODE_BASE_SIZE = 8
+const HUB_NODE_ID = 'ops'
+const HUB_SIZE_BOOST = 3
 const LABEL_MAX_LENGTH = 11
 const PADDING = 22
 const HEARTBEAT_MAX_LENGTH = 9
+const CONTOUR_STEPS = 4
+const GRID_STEPS = 5
 
 type LiveNodePosition = { id: string; x: number; y: number }
 
@@ -119,7 +123,10 @@ export function LiveConnectivityGraph({
 }: LiveTopologyGraphProps) {
   const safeWidth = Math.max(220, width)
   const safeHeight = Math.max(180, height)
-  const markerId = useMemo(() => `hlp-live-map-${safeWidth}-${safeHeight}`, [safeWidth, safeHeight])
+  const centerX = safeWidth / 2
+  const centerY = safeHeight / 2
+  const maxRingX = Math.max(32, (safeWidth - 32) * 0.38)
+  const maxRingY = Math.max(24, (safeHeight - 34) * 0.42)
   const seeded = useMemo(() => buildSeededPositions(nodes, safeWidth, safeHeight), [nodes, safeWidth, safeHeight])
   const mappedNodes = useMemo(() => {
     const index = new Map(seeded.map((node) => [node.id, node]))
@@ -144,20 +151,72 @@ export function LiveConnectivityGraph({
         fill='none'
         xmlns='http://www.w3.org/2000/svg'
       >
-        <defs>
-          <marker
-            id={markerId}
-            markerWidth='8'
-            markerHeight='8'
-            refX='6'
-            refY='4'
-            orient='auto'
-            markerUnits='strokeWidth'
-          >
-            <path d='M0 0 L8 4 L0 8 L2 4 Z' fill='currentColor' />
-          </marker>
-        </defs>
-        {mappedNodes.length > 0 &&
+        <g className='stroke-hlpBorder/28'>
+          {Array.from({ length: GRID_STEPS }, (_, index) => {
+            const ratio = (index + 1) / (GRID_STEPS + 1)
+            return (
+              <line
+                key={`grid-x-${index}`}
+                x1={safeWidth * ratio}
+                x2={safeWidth * ratio}
+                y1={8}
+                y2={safeHeight - 8}
+                className='stroke-hlpBorder/18'
+                strokeWidth='0.25'
+                strokeDasharray='3 6'
+              />
+            )
+          })}
+
+          {Array.from({ length: GRID_STEPS }, (_, index) => {
+            const ratio = (index + 1) / (GRID_STEPS + 1)
+            return (
+              <line
+                key={`grid-y-${index}`}
+                x1={8}
+                x2={safeWidth - 8}
+                y1={safeHeight * ratio}
+                y2={safeHeight * ratio}
+                className='stroke-hlpBorder/18'
+                strokeWidth='0.25'
+                strokeDasharray='3 6'
+              />
+            )
+          })}
+
+          {Array.from({ length: CONTOUR_STEPS }, (_, index) => {
+            const t = (index + 1) / (CONTOUR_STEPS + 1)
+            return (
+              <ellipse
+                key={`contour-ring-${index}`}
+                cx={centerX}
+                cy={centerY}
+                rx={Math.max(28, maxRingX * t)}
+                ry={Math.max(24, maxRingY * t)}
+                fill='none'
+                strokeWidth='0.45'
+                strokeDasharray='4 6'
+              />
+            )
+          })}
+
+          {Array.from({ length: 4 }, (_, index) => {
+            const t = (index + 1) / 5
+            const span = safeHeight * 0.16
+            const yTop = safeHeight * 0.16 + t * (safeHeight - span - safeHeight * 0.32)
+            return (
+              <path
+                key={`contour-wave-${index}`}
+                d={`M ${safeWidth * 0.06} ${yTop + span} Q ${safeWidth * 0.32} ${yTop} ${safeWidth * 0.58} ${yTop + span} T ${safeWidth * 0.94} ${yTop + span}`}
+                fill='none'
+                strokeWidth='0.4'
+                strokeDasharray='2 5'
+              />
+            )
+          })}
+        </g>
+
+      {mappedNodes.length > 0 &&
           edges.map((edge) => {
             const sourceNode = nodePosition(mappedNodes, edge.source)
             const targetNode = nodePosition(mappedNodes, edge.target)
@@ -168,10 +227,6 @@ export function LiveConnectivityGraph({
             const y1 = sourceNode.y
             const x2 = targetNode.x
             const y2 = targetNode.y
-            const dx = x2 - x1
-            const dy = y2 - y1
-            const midX = x1 + (dx * 0.5)
-            const midY = y1 + (dy * 0.5)
 
             return (
               <g key={edge.id}>
@@ -181,24 +236,11 @@ export function LiveConnectivityGraph({
                   x2={x2}
                   y2={y2}
                   stroke='currentColor'
-                  strokeWidth={active ? 2.05 : 1.35}
+                  strokeWidth={active ? 1.8 : 1.1}
                   strokeOpacity={loading ? 0.5 : 0.9}
                   strokeDasharray={edge.status === 'inactive' ? '5 5' : undefined}
-                  markerEnd={`url(#${markerId})`}
                   className={`${active ? 'animate-pulse' : ''} ${color}`}
                 />
-                {!loading && (
-                  <text
-                    x={midX}
-                    y={midY - 8}
-                    className='fill-hlpFg tracking-[0.08em]'
-                    fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
-                    fontSize={8}
-                    textAnchor='middle'
-                  >
-                    {truncateLabel(edge.label ?? '', 8)}
-                  </text>
-                )}
               </g>
             )
           })}
@@ -206,21 +248,33 @@ export function LiveConnectivityGraph({
         {mappedNodes.map((node) => {
           const x = clamp(node.x, PADDING, safeWidth - PADDING)
           const y = clamp(node.y, PADDING, safeHeight - PADDING)
-            const status = nodeStatusColor(node.status)
-            const heartbeat = truncateLabel(String(node.metadata?.heartbeat ?? '--'), HEARTBEAT_MAX_LENGTH)
+          const status = nodeStatusColor(node.status)
+          const isHub = node.id === HUB_NODE_ID
+          const radius = isHub ? NODE_BASE_SIZE + HUB_SIZE_BOOST : NODE_BASE_SIZE
+          const heartbeat = truncateLabel(String(node.metadata?.heartbeat ?? '--'), HEARTBEAT_MAX_LENGTH)
 
           return (
             <g key={node.id} transform={`translate(${x}, ${y})`}>
+              <circle cx={0} cy={0} r={radius + 2} className='fill-hlpSurface/58' />
+              {isHub ? (
+                <path
+                  d={`M ${-radius - 2} 0 L 0 ${-radius - 2} L ${radius + 2} 0 L 0 ${radius + 2} Z`}
+                  className='fill-hlpSurface/70 stroke-hlpBorder'
+                  strokeWidth='0.35'
+                />
+              ) : null}
               <circle
                 cx={0}
                 cy={0}
-                r={NODE_BASE_SIZE + 2}
-                className='fill-hlpSurface/35'
+                r={radius + 4}
+                fill='none'
+                className='stroke-hlpBorder/20'
+                strokeWidth='0.45'
               />
               <circle
                 cx={0}
                 cy={0}
-                r={NODE_BASE_SIZE}
+                r={radius}
                 className={`${status} ${node.status === 'online' ? 'animate-pulse' : ''}`}
               />
               <text
