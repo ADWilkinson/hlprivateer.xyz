@@ -675,9 +675,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         const reasonMessage = risk.reasons.length
           ? risk.reasons.map((entry) => `${entry.code}: ${entry.message}`).join(' | ')
           : 'no risk reasons provided'
-        const denialSignature = reasonMessage.toLowerCase()
+        const denialSignature = (risk.reasons.length ? risk.reasons.map((entry) => entry.code).join('|') : 'no_reason')
         const shouldPublishDenialNotice =
-          nowMs - lastRiskDeniedNoticeAtMs >= 15_000 || lastRiskDeniedSignature !== denialSignature
+          nowMs - lastRiskDeniedNoticeAtMs >= 60_000 || lastRiskDeniedSignature !== denialSignature
         if (shouldPublishDenialNotice) {
           lastRiskDeniedSignature = denialSignature
           lastRiskDeniedNoticeAtMs = nowMs

@@ -65,6 +65,7 @@ export default function DeckPage() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
   const [riskDeniedCount, setRiskDeniedCount] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
+  const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
 
   const logo = useMemo(() => asciiLogo(), [])
   const tapeRef = useRef<HTMLDivElement | null>(null)
@@ -102,18 +103,30 @@ export default function DeckPage() {
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
     const pushTape = (entry: TapeEntry) => {
+      const lowered = entry.line.toLowerCase()
+      const isRiskDenial = lowered.startsWith('risk denied')
+      if (isRiskDenial) {
+        const match = entry.line.match(/risk denied\s*\(([^)]*)\)/i)
+        const signature = match?.[1] ? match[1].trim() : 'no reason'
+        const now = Date.now()
+        const shouldSurfaceRiskDenial =
+          now - riskDenialRef.current.atMs >= 60_000 || riskDenialRef.current.signature !== signature
+        if (!shouldSurfaceRiskDenial) {
+          setRiskDeniedReason(signature || '')
+          return
+        }
+
+        riskDenialRef.current = { signature, atMs: now }
+        setRiskDeniedCount((value) => value + 1)
+        setRiskDeniedReason(signature)
+      }
+
       setTape((current) => [entry, ...current].slice(0, 64))
       if (entry.role && CREW.includes(entry.role as (typeof CREW)[number])) {
         const role = entry.role as CrewRole
         setCrewLast((current) => ({ ...current, [role]: entry }))
       }
 
-      const lowered = entry.line.toLowerCase()
-      if (lowered.startsWith('risk denied')) {
-        setRiskDeniedCount((value) => value + 1)
-        const match = entry.line.match(/risk denied\s*\(([^)]*)\)/i)
-        setRiskDeniedReason(match?.[1] ? match[1] : '')
-      }
     }
 
     const touchCrew = (role: CrewRole | undefined, level: TapeLevel, line: string) => {
@@ -191,13 +204,6 @@ export default function DeckPage() {
               const message = typeof payload.message === 'string' ? payload.message : ''
               if (message) {
                 recordDeckStatus(message)
-                const loweredMessage = message.toLowerCase()
-                if (loweredMessage.startsWith('risk denied')) {
-                  setRiskDeniedCount((value) => value + 1)
-                  const match = message.match(/risk denied\s*\(([^)]*)\)/i)
-                  setRiskDeniedReason(match?.[1] ? match[1] : '')
-                }
-
                 if (shouldSuppressTapeLine(message)) {
                   setSuppressedNoAction((value) => value + 1)
                 } else {

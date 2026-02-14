@@ -135,30 +135,36 @@ export function asciiLogo(): string {
 }
 
 export function asciiCrewMap(activeByRole: CrewHeartbeat, nowMs: number): string {
+  const INNER_WIDTH = 54
+
   const marker = (role: CrewRole) => {
     const lastPing = activeByRole[role]
-    if (!lastPing) return ' ◦ '
+    if (!lastPing) return '◦'
     const age = Math.max(0, nowMs - lastPing)
-    if (age <= 5_000) return ' ◉ '
-    if (age <= HEARTBEAT_WINDOW_MS * 0.35) return ' ◍ '
-    if (age <= HEARTBEAT_WINDOW_MS * 0.75) return ' ◎ '
-    return ' ◌ '
+    if (age <= 5_000) return '◉'
+    if (age <= HEARTBEAT_WINDOW_MS * 0.35) return '◍'
+    if (age <= HEARTBEAT_WINDOW_MS * 0.75) return '◎'
+    return '◌'
   }
 
-  const scout = marker('scout')
-  const research = marker('research')
-  const strategist = marker('strategist')
-  const ops = marker('ops')
-  const risk = marker('risk')
-  const scribe = marker('scribe')
-  const execution = marker('execution')
+  const frame = (inner: string) => `║${inner.padEnd(INNER_WIDTH).slice(0, INNER_WIDTH)}║`
+  const titleText = 'TRADING FLOOR MAP'
+  const titleWidth = Math.max(0, INNER_WIDTH - titleText.length - 2)
+  const titleLeft = Math.floor(titleWidth / 2)
+  const titleRight = titleWidth - titleLeft
+  const titleLine = `╔${'═'.repeat(titleLeft)} ${titleText} ${'═'.repeat(titleRight)}╗`
+  const cell = (role: CrewRole, label: string, width: number) => `${marker(role)} ${label}`.padEnd(width)
+
+  const row1 = frame([cell('scout', 'SCOUT', 16), cell('research', 'RESEARCH', 18), cell('strategist', 'STRATEGY', 20)].join(''))
+  const row2 = frame(` ${marker('ops')} OPS`.padStart(INNER_WIDTH).padEnd(INNER_WIDTH))
+  const row3 = frame([cell('risk', 'RISK', 18), cell('scribe', 'SCRIBE', 16), cell('execution', 'EXECUTE', 20)].join(''))
 
   return [
-    '╔═══════════════ TRADING FLOOR MAP ═══════════════╗',
-    `║${scout} SCOUT ${research} RESEARCH ${strategist} STRATEGY║`,
-    `║             ${ops} OPS                         ║`,
-    `║${risk} RISK ${scribe} SCRIBE ${execution} EXECUTE ║`,
-    '╚═══════════════════════════════════════════════╝',
+    titleLine,
+    row1,
+    row2,
+    row3,
+    `╚${'═'.repeat(INNER_WIDTH)}╝`,
   ].join('\n')
 }
 

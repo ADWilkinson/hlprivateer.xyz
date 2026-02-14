@@ -72,23 +72,11 @@ export function StatusStrip({
           <span className='strip-label'>DECK HEARTBEAT</span>
           <span className='strip-value'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
         </div>
-        <span className='strip-sep'>│</span>
-        <div className='strip-item'>
-          <span className='strip-label'>QUIET SIGNALS</span>
-          <span className='strip-value'>{suppressedNoAction}</span>
-        </div>
-        <span className='strip-sep'>│</span>
-        <div className='strip-item'>
-          <span className='strip-label'>RISK DENIED</span>
-          <span className='strip-value'>{riskDeniedCount}</span>
-        </div>
-        <span className='strip-sep'>│</span>
-        <div className='strip-item'>
-          <span className='strip-label'>EXCHANGE</span>
-          <span className='strip-value'>HYPERLIQUID</span>
-        </div>
       </div>
       <div className='plan-meta' style={{ padding: '6px 12px 10px' }}>
+        <span className='plan-meta-item'>exchange=HYPERLIQUID</span>
+        <span className='plan-meta-item'>quietSignals={suppressedNoAction}</span>
+        <span className='plan-meta-item'>riskDenied={riskDeniedCount}</span>
         <span className='plan-meta-item'>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
         <span className='plan-meta-item'>missing={deckMissing}</span>
         <span className='plan-meta-item'>status=LIVE</span>
