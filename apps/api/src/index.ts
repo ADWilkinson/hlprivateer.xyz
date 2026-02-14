@@ -1533,7 +1533,7 @@ bus.consume('hlp.audit.events', '0-0', (envelope) => {
 
 const start = async () => {
   await store.ready()
-  const address = await app.listen({ port: env.API_PORT })
+  const address = await app.listen({ host: env.API_HOST ?? '0.0.0.0', port: env.API_PORT })
   app.log.info(`api listening on ${address}`)
 }
 
