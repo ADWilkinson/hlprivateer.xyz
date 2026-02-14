@@ -44,6 +44,19 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL } }) as unknown as FastifyI
   authenticate: (request: FastifyRequest, reply: any) => Promise<void> | void
 }
 
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`
+  }
+
+  try {
+    return JSON.stringify(error)
+  } catch (stringifyError) {
+    app.log.warn({ originalError: describeError(error), stringifyError }, 'failed to stringify error for logging')
+    return String(error)
+  }
+}
+
 interface EntitlementRequest extends FastifyRequest {
   entitlement?: Entitlement
 }
@@ -98,8 +111,8 @@ app.register(cors, {
         callback(null, true)
         return
       }
-    } catch {
-      // Ignore parse errors.
+    } catch (error) {
+      app.log.warn({ origin, err: describeError(error) }, 'CORS origin parse failed')
     }
 
     callback(null, false)
@@ -386,11 +399,15 @@ function getProofFromRequest(request: any): unknown {
 
   const trimmed = raw.trim()
   if (trimmed.startsWith('{')) {
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return undefined
-    }
+      try {
+        return JSON.parse(trimmed)
+      } catch (error) {
+        app.log.warn(
+          { operation: 'x402-proof-json', rawPrefix: trimmed.slice(0, 80), err: describeError(error) },
+          'failed to parse x402 proof header as JSON'
+        )
+        return undefined
+      }
   }
 
   try {
@@ -398,19 +415,24 @@ function getProofFromRequest(request: any): unknown {
     if (decoded.startsWith('{')) {
       return JSON.parse(decoded)
     }
-  } catch {
-    // Fall through and try standard base64.
-  }
+      } catch (error) {
+        app.log.warn({ operation: 'x402-proof-base64url', rawPrefix: trimmed.slice(0, 80), err: describeError(error) }, 'failed to parse x402 proof base64url payload')
+        // Fall through and try standard base64.
+      }
 
   // x402 v2 docs refer to Base64-encoded JSON header values; accept both base64url and base64.
-  try {
-    const decoded = Buffer.from(trimmed, 'base64').toString('utf8')
-    if (decoded.startsWith('{')) {
-      return JSON.parse(decoded)
-    }
-  } catch {
-    // Ignore and fall through.
-  }
+      try {
+        const decoded = Buffer.from(trimmed, 'base64').toString('utf8')
+        if (decoded.startsWith('{')) {
+          return JSON.parse(decoded)
+        }
+      } catch (error) {
+        app.log.warn(
+          { operation: 'x402-proof-base64', rawPrefix: trimmed.slice(0, 80), err: describeError(error) },
+          'failed to parse x402 proof base64 payload'
+        )
+        // Ignore and fall through.
+      }
 
   return undefined
 }
@@ -463,9 +485,13 @@ function requestActor(request: FastifyRequest, entitlementId?: string): string {
 function encodePaymentHeader(payload: unknown): string {
   try {
     return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
-  } catch {
-    return Buffer.from('{}', 'utf8').toString('base64')
-  }
+    } catch (error) {
+      app.log.warn(
+        { operation: 'x402-proof-encode', payloadType: typeof payload, err: describeError(error) },
+        'failed to encode payment header; returning empty payload'
+      )
+      return Buffer.from('{}', 'utf8').toString('base64')
+    }
 }
 
 function parseRouteLabel(request: FastifyRequest): string {

@@ -37,6 +37,9 @@ type FloorPlanPanelProps = {
   deckMissing: number
   deckHeartbeatMs: number
   isLoading?: boolean
+  isCollapsed?: boolean
+  onToggle?: () => void
+  sectionId?: string
 }
 
 type TopologyEdge = {
@@ -138,6 +141,9 @@ export function FloorPlanPanel({
   deckMissing,
   deckHeartbeatMs,
   isLoading = false,
+  isCollapsed = false,
+  onToggle,
+  sectionId = 'floor-plan',
 }: FloorPlanPanelProps) {
   const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs, isLoading), [crewHeartbeat, nowMs, isLoading])
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
@@ -223,77 +229,89 @@ export function FloorPlanPanel({
 
   return (
     <section className={cardClass}>
-      <div className={cardHeaderClass}>
+      <button
+        type='button'
+        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        aria-label='Toggle operation map panel'
+        aria-expanded={!isCollapsed}
+        aria-controls={`section-${sectionId}`}
+        onClick={onToggle}
+      >
         <div>
           <div className={sectionTitleClass}>OPERATION MAP</div>
         </div>
-        <AsciiBadge tone='neutral'>
-          {isLoading ? 'loading map' : 'topology view'}
-        </AsciiBadge>
-      </div>
+        <div className='flex items-center gap-2'>
+          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+            {isCollapsed ? '+' : '−'}
+          </span>
+          <AsciiBadge tone='neutral'>{isLoading ? 'loading map' : 'topology view'}</AsciiBadge>
+        </div>
+      </button>
 
-      <div className={`flex flex-col ${panelBodyPad}`}>
-        <div className={`min-h-[360px] ${monitorClass} flex flex-col`}>
-          <div className={`flex items-center justify-between ${panelBodyPad} border-b border-hlpBorder/65 text-[9px] uppercase tracking-[0.14em] text-hlpMuted`}>
-            <span className={sectionTitleClass}>LIVE NETWORK MAP</span>
-            <AsciiBadge tone='neutral' variant='angle' className='text-hlpMuted'>
-              network view
-            </AsciiBadge>
-          </div>
-          <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
-            <LiveConnectivityGraph
-              nodes={topology.nodes}
-              edges={topology.edges}
-              width={networkWidth}
-              height={340}
-              className='text-hlpFg'
-              loading={isLoading}
-            />
-          </div>
-          <div className={sectionStripClass}>
-            {isLoading ? (
-              <>
-                <span className={`${skeletonPulseClass} h-5 w-32 rounded-sm`} />
-                <span className={`${skeletonPulseClass} h-5 w-36 rounded-sm`} />
-                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
-                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
-              </>
-            ) : (
-              <>
-                <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
-                <span className={inlineBadgeClass}>system heartbeat={formatAge(heartbeatAgeMs)}</span>
-                <span className={inlineBadgeClass}>stations={stationRows.length}</span>
-                <span className={inlineBadgeClass}>missing={deckMissing}</span>
-              </>
-            )}
-          </div>
-          <div className={sectionStripClass}>
-            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>legend</span>
-            <span className='text-[9px] font-semibold tracking-[0.16em]'>nodes:</span>
-            {NODE_LEGEND.map((entry) => (
-              <span
-                className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
-                key={`node-${entry.key}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${entry.dotClass}`} />
-                <span>{entry.label}</span>
-                <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
-              </span>
-            ))}
-            <span className='text-[9px] font-semibold tracking-[0.16em]'>links:</span>
-            {EDGE_LEGEND.map((entry) => (
-              <span
-                className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
-                key={`edge-${entry.key}`}
-              >
-                <span className={`h-1.5 w-2 rounded-sm border ${entry.dotClass.replace('stroke-', 'border-')}`} />
-                <span>{entry.label}</span>
-                <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
-              </span>
-            ))}
+      {!isCollapsed && (
+        <div className={`flex flex-col ${panelBodyPad}`}>
+          <div className={`min-h-[360px] ${monitorClass} flex flex-col`}>
+            <div className={`flex items-center justify-between ${panelBodyPad} border-b border-hlpBorder/65 text-[9px] uppercase tracking-[0.14em] text-hlpMuted`}>
+              <span className={sectionTitleClass}>LIVE NETWORK MAP</span>
+              <AsciiBadge tone='neutral' variant='angle' className='text-hlpMuted'>
+                network view
+              </AsciiBadge>
+            </div>
+            <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
+              <LiveConnectivityGraph
+                nodes={topology.nodes}
+                edges={topology.edges}
+                width={networkWidth}
+                height={340}
+                className='text-hlpFg'
+                loading={isLoading}
+              />
+            </div>
+            <div className={sectionStripClass}>
+              {isLoading ? (
+                <>
+                  <span className={`${skeletonPulseClass} h-5 w-32 rounded-sm`} />
+                  <span className={`${skeletonPulseClass} h-5 w-36 rounded-sm`} />
+                  <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+                  <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+                </>
+              ) : (
+                <>
+                  <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
+                  <span className={inlineBadgeClass}>system heartbeat={formatAge(heartbeatAgeMs)}</span>
+                  <span className={inlineBadgeClass}>stations={stationRows.length}</span>
+                  <span className={inlineBadgeClass}>missing={deckMissing}</span>
+                </>
+              )}
+            </div>
+            <div className={sectionStripClass}>
+              <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>legend</span>
+              <span className='text-[9px] font-semibold tracking-[0.16em]'>nodes:</span>
+              {NODE_LEGEND.map((entry) => (
+                <span
+                  className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
+                  key={`node-${entry.key}`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${entry.dotClass}`} />
+                  <span>{entry.label}</span>
+                  <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
+                </span>
+              ))}
+              <span className='text-[9px] font-semibold tracking-[0.16em]'>links:</span>
+              {EDGE_LEGEND.map((entry) => (
+                <span
+                  className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
+                  key={`edge-${entry.key}`}
+                >
+                  <span className={`h-1.5 w-2 rounded-sm border ${entry.dotClass.replace('stroke-', 'border-')}`} />
+                  <span>{entry.label}</span>
+                  <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </section>
   )
 }

@@ -253,11 +253,12 @@ async function createPostgresStore(databaseUrl: string): Promise<RuntimeStore> {
     enabled: true,
     ready: true,
     initializeError: null,
-    health: async () => {
+  health: async () => {
       try {
         await store.pool.query('SELECT 1')
         return true
-      } catch {
+      } catch (error) {
+        console.warn('[runtime-store.health] pool health check failed', error) // eslint-disable-line no-console
         return false
       }
     },

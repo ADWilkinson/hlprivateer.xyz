@@ -60,7 +60,8 @@ export async function stopTelemetry(): Promise<void> {
 
   try {
     await sdk.shutdown()
-  } catch {
+  } catch (error) {
+    console.warn('[runtime-telemetry] failed to shutdown telemetry', error) // eslint-disable-line no-console
     // keep shutdown idempotent
   }
 

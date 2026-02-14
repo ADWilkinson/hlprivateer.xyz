@@ -1,4 +1,4 @@
-export const pageShellClass = 'mx-auto w-full max-w-[1400px] flex flex-col gap-2 px-2 py-3 sm:px-4 sm:py-4 lg:px-6 2xl:px-8'
+export const pageShellClass = 'mx-auto w-full max-w-[1300px] flex flex-col gap-2 px-2 py-3 sm:px-4 sm:py-4 lg:px-6 2xl:px-8'
 export const panelRadius = 'rounded-[6px]'
 export const panelRadiusSubtle = 'rounded-[3px]'
 export const panelGap = 'gap-2'

@@ -119,7 +119,8 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
       let envelope: unknown
       try {
         envelope = JSON.parse(raw)
-      } catch {
+      } catch (error) {
+        console.warn('[runtime-market] failed to parse websocket message', error) // eslint-disable-line no-console
         return
       }
 
