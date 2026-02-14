@@ -21,9 +21,9 @@ type StatusStripProps = {
 }
 
 const LED_CLASS_BY_STATE = {
-  ok: 'bg-hlpPositive dark:bg-hlpPositiveDark shadow-[0_0_8px_rgba(47,139,103,0.35)] dark:shadow-[0_0_8px_rgba(86,207,173,0.34)] animate-hlp-led',
-  warn: 'bg-hlpWarning dark:bg-hlpWarningDark shadow-[0_0_8px_rgba(180,136,68,0.35)] dark:shadow-[0_0_8px_rgba(223,190,112,0.34)] animate-hlp-led',
-  danger: 'bg-hlpNegative dark:bg-hlpNegativeDark shadow-[0_0_8px_rgba(185,93,105,0.35)] dark:shadow-[0_0_8px_rgba(225,141,152,0.34)] animate-hlp-led',
+  ok: 'bg-hlpPositive dark:bg-hlpPositiveDark shadow-[0_0_8px_rgba(47,139,103,0.35)] dark:shadow-[0_0_8px_rgba(110,162,154,0.34)] animate-hlp-led',
+  warn: 'bg-hlpWarning dark:bg-hlpWarningDark shadow-[0_0_8px_rgba(180,136,68,0.35)] dark:shadow-[0_0_8px_rgba(184,157,112,0.34)] animate-hlp-led',
+  danger: 'bg-hlpNegative dark:bg-hlpNegativeDark shadow-[0_0_8px_rgba(185,93,105,0.35)] dark:shadow-[0_0_8px_rgba(173,127,136,0.34)] animate-hlp-led',
 } as const
 
 export function StatusStrip({

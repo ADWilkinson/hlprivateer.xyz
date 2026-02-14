@@ -38,30 +38,30 @@ type LiveNodePosition = { id: string; x: number; y: number }
 
 function linkColor(status: EdgeStatus, theme: 'light' | 'dark') {
   if (status === 'active') {
-    return theme === 'dark' ? '#56c4ab' : '#4b9a87'
+    return theme === 'dark' ? '#6ea29a' : '#4b9a87'
   }
 
   if (status === 'warning' || status === 'congested') {
-    return theme === 'dark' ? '#dfbe70' : '#c09659'
+    return theme === 'dark' ? '#b89d70' : '#c09659'
   }
 
   if (status === 'error') {
-    return theme === 'dark' ? '#e18d98' : '#b26f78'
+    return theme === 'dark' ? '#ad7f88' : '#b26f78'
   }
 
-  return theme === 'dark' ? 'rgba(136, 150, 177, 0.5)' : 'rgba(144, 139, 128, 0.45)'
+  return theme === 'dark' ? 'rgba(120, 136, 157, 0.48)' : 'rgba(144, 139, 128, 0.45)'
 }
 
 function nodeStatusColor(status: NodeStatus, theme: 'light' | 'dark') {
   if (status === 'online') {
-    return theme === 'dark' ? '#56c4ab' : '#4b9a87'
+    return theme === 'dark' ? '#6ea29a' : '#4b9a87'
   }
 
   if (status === 'warning') {
-    return theme === 'dark' ? '#dfbe70' : '#c09659'
+    return theme === 'dark' ? '#b89d70' : '#c09659'
   }
 
-  return theme === 'dark' ? '#de8d98' : '#b06a75'
+  return theme === 'dark' ? '#ad7f88' : '#b06a75'
 }
 
 function rank(nodeId: string, nodes: LiveNode[]) {
@@ -194,7 +194,7 @@ export function LiveConnectivityGraph({
                   <text
                     x={midX}
                     y={midY - 8}
-                    fill={theme === 'dark' ? '#cad1e0' : '#3b4b5f'}
+                    fill={theme === 'dark' ? '#d5dce7' : '#3b4b5f'}
                     fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                     fontSize={8}
                     textAnchor='middle'
@@ -212,8 +212,8 @@ export function LiveConnectivityGraph({
           const y = clamp(node.y, PADDING, safeHeight - PADDING)
           const status = nodeStatusColor(node.status, theme)
           const heartbeat = truncateLabel(String(node.metadata?.heartbeat ?? '--'), HEARTBEAT_MAX_LENGTH)
-          const textColor = theme === 'dark' ? '#d9e4f3' : '#223144'
-          const mutedColor = theme === 'dark' ? '#95a2b8' : '#5a6675'
+          const textColor = theme === 'dark' ? '#d5dce7' : '#223144'
+          const mutedColor = theme === 'dark' ? '#97a5bb' : '#5a6675'
 
           return (
             <g key={node.id} transform={`translate(${x}, ${y})`}>
@@ -221,7 +221,7 @@ export function LiveConnectivityGraph({
                 cx={0}
                 cy={0}
                 r={NODE_BASE_SIZE + 2}
-                fill={theme === 'dark' ? 'rgba(74, 88, 112, 0.35)' : 'rgba(120, 127, 145, 0.28)'}
+                fill={theme === 'dark' ? 'rgba(86, 101, 123, 0.38)' : 'rgba(120, 127, 145, 0.28)'}
                 opacity={0.95}
               />
               <circle
