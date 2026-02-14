@@ -233,6 +233,7 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Preserve market neutrality and risk budgets: prioritize reduced gross first, then re-enable sizing only after reduced-risk state is confirmed.',
   '- All non-EXIT proposals must state expected gross/notional outcome and never exceed recovery constraints.',
   '- Treat SAFE_MODE and DEPENDENCY_FAILURE as hard-reduce states: request only flat/close actions until state is cleared.',
+  '- Budget caps are explicit in floor context: max leverage/exposure/drawdown/slippage are hard constraints; do not propose beyond them.',
   '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and only risk mitigation command is /flatten.',
   '- Read the floor context memory every cycle: active directive, target risk caps, allocation multipliers, and latest risk/posture tape before sizing any basket leg.',
   '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.',
@@ -1748,6 +1749,15 @@ let lastStateUpdate:
     driftState?: string
     lastUpdateAt?: string
     message?: string
+    riskPolicy?: {
+      maxLeverage?: number
+      maxDrawdownPct?: number
+      maxExposureUsd?: number
+      maxSlippageBps?: number
+      staleDataMs?: number
+      liquidityBufferPct?: number
+      notionalParityTolerance?: number
+    }
   }
   | null = null
 let lastResearchReport: { headline: string; regime: string; recommendation: string; confidence: number; computedAt: string } | null = null
@@ -1946,7 +1956,7 @@ async function runOpsAgent(): Promise<void> {
 
   const level: 'INFO' | 'WARN' | 'ERROR' = maxAgeMs > 15000 || missing.length > 0 ? 'WARN' : 'INFO'
   const deckStatusLine = `deck status mode=${lastMode} feedAgeMs=${Math.round(maxAgeMs)} missing=${missing.length}`
-  const deckStatusSignature = `${level}|${deckStatusLine}`
+  const deckStatusSignature = `${level}|mode=${lastMode}|missing=${missing.length}`
   const shouldPublishDeckStatus =
     deckStatusSignature !== lastDeckStatusSignature || now - lastDeckStatusHeartbeatAtMs >= DECK_STATUS_HEARTBEAT_MS
   if (shouldPublishDeckStatus) {
@@ -2677,13 +2687,25 @@ const start = async (): Promise<void> => {
     if (envelope.type === 'STATE_UPDATE') {
       const payload = envelope.payload as any
       if (payload && typeof payload === 'object') {
+        const riskPolicyPayload = typeof payload.riskPolicy === 'object' && payload.riskPolicy !== null ? payload.riskPolicy as Record<string, unknown> : null
         lastStateUpdate = {
           mode: typeof payload.mode === 'string' ? payload.mode : undefined,
           pnlPct: typeof payload.pnlPct === 'number' ? payload.pnlPct : undefined,
           realizedPnlUsd: typeof payload.realizedPnlUsd === 'number' ? payload.realizedPnlUsd : undefined,
           driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
           lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
-          message: typeof payload.message === 'string' ? payload.message : undefined
+          message: typeof payload.message === 'string' ? payload.message : undefined,
+          riskPolicy: riskPolicyPayload
+            ? {
+              maxLeverage: typeof riskPolicyPayload.maxLeverage === 'number' ? riskPolicyPayload.maxLeverage : undefined,
+              maxDrawdownPct: typeof riskPolicyPayload.maxDrawdownPct === 'number' ? riskPolicyPayload.maxDrawdownPct : undefined,
+              maxExposureUsd: typeof riskPolicyPayload.maxExposureUsd === 'number' ? riskPolicyPayload.maxExposureUsd : undefined,
+              maxSlippageBps: typeof riskPolicyPayload.maxSlippageBps === 'number' ? riskPolicyPayload.maxSlippageBps : undefined,
+              staleDataMs: typeof riskPolicyPayload.staleDataMs === 'number' ? riskPolicyPayload.staleDataMs : undefined,
+              liquidityBufferPct: typeof riskPolicyPayload.liquidityBufferPct === 'number' ? riskPolicyPayload.liquidityBufferPct : undefined,
+              notionalParityTolerance: typeof riskPolicyPayload.notionalParityTolerance === 'number' ? riskPolicyPayload.notionalParityTolerance : undefined
+            }
+            : undefined
         }
       }
       if (payload?.mode) {
