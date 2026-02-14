@@ -411,28 +411,40 @@ export default function DeckPage() {
   return (
     <main className={pageShellClass}>
       <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
-      <StatusStrip
-        snapshot={snapshot}
-        wsState={wsState}
-        suppressedNoAction={suppressedNoAction}
-        riskDeniedCount={riskDeniedCount}
-        riskDeniedSuppressed={riskDeniedSuppressed}
-        riskDeniedReason={riskDeniedReason}
-        heartbeatAgeMs={heartbeatMs}
-        snapshotAgeMs={snapshotAgeMs}
-        deckFeedAgeMs={deckFeedAgeMs}
-        deckMissing={deckMissing}
-      />
-      <FloorPlanPanel
-        crewHeartbeat={crewHeartbeat}
-        nowMs={crewNow}
-        deckFeedAgeMs={deckFeedAgeMs}
-        deckMissing={deckMissing}
-        deckHeartbeatMs={deckHeartbeatMs}
-        theme={theme}
-      />
-      <PnlPanel snapshot={snapshot} chart={chart} />
-      <CrewStationsPanel crewLast={crewLast} crewHeartbeat={crewHeartbeat} crewSignals={crewSignals} nowMs={crewNow} />
+      <div className='grid gap-3 xl:grid-cols-12'>
+        <div className='xl:col-span-7'>
+          <StatusStrip
+            snapshot={snapshot}
+            wsState={wsState}
+            suppressedNoAction={suppressedNoAction}
+            riskDeniedCount={riskDeniedCount}
+            riskDeniedSuppressed={riskDeniedSuppressed}
+            riskDeniedReason={riskDeniedReason}
+            heartbeatAgeMs={heartbeatMs}
+            snapshotAgeMs={snapshotAgeMs}
+            deckFeedAgeMs={deckFeedAgeMs}
+            deckMissing={deckMissing}
+          />
+        </div>
+        <div className='xl:col-span-5'>
+          <PnlPanel snapshot={snapshot} chart={chart} />
+        </div>
+      </div>
+      <div className='grid gap-3 xl:grid-cols-12'>
+        <div className='xl:col-span-7'>
+          <FloorPlanPanel
+            crewHeartbeat={crewHeartbeat}
+            nowMs={crewNow}
+            deckFeedAgeMs={deckFeedAgeMs}
+            deckMissing={deckMissing}
+            deckHeartbeatMs={deckHeartbeatMs}
+            theme={theme}
+          />
+        </div>
+        <div className='xl:col-span-5'>
+          <CrewStationsPanel crewLast={crewLast} crewHeartbeat={crewHeartbeat} crewSignals={crewSignals} nowMs={crewNow} />
+        </div>
+      </div>
       <TapeSection tape={tape} tapeRef={tapeRef} />
       <FloorFooter apiEndpoint={apiUrl('/v1/agent/analysis/latest')} />
     </main>
