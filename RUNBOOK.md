@@ -33,7 +33,7 @@ Dependencies:
    - `cp config/.env.example config/.env`
 4. Start stack:
    - `npm run deploy:docker`
-   - optional: set `HOST_PROJECT_PATH` to your repo root if host paths differ from `/home/dappnode/projects/hlprivateer.xyz`
+   - optional: set `HOST_PROJECT_PATH` to your repo root if host paths differ
 5. Confirm service state:
    - `npm run compose:ps`
 6. Generate a trading wallet (used by the live OMS, optionally also by x402 `payTo`):
