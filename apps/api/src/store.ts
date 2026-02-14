@@ -46,6 +46,7 @@ export class ApiStore {
     healthCode: 'GREEN',
     driftState: 'IN_TOLERANCE',
     recentTape: [],
+    openPositions: [],
     lastUpdateAt: new Date().toISOString()
   }
   public positions: OperatorPosition[] = []
@@ -108,6 +109,7 @@ export class ApiStore {
     }
 
     this.positions = persistedPositions
+    this.syncPublicOpenPositions(this.positions)
     this.orders = persistedOrders
     this.audits = audits
     if (tierCapabilities) {
@@ -169,7 +171,27 @@ export class ApiStore {
 
   public setPositions(positions: OperatorPosition[]) {
     this.positions = positions
+    this.syncPublicOpenPositions(positions)
     void this.persistence.savePositions(positions).catch(() => undefined)
+  }
+
+  private syncPublicOpenPositions(positions: OperatorPosition[]): void {
+    const normalizedOpenPositions = positions.map((position) => ({
+      symbol: position.symbol,
+      side: position.side,
+      size: position.qty,
+      entryPrice: position.avgEntryPx,
+      markPrice: position.markPx,
+      pnlUsd: position.pnlUsd,
+      notionalUsd: position.notionalUsd
+    }))
+
+    this.snapshot.openPositions = normalizedOpenPositions
+    this.snapshot.openPositionCount = normalizedOpenPositions.length
+    this.snapshot.openPositionNotionalUsd = normalizedOpenPositions
+      .reduce((sum, position) => sum + (position.notionalUsd ?? 0), 0)
+      .valueOf()
+    this.snapshot.lastUpdateAt = new Date().toISOString()
   }
 
   public setOrders(orders: OperatorOrder[]) {

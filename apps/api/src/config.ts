@@ -57,6 +57,13 @@ const envSchema = z.object({
   X402_PRICE_ANALYSIS_HISTORY: z.string().default('$0.01'),
   X402_PRICE_POSITIONS: z.string().default('$0.01'),
   X402_PRICE_ORDERS: z.string().default('$0.01'),
+  RISK_MAX_LEVERAGE: z.coerce.number().default(2),
+  RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(5),
+  RISK_MAX_NOTIONAL_USD: z.coerce.number().default(10_000),
+  RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
+  RISK_STALE_DATA_MS: z.coerce.number().default(3_000),
+  RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().default(1.1),
+  RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(0.015),
   API_RATE_LIMIT_MAX: z.coerce.number().default(120),
   API_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000)
 })
