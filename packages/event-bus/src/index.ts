@@ -64,8 +64,22 @@ function normalizeReplayTo(value: string): string {
   return value
 }
 
-function parseEnvelope(raw: string): EnvelopeRecord {
-  return EventEnvelopeSchema.parse(JSON.parse(raw)) as EnvelopeRecord
+function extractPayload(fields: string[]): string | undefined {
+  const payloadIndex = fields.indexOf('payload')
+  if (payloadIndex >= 0 && fields.length > payloadIndex + 1) {
+    return fields[payloadIndex + 1]
+  }
+
+  return undefined
+}
+
+function parseEnvelope(raw: string): EnvelopeRecord | null {
+  try {
+    return EventEnvelopeSchema.parse(JSON.parse(raw)) as EnvelopeRecord
+  } catch (error) {
+    console.warn(`event-bus: dropping malformed envelope`, raw, String(error))
+    return null
+  }
 }
 
 export class RedisEventBus implements EventBus {
@@ -109,12 +123,18 @@ export class RedisEventBus implements EventBus {
   async readBatch(stream: StreamName, fromId: string, count = 100): Promise<Array<{ id: string; envelope: EnvelopeRecord }>> {
     const entries = await this.redis.xrange(this.stream(stream), normalizeBound(fromId), '+', 'COUNT', String(count))
     return entries.map(([id, fields]) => {
-      const raw = fields.find((_, i) => i === 1)
+      const raw = extractPayload(fields)
       if (!raw) {
-        throw new Error('Malformed stream entry')
+        console.warn('event-bus: skipping malformed stream entry', id)
+        return undefined
       }
-      return { id, envelope: parseEnvelope(raw) }
+      const envelope = parseEnvelope(raw)
+      if (!envelope) {
+        return undefined
+      }
+      return { id, envelope }
     })
+    .filter((item): item is { id: string; envelope: EnvelopeRecord } => Boolean(item))
   }
 
   async consume(
@@ -159,12 +179,17 @@ export class RedisEventBus implements EventBus {
         for (const row of rows) {
           const [id, fields] = row
           cursor = id
-          const payload = fields[1]
+          const payload = extractPayload(fields)
           if (!payload) {
+            console.warn('event-bus: skipping malformed stream entry', id)
             continue
           }
 
           const envelope = parseEnvelope(payload)
+          if (!envelope) {
+            continue
+          }
+
           await onMessage(envelope)
         }
       }
@@ -189,12 +214,15 @@ export class RedisEventBus implements EventBus {
     const to = Date.parse(toTs)
 
     for (const [, fields] of entries) {
-      const payload = fields[1]
-      if (!payload) {
+      const envelopePayload = extractPayload(fields)
+      if (!envelopePayload) {
         continue
       }
 
-      const envelope = parseEnvelope(payload)
+      const envelope = parseEnvelope(envelopePayload)
+      if (!envelope) {
+        continue
+      }
       const eventTs = Date.parse(envelope.ts)
       const afterFrom = Number.isNaN(from) || eventTs >= from
       const beforeTo = Number.isNaN(to) || eventTs <= to

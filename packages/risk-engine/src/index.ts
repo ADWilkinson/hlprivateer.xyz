@@ -309,6 +309,9 @@ function computeExposure(positions: PositionSnapshot[], proposal: StrategyPropos
 
 export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDecisionResult {
   const reasons: RiskReason[] = []
+  const isSafeModeExit = context.state === 'SAFE_MODE' &&
+    context.proposal.actions.length > 0 &&
+    context.proposal.actions.every((action) => action.type === 'EXIT')
 
   if (!context.dependenciesHealthy && config.failClosedOnDependencyError) {
     reasons.push({
@@ -337,7 +340,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   }
 
   const parityResult = checkNotionalParity(context.openPositions, context.proposal, config.notionalParityTolerance)
-  if (!parityResult.ok) {
+  if (!parityResult.ok && !isSafeModeExit) {
     reasons.push({ code: 'NOTIONAL_PARITY', message: parityResult.reason ?? 'invalid notional parity' })
   }
 

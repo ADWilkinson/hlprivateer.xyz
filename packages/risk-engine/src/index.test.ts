@@ -306,6 +306,104 @@ describe('risk-engine', () => {
     expect(decision.reasons.every((reason) => reason.code !== 'SAFE_MODE')).toBe(true)
   })
 
+  it('allows SAFE_MODE EXIT proposals even when parity drift exists', () => {
+    const decision = evaluateRisk(baseConfig, {
+      state: 'SAFE_MODE',
+      actorType: 'internal_agent',
+      accountValueUsd: 10000,
+      dependenciesHealthy: true,
+      openPositions: [
+        {
+          symbol: 'BTC',
+          side: 'SHORT',
+          qty: 0.00448,
+          notionalUsd: 311.06208
+        },
+        {
+          symbol: 'ETH',
+          side: 'SHORT',
+          qty: 0.1506,
+          notionalUsd: 311.46339
+        },
+        {
+          symbol: 'SOL',
+          side: 'SHORT',
+          qty: 3.66,
+          notionalUsd: 312.59145
+        },
+        {
+          symbol: 'HYPE',
+          side: 'LONG',
+          qty: 29.15,
+          notionalUsd: 929.637225
+        }
+      ],
+      ticks: {
+        HYPE: {
+          symbol: 'HYPE',
+          px: 31.89,
+          bid: 31.88,
+          ask: 31.9,
+          bidSize: 1000,
+          askSize: 1000,
+          updatedAt: new Date().toISOString()
+        },
+        ETH: {
+          symbol: 'ETH',
+          px: 2068,
+          bid: 2067,
+          ask: 2068.15,
+          bidSize: 1000,
+          askSize: 1000,
+          updatedAt: new Date().toISOString()
+        },
+        SOL: {
+          symbol: 'SOL',
+          px: 85.41,
+          bid: 85.40,
+          ask: 85.41,
+          bidSize: 1000,
+          askSize: 1000,
+          updatedAt: new Date().toISOString()
+        },
+        BTC: {
+          symbol: 'BTC',
+          px: 69500,
+          bid: 69499,
+          ask: 69500,
+          bidSize: 1000,
+          askSize: 1000,
+          updatedAt: new Date().toISOString()
+        }
+      },
+      proposal: {
+        proposalId: 'p7',
+        cycleId: 'c1',
+        summary: 'safe exit',
+        confidence: 1,
+        requestedMode: 'SIM',
+        createdBy: 'agent',
+        actions: [
+          {
+            type: 'EXIT',
+            rationale: 'exit to flat',
+            notionalUsd: 1164.69,
+            expectedSlippageBps: 2,
+            legs: [
+              { symbol: 'BTC', side: 'BUY', notionalUsd: 311.06 },
+              { symbol: 'ETH', side: 'BUY', notionalUsd: 311.28 },
+              { symbol: 'SOL', side: 'BUY', notionalUsd: 312.61 },
+              { symbol: 'HYPE', side: 'SELL', notionalUsd: 929.75 }
+            ]
+          }
+        ]
+      }
+    })
+
+    expect(decision.decision).toBe('ALLOW_REDUCE_ONLY')
+    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
+  })
+
   it('denies external agents from direct execution path', () => {
     const decision = evaluateRisk(baseConfig, {
       state: 'READY',
