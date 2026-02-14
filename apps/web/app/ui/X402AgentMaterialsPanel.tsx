@@ -113,6 +113,34 @@ export function X402AgentMaterialsPanel() {
     { id: 'x402', label: 'x402 quickstart', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/docs/X402_SELLER_QUICKSTART.md' },
   ]
 
+  const curlCommands = [
+    {
+      id: 'curl-llms',
+      title: 'llms.txt',
+      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/llms.txt',
+    },
+    {
+      id: 'curl-spec',
+      title: 'Open spec',
+      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/docs/SPEC.md',
+    },
+    {
+      id: 'curl-skills',
+      title: 'Agent skills',
+      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/skills.md',
+    },
+    {
+      id: 'curl-agent-doc',
+      title: 'Agent docs',
+      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/AGENT.md',
+    },
+    {
+      id: 'curl-api',
+      title: 'API map',
+      command: 'curl -L https://raw.githubusercontent.com/ADWilkinson/hlprivateer.xyz/main/API.md',
+    },
+  ]
+
   return (
     <section id='x402-access' className={cardClass}>
       <div className={cardHeaderClass}>
@@ -153,6 +181,21 @@ export function X402AgentMaterialsPanel() {
                 {link.label}
               </a>
             ))}
+          </div>
+        </div>
+
+        <div className='grid gap-2'>
+          <div className='text-[9px] uppercase tracking-[0.1em] text-hlpMuted'>Direct curl access</div>
+          <div className='rounded border border-hlpBorder'>
+            <div className='px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>llms / openspec / agents</div>
+            <div className='space-y-1 border-t border-hlpBorder px-2 py-2'>
+              {curlCommands.map((entry) => (
+                <div key={entry.id} className='flex flex-wrap items-center gap-2 text-[10px]'>
+                  <span className='w-24 shrink-0 text-hlpMuted'>{entry.title}</span>
+                  <span className='font-mono break-all'>{entry.command}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
