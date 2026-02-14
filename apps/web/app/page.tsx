@@ -12,7 +12,7 @@ import {
   type WsState,
   normalizeCrewRole,
   normalizeTapeLinePrefix,
-  parseDeckStatus,
+  parseSystemStatus,
   shouldSuppressTapeLine,
   EMPTY_HEARTBEAT,
   EMPTY_STATS,
@@ -24,6 +24,7 @@ import { PnlPanel } from './ui/PnlPanel'
 import { StatusStrip } from './ui/StatusStrip'
 import { TapeSection } from './ui/TapeSection'
 import { pageShellClass } from './ui/ascii-style'
+import { X402AgentMaterialsPanel } from './ui/X402AgentMaterialsPanel'
 
 type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
@@ -282,9 +283,9 @@ export default function DeckPage() {
       }))
     }
 
-    const recordDeckStatus = (line: string) => {
-      if (!/^deck status /.test(line)) return
-      const parsed = parseDeckStatus(line)
+    const recordSystemStatus = (line: string) => {
+      if (!/^(?:floor|system|deck) status /i.test(line)) return
+      const parsed = parseSystemStatus(line)
       if (parsed.feedAgeMs !== undefined) setDeckFeedAgeMs(parsed.feedAgeMs)
       if (parsed.missing !== undefined) setDeckMissing(parsed.missing)
       setDeckHeartbeatMs(Date.now())
@@ -300,11 +301,11 @@ export default function DeckPage() {
       const role = normalizeCrewRole(entry.role)
       const normalizedLine = normalizeTapePrefix(entry.line)
       const lowered = normalizedLine.toLowerCase()
-      const isDeckStatus = /^deck status /i.test(lowered)
+      const isDeckStatus = /^(?:floor|system|deck) status /i.test(lowered)
       const isRiskDenial = /^risk denied\b/i.test(lowered)
 
       if (isDeckStatus) {
-        recordDeckStatus(normalizedLine)
+        recordSystemStatus(normalizedLine)
         setSuppressedNoAction((value) => value + 1)
         return false
       }
@@ -545,6 +546,7 @@ export default function DeckPage() {
           isLoading={isBootstrapping}
         />
         <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
+        <X402AgentMaterialsPanel />
       </div>
     </main>
   )

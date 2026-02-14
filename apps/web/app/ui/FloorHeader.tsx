@@ -10,14 +10,19 @@ export function FloorHeader() {
           <div className='text-[17px] leading-none font-bold tracking-[0.22em]'>[HL] PRIVATEER</div>
         </div>
         <div className='flex w-full items-center justify-end gap-2 sm:w-auto'>
-          <AsciiBadge tone='neutral' variant='curly' className='tracking-[0.2em]'>
+          <a href='#x402-access'>
+            <AsciiBadge tone='neutral' variant='curly' className='tracking-[0.2em] text-hlpMuted'>
+              x402 access
+            </AsciiBadge>
+          </a>
+          <AsciiBadge tone='neutral' variant='curly' className='tracking-[0.2em] text-hlpMuted'>
             system online
           </AsciiBadge>
         </div>
       </header>
       <div className={cardHeaderClass}>
-        <span>fleet status</span>
-        <AsciiBadge tone='positive' variant='curly'>
+        <span>system status</span>
+        <AsciiBadge tone='neutral' variant='curly' className='text-hlpMuted'>
           live feed
         </AsciiBadge>
       </div>
