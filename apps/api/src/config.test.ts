@@ -34,4 +34,34 @@ describe('api config', () => {
     expect(env.OPERATOR_MFA_REQUIRED).toBe(false)
     expect(env.X402_ENABLED).toBe(false)
   })
+
+  it('refuses to start in production with default secrets', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.JWT_SECRET = 'replace-me'
+    process.env.OPERATOR_LOGIN_SECRET = 'some-operator-secret'
+    process.env.X402_VERIFIER_SECRET = 'some-x402-secret'
+
+    vi.resetModules()
+    await expect(import('./config')).rejects.toThrow(/production requires JWT_SECRET/)
+  })
+
+  it('refuses to start in production when OPERATOR_LOGIN_SECRET is missing', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.JWT_SECRET = 'some-jwt-secret'
+    delete process.env.OPERATOR_LOGIN_SECRET
+    process.env.X402_VERIFIER_SECRET = 'some-x402-secret'
+
+    vi.resetModules()
+    await expect(import('./config')).rejects.toThrow(/production requires OPERATOR_LOGIN_SECRET/)
+  })
+
+  it('refuses to start in production with default X402 verifier secret', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.JWT_SECRET = 'some-jwt-secret'
+    process.env.OPERATOR_LOGIN_SECRET = 'some-operator-secret'
+    process.env.X402_VERIFIER_SECRET = 'x402-secret'
+
+    vi.resetModules()
+    await expect(import('./config')).rejects.toThrow(/production requires X402_VERIFIER_SECRET/)
+  })
 })
