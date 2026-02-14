@@ -14,6 +14,7 @@
     "test": "bash scripts/workspace.sh test",
     "typecheck": "bash scripts/workspace.sh typecheck",
     "format": "echo 'format not wired; run package-specific formatters as needed'",
+    "deploy:systemd": "bash scripts/ops/deploy-systemd.sh",
     "deploy:web:cloudflare": "cd apps/web && NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://api.hlprivateer.xyz} NEXT_PUBLIC_WS_BASE_URL=${NEXT_PUBLIC_WS_BASE_URL:-wss://ws.hlprivateer.xyz} bun run build:static && cd ../.. && $(command -v npx) --yes wrangler pages deploy apps/web/out --project-name hlprivateer-xyz --branch main",
     "secrets:decrypt": "bash scripts/secrets/decrypt.sh",
     "secrets:rotate": "bash scripts/secrets/rotate.sh",
