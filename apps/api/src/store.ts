@@ -15,6 +15,7 @@ import { createApiStore, type ApiPersistence } from './db/persistence'
 import { env } from './config'
 
 const PUBLIC_TAPE_HISTORY_LIMIT = 120
+type ApiSnapshotUpdate = Partial<ApiSnapshot> & { message?: string; reason?: unknown }
 
 export interface ApiRuntimeSnapshot {
   mode: TradeState
@@ -157,8 +158,8 @@ export class ApiStore {
     this.snapshot.recentTape = [...this.snapshot.recentTape, trimmed].slice(-PUBLIC_TAPE_HISTORY_LIMIT)
   }
 
-  public setSnapshot(snapshot: Partial<ApiSnapshot>) {
-    const hasOwn = (key: keyof ApiSnapshot) => Object.prototype.hasOwnProperty.call(snapshot, key)
+  public setSnapshot(snapshot: ApiSnapshotUpdate) {
+    const hasOwn = (key: keyof ApiSnapshotUpdate) => Object.prototype.hasOwnProperty.call(snapshot, key)
 
     this.snapshot = {
       ...this.snapshot,
@@ -174,7 +175,7 @@ export class ApiStore {
       lastUpdateAt: snapshot.lastUpdateAt ?? new Date().toISOString()
     }
 
-    const reason = typeof (snapshot as { reason?: unknown }).reason === 'string' ? String((snapshot as { reason: string }).reason) : 'state update'
+    const reason = typeof snapshot.reason === 'string' ? snapshot.reason : 'state update'
     void this.persistence
       .saveSystemState(this.snapshot.mode, reason)
       .catch(() => undefined)
