@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AsciiBadge, AsciiTable } from './ascii-kit'
+import { AsciiBadge } from './ascii-kit'
 import { AsciiTopology, type AsciiTopologyNode } from './ascii-topology'
 import {
   CREW,
@@ -136,7 +136,8 @@ export function FloorPlanPanel({
     const updateWidth = () => {
       const fallback = typeof window === 'undefined' ? 980 : Math.max(300, window.innerWidth - 58)
       const measured = mapRef.current?.clientWidth ?? fallback
-      setNetworkWidth(Math.max(240, Math.min(measured, 1560)))
+      const usable = Math.max(80, measured - 22)
+      setNetworkWidth(Math.max(120, Math.min(usable, 1600)))
     }
 
     updateWidth()
@@ -220,19 +221,19 @@ export function FloorPlanPanel({
         </AsciiBadge>
       </div>
 
-      <div className={`grid grid-cols-1 gap-2 ${panelBodyPad}`}>
+      <div className={`flex flex-col ${panelBodyPad}`}>
         <div className={`min-h-[420px] ${monitorClass} flex flex-col`}>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
-          <div ref={mapRef} className='min-h-[260px] w-full max-w-full flex-1 overflow-auto pb-1 pl-1'>
+          <div ref={mapRef} className='min-h-[260px] w-full flex-1 overflow-hidden px-1 py-1'>
             <AsciiTopology
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
               theme={theme}
               pulseMs={nowMs}
-              className='text-[12px] leading-none text-hlpFg dark:text-hlpFgDark'
+              className='text-[10px] leading-none text-hlpFg dark:text-hlpFgDark sm:text-[11px]'
               loading={isLoading}
             />
           </div>
@@ -271,23 +272,6 @@ export function FloorPlanPanel({
               </span>
             </div>
           </div>
-        </div>
-
-        <div className={`min-h-[320px] ${monitorClass} flex flex-col`}>
-          <div className={cardHeaderClass}>
-            <span className={sectionTitleClass}>NODE TABLE</span>
-          </div>
-          <AsciiTable
-            columns={[
-              { key: 'label', header: 'STATION' },
-              { key: 'status', header: 'STATUS', align: 'center' },
-              { key: 'ageText', header: 'HEARTBEAT', align: 'right' },
-              { key: 'pulse', header: 'PULSE', align: 'center' },
-              { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
-            ]}
-            data={stationRows}
-            className='min-h-0 flex-1 text-[10px]'
-          />
         </div>
       </div>
     </section>
