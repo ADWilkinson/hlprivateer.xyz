@@ -275,7 +275,7 @@ function extractClaudePayload(payload: unknown): unknown | null {
     if (!trimmed) return undefined
     const maybe = parseJsonFromText(trimmed)
     if (maybe !== null) {
-      return undefined
+      return trimmed
     }
     return trimmed
   }
