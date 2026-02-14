@@ -169,6 +169,8 @@ services:
       AGENT_RUNNER_CLAUDE_DIR: ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}
       AGENT_RUNNER_CODEX_DIR: ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}
       AGENT_RUNNER_CLAUDE_CFG_DIR: ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}
+      XDG_CONFIG_HOME: /home/bun/.config
+      CLAUDE_SESSION_DIR: /home/bun/.claude/session
     depends_on:
       redis:
         condition: service_healthy
@@ -176,9 +178,9 @@ services:
         condition: service_started
     volumes:
       - ../secrets:${HOST_PROJECT_PATH:-/opt/hlprivateer.xyz}/secrets:ro
-      - ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}:/home/bun/.claude:ro
-      - ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}:/home/bun/.codex:ro
-      - ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}:/home/bun/.config/claude:ro
+      - ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}:/home/bun/.claude
+      - ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}:/home/bun/.codex
+      - ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}:/home/bun/.config/claude
     restart: unless-stopped
     networks:
       - hlprivateer
