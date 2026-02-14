@@ -89,9 +89,9 @@ Pay-gated agent routes (capability + pricing):
 | GET | /v1/agent/insights | agent.insights.read | AI-level floor summary, risk posture, and recent event signals | $0.02 | X402_PRICE_AGENT_INSIGHTS |
 | GET | /v1/agent/copy-trade/signals | copy.signals.read | Public/decision signals suitable for copy-trade clients | $0.03 | X402_PRICE_COPY_TRADE_SIGNALS |
 | GET | /v1/agent/copy-trade/positions | copy.positions.read | Target and basket-level position summaries with risk policy | $0.03 | X402_PRICE_COPY_TRADE_POSITIONS |
-| GET | /v1/agent/analysis/latest | analysis.read | Most recent analysis log and thesis | $0.005 | X402_PRICE_ANALYSIS_LATEST |
+| GET | /v1/agent/analysis/latest | analysis.read | Most recent analysis log and thesis | $0.01 | X402_PRICE_ANALYSIS_LATEST |
 | GET | /v1/agent/analysis | analysis.read | Historical analysis messages (paged by server default) | $0.01 | X402_PRICE_ANALYSIS_HISTORY |
-| GET | /v1/agent/stream/snapshot | stream.read.public | Public feed snapshot for lightweight bots/observers | $0.001 | X402_PRICE_STREAM_SNAPSHOT |
+| GET | /v1/agent/stream/snapshot | stream.read.public | Public feed snapshot for lightweight bots/observers | $0.01 | X402_PRICE_STREAM_SNAPSHOT |
 | GET | /v1/agent/positions | command.positions | Current positions used by external agents (redacted) | $0.01 | X402_PRICE_POSITIONS |
 | GET | /v1/agent/orders | command.positions | Order history and open/closed lifecycle signals | $0.01 | X402_PRICE_ORDERS |
 
@@ -110,8 +110,8 @@ Pay-gated agent routes (capability + pricing):
   - Successful responses include `PAYMENT-RESPONSE` (settlement response).
   - Demo client: `bun scripts/x402/facilitator-demo.ts`
 Route price configuration (override via env):
-- `X402_PRICE_STREAM_SNAPSHOT` (default `$0.001`)
-- `X402_PRICE_ANALYSIS_LATEST` (default `$0.005`)
+- `X402_PRICE_STREAM_SNAPSHOT` (default `$0.01`)
+- `X402_PRICE_ANALYSIS_LATEST` (default `$0.01`)
 - `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`)
 - `X402_PRICE_POSITIONS` (default `$0.01`)
 - `X402_PRICE_ORDERS` (default `$0.01`)

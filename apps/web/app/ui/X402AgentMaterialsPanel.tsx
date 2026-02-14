@@ -86,8 +86,8 @@ const paywallRoutes: AgentRouteRow[] = [
 ]
 
 const x402PricingByRoute: Record<string, { price: string; notes: string }> = {
-  '/v1/agent/stream/snapshot': { price: '$0.001', notes: 'entry + heartbeat feed snapshots' },
-  '/v1/agent/analysis/latest': { price: '$0.005', notes: 'single latest decision payload' },
+  '/v1/agent/stream/snapshot': { price: '$0.01', notes: 'entry + heartbeat feed snapshots' },
+  '/v1/agent/analysis/latest': { price: '$0.01', notes: 'single latest decision payload' },
   '/v1/agent/analysis': { price: '$0.01', notes: 'historical analysis page cache slice' },
   '/v1/agent/positions': { price: '$0.01', notes: 'position stream for copy consumers' },
   '/v1/agent/orders': { price: '$0.01', notes: 'order tape and lifecycle summary' },

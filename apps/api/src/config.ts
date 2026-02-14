@@ -33,6 +33,23 @@ const booleanFromEnv = z.preprocess((value) => {
   return value
 }, z.boolean())
 
+const X402_MIN_PRICE_USD = 0.01
+const x402PricePattern = /^\$?(?:\d+(?:\.\d+)?|\.\d+)$/
+const x402PriceSchema = z
+  .string()
+  .trim()
+  .refine((value) => {
+    if (!x402PricePattern.test(value)) {
+      return false
+    }
+
+    const amount = value.startsWith('$') ? value.slice(1) : value
+    const numericValue = Number.parseFloat(amount)
+    return Number.isFinite(numericValue) && numericValue >= X402_MIN_PRICE_USD
+  }, {
+    message: 'x402 route price must be at least $0.01',
+  })
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
@@ -54,8 +71,8 @@ const envSchema = z.object({
   X402_FACILITATOR_URL: z.string().url().default('https://x402.org/facilitator'),
   X402_NETWORK: z.string().default('eip155:84532'),
   X402_PAYTO: z.string().optional(),
-  X402_PRICE_STREAM_SNAPSHOT: z.string().default('$0.001'),
-  X402_PRICE_ANALYSIS_LATEST: z.string().default('$0.005'),
+  X402_PRICE_STREAM_SNAPSHOT: x402PriceSchema.default('$0.01'),
+  X402_PRICE_ANALYSIS_LATEST: x402PriceSchema.default('$0.01'),
   X402_PRICE_ANALYSIS_HISTORY: z.string().default('$0.01'),
   X402_PRICE_POSITIONS: z.string().default('$0.01'),
   X402_PRICE_ORDERS: z.string().default('$0.01'),

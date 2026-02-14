@@ -108,8 +108,8 @@ Required x402 capability (minimum tier) examples:
   - Successful responses include `PAYMENT-RESPONSE` (settlement response).
   - Demo client: `bun scripts/x402/facilitator-demo.ts`
 - Route price configuration (override via env):
-  - `X402_PRICE_STREAM_SNAPSHOT` (default `$0.001`)
-- `X402_PRICE_ANALYSIS_LATEST` (default `$0.005`, `/v1/agent/analysis?latest=true`)
+- `X402_PRICE_STREAM_SNAPSHOT` (default `$0.01`)
+- `X402_PRICE_ANALYSIS_LATEST` (default `$0.01`, `/v1/agent/analysis?latest=true`)
 - `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`, `/v1/agent/analysis`)
   - `X402_PRICE_POSITIONS` (default `$0.01`)
   - `X402_PRICE_ORDERS` (default `$0.01`)

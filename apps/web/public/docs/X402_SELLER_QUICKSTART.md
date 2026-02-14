@@ -20,8 +20,8 @@ This repo currently has:
      - `GET /v1/agent/copy-trade/signals`
      - `GET /v1/agent/copy-trade/positions`
    - Route pricing env (defaults):
-     - `X402_PRICE_STREAM_SNAPSHOT=$0.001`
-     - `X402_PRICE_ANALYSIS_LATEST=$0.005`
+     - `X402_PRICE_STREAM_SNAPSHOT=$0.01`
+     - `X402_PRICE_ANALYSIS_LATEST=$0.01`
      - `X402_PRICE_ANALYSIS_HISTORY=$0.01`
      - `X402_PRICE_POSITIONS=$0.01`
      - `X402_PRICE_ORDERS=$0.01`
