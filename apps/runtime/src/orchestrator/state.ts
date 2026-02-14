@@ -739,11 +739,12 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         const reasonCodes = risk.reasons
           .map((entry) => String(entry.code).trim().toUpperCase())
           .filter((entry) => entry.length > 0)
-        const detailedReasonSignature = [...new Set(risk.reasons
-          .map((entry) => `${String(entry.code ?? 'GENERIC').trim().toUpperCase()}: ${normalizeRiskSignature(String(entry.message ?? ''))}`
-          .replace(/\|+/g, '|')
-          .trim()
-        )).sort().join('|')
+        const detailedReasonSignature = [...new Set(
+          risk.reasons.map((entry) => {
+            const raw = `${String(entry.code ?? 'GENERIC').trim().toUpperCase()}: ${normalizeRiskSignature(String(entry.message ?? ''))}`
+            return raw.replace(/\|+/g, '|').trim()
+          })
+        )].sort().join('|')
         const denialSignature = reasonCodes.length > 0
           ? [...new Set(reasonCodes)].sort().join('|')
           : detailedReasonSignature || 'no_reason'
