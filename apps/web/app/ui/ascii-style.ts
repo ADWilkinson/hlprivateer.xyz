@@ -1,4 +1,4 @@
-export const pageShellClass = 'w-full max-w-none flex flex-col gap-3 px-2 py-4 sm:px-4 sm:py-6 lg:px-6 2xl:px-8'
+export const pageShellClass = 'w-full max-w-none flex flex-col gap-2 px-2 py-3 sm:px-4 sm:py-4 lg:px-6 2xl:px-8'
 
 export const cardClass =
   'relative overflow-hidden animate-hlp-fade-up rounded-hlp border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel/95 dark:bg-hlpPanelDark/95 text-hlpFg dark:text-hlpFgDark shadow-hlp dark:shadow-hlpDark'
