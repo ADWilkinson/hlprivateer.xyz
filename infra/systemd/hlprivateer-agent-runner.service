@@ -28,7 +28,7 @@ ProtectClock=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 LockPersonality=true
-MemoryDenyWriteExecute=true
+MemoryDenyWriteExecute=false
 SystemCallFilter=@system-service
 SystemCallArchitectures=native
 UMask=0077
@@ -39,4 +39,3 @@ StartLimitIntervalSec=60
 
 [Install]
 WantedBy=multi-user.target
-
