@@ -20,7 +20,7 @@ const config: Config = {
         hlpDim: '#27272A',
         hlpPositive: '#0072B5',
         hlpWarning: '#DC7F5A',
-        hlpNegative: '#59F4F4',
+        hlpNegative: '#9E4445',
         hlpBorder: '#000000',
         hlpBorderStrong: '#000000',
         hlpNeutral: '#27272A',
