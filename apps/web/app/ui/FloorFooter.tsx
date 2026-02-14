@@ -1,5 +1,5 @@
 import { AsciiCard } from 'react-ascii-ui'
-import { cardClass, cardStyle, mutedTextClass, sectionTitleClass } from './ascii-style'
+import { cardClass, mutedTextClass, sectionTitleClass } from './ascii-style'
 
 type FloorFooterProps = {
   apiEndpoint: string
@@ -9,7 +9,6 @@ export function FloorFooter({ apiEndpoint }: FloorFooterProps) {
   return (
     <AsciiCard
       className={`${cardClass} text-center px-3.5 py-2.5`}
-      style={cardStyle}
     >
       <div className='mb-1 border-b border-[var(--border)] px-1 py-1'>
         <div className='text-[9px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>ACCESS LANE</div>

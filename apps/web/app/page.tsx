@@ -18,6 +18,7 @@ import {
 } from './ui/floor-dashboard'
 import { CREW } from './ui/floor-dashboard'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
+import { FloorPlanPanel } from './ui/FloorPlanPanel'
 import { FloorFooter } from './ui/FloorFooter'
 import { FloorHeader } from './ui/FloorHeader'
 import { PnlPanel } from './ui/PnlPanel'
@@ -30,6 +31,30 @@ type CrewLast = Record<CrewRole, TapeEntry | null>
 
 const chartWidth = 64
 const chartHeight = 12
+const RISK_DENIAL_SUPPRESS_MS = 45_000
+
+function normalizeRiskDenial(text: string): { signature: string; display: string } {
+  const reason = text.replace(/^risk denied\s*:?\s*/i, '').trim()
+  const display = reason
+    .replace(/\b[a-f0-9]{10,}\b/gi, '<id>')
+    .replace(/\d+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const signature = reason
+    .split('|')
+    .map((entry) => entry.split(':')[0]?.trim())
+    .map((entry) => entry?.toUpperCase())
+    .filter((entry): entry is string => !!entry)
+    .map((entry) => entry.replace(/\s+/g, ' '))
+    .filter((entry) => entry.length > 0)
+    .join('|')
+
+  return {
+    signature: signature || display || 'no reason',
+    display: display || 'no reason',
+  }
+}
 
 export default function DeckPage() {
   const [snapshot, setSnapshot] = useState<Snapshot>(() => ({
@@ -62,6 +87,7 @@ export default function DeckPage() {
   const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(Date.now())
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
   const [riskDeniedCount, setRiskDeniedCount] = useState(0)
+  const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
 
@@ -103,25 +129,20 @@ export default function DeckPage() {
       const lowered = entry.line.toLowerCase()
       const isRiskDenial = lowered.startsWith('risk denied')
       if (isRiskDenial) {
-        const rawReason = entry.line.replace(/^risk denied\s*:?\s*/i, '').trim()
-        const signature = rawReason
-          ? rawReason
-              .replace(/\b[a-f0-9]{10,}\b/gi, '<id>')
-              .replace(/\d+/g, '')
-              .replace(/\s+/g, ' ')
-              .trim()
-          : 'no reason'
+        const normalized = normalizeRiskDenial(entry.line)
+        const { signature, display } = normalized
         const now = Date.now()
         const shouldSurfaceRiskDenial =
-          now - riskDenialRef.current.atMs >= 60_000 || riskDenialRef.current.signature !== signature
+          now - riskDenialRef.current.atMs >= RISK_DENIAL_SUPPRESS_MS || riskDenialRef.current.signature !== signature
         if (!shouldSurfaceRiskDenial) {
-          setRiskDeniedReason(signature || '')
+          setRiskDeniedReason(display)
+          setRiskDeniedSuppressed((value) => value + 1)
           return
         }
 
         riskDenialRef.current = { signature, atMs: now }
         setRiskDeniedCount((value) => value + 1)
-        setRiskDeniedReason(signature)
+        setRiskDeniedReason(display)
       }
 
       setTape((current) => [entry, ...current].slice(0, 64))
@@ -290,11 +311,19 @@ export default function DeckPage() {
         wsState={wsState}
         suppressedNoAction={suppressedNoAction}
         riskDeniedCount={riskDeniedCount}
+        riskDeniedSuppressed={riskDeniedSuppressed}
         riskDeniedReason={riskDeniedReason}
         heartbeatAgeMs={heartbeatMs}
         snapshotAgeMs={snapshotAgeMs}
         deckFeedAgeMs={deckFeedAgeMs}
         deckMissing={deckMissing}
+      />
+      <FloorPlanPanel
+        crewHeartbeat={crewHeartbeat}
+        nowMs={crewNow}
+        deckFeedAgeMs={deckFeedAgeMs}
+        deckMissing={deckMissing}
+        deckHeartbeatMs={deckHeartbeatMs}
       />
       <PnlPanel snapshot={snapshot} chart={chart} />
       <CrewStationsPanel crewLast={crewLast} crewHeartbeat={crewHeartbeat} crewSignals={crewSignals} nowMs={crewNow} />

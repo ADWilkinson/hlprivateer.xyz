@@ -102,7 +102,7 @@ export function normalizeCrewRole(role: unknown): CrewRole | undefined {
 }
 
 export function shouldSuppressTapeLine(line: string): boolean {
-  return /(?:^|\b)(no action|no changes)(?:\s|$)/i.test(line)
+  return /\b(no action|no changes?|idle)\b/i.test(line)
 }
 
 export function parseDeckStatus(line: string): { feedAgeMs: number | undefined; missing: number | undefined } {
@@ -112,40 +112,6 @@ export function parseDeckStatus(line: string): { feedAgeMs: number | undefined; 
     feedAgeMs: feedAgeMatch ? Number(feedAgeMatch[1]) : undefined,
     missing: missingMatch ? Number(missingMatch[1]) : undefined,
   }
-}
-
-export function asciiCrewMap(activeByRole: CrewHeartbeat, nowMs: number): string {
-  const INNER_WIDTH = 54
-
-  const marker = (role: CrewRole) => {
-    const lastPing = activeByRole[role]
-    if (!lastPing) return '◦'
-    const age = Math.max(0, nowMs - lastPing)
-    if (age <= 5_000) return '◉'
-    if (age <= HEARTBEAT_WINDOW_MS * 0.35) return '◍'
-    if (age <= HEARTBEAT_WINDOW_MS * 0.75) return '◎'
-    return '◌'
-  }
-
-  const frame = (inner: string) => `║${inner.padEnd(INNER_WIDTH).slice(0, INNER_WIDTH)}║`
-  const titleText = 'TRADING FLOOR MAP'
-  const titleWidth = Math.max(0, INNER_WIDTH - titleText.length - 2)
-  const titleLeft = Math.floor(titleWidth / 2)
-  const titleRight = titleWidth - titleLeft
-  const titleLine = `╔${'═'.repeat(titleLeft)} ${titleText} ${'═'.repeat(titleRight)}╗`
-  const cell = (role: CrewRole, label: string, width: number) => `${marker(role)} ${label}`.padEnd(width)
-
-  const row1 = frame([cell('scout', 'SCOUT', 16), cell('research', 'RESEARCH', 18), cell('strategist', 'STRATEGY', 20)].join(''))
-  const row2 = frame(` ${marker('ops')} OPS`.padStart(INNER_WIDTH).padEnd(INNER_WIDTH))
-  const row3 = frame([cell('risk', 'RISK', 18), cell('scribe', 'SCRIBE', 16), cell('execution', 'EXECUTE', 20)].join(''))
-
-  return [
-    titleLine,
-    row1,
-    row2,
-    row3,
-    `╚${'═'.repeat(INNER_WIDTH)}╝`,
-  ].join('\n')
 }
 
 export function renderAsciiChart(values: number[], width: number, height: number): { chart: string; min: number; max: number } {

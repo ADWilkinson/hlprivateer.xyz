@@ -1,5 +1,5 @@
 import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
-import { cardClass, cardStyle, inlineBadgeClass } from './ascii-style'
+import { cardClass, inlineBadgeClass, mutedPanelClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -13,6 +13,7 @@ type StatusStripProps = {
   wsState: WsState
   suppressedNoAction: number
   riskDeniedCount: number
+  riskDeniedSuppressed: number
   riskDeniedReason: string
   heartbeatAgeMs: number
   snapshotAgeMs: number
@@ -35,6 +36,7 @@ export function StatusStrip({
   wsState,
   suppressedNoAction,
   riskDeniedCount,
+  riskDeniedSuppressed,
   riskDeniedReason,
   heartbeatAgeMs,
   snapshotAgeMs,
@@ -48,7 +50,6 @@ export function StatusStrip({
   return (
     <AsciiCard
       className={cardClass}
-      style={cardStyle}
     >
       <div className='px-3 py-2 border-b border-[var(--border)] text-[9px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>FLOOR STATUS</div>
       <div className='grid grid-cols-1 gap-px border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
@@ -79,17 +80,18 @@ export function StatusStrip({
           <span className='text-[11px] font-bold text-[var(--fg)]'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
         </div>
       </div>
-      <div className='flex flex-wrap gap-1.5 border-t border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2'>
+      <div className={`flex flex-wrap gap-1.5 border-t border-[var(--border)] px-3 py-2 ${mutedPanelClass}`}>
         <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
         <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
         <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
+        {riskDeniedSuppressed > 0 ? <span className={inlineBadgeClass}>riskDeniedSuppressed={riskDeniedSuppressed}</span> : null}
         <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
         <span className={inlineBadgeClass}>missing={deckMissing}</span>
         <span className={inlineBadgeClass}>status=LIVE</span>
         <span className={inlineBadgeClass}>
           <AsciiBadge
             color={isFeedStale ? 'warning' : 'success'}
-            style={{ color: isFeedStale ? 'var(--amber)' : 'var(--positive)' }}
+            className={isFeedStale ? 'text-[var(--amber)]' : 'text-[var(--positive)]'}
           >
             {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
           </AsciiBadge>

@@ -2,7 +2,7 @@ import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
 import type { TapeEntry } from './floor-dashboard'
 import { formatTime } from './floor-dashboard'
 import type { RefObject } from 'react'
-import { cardClass, cardStyle, sectionTitleClass } from './ascii-style'
+import { cardClass, sectionTitleClass, terminalPanelClass } from './ascii-style'
 
 type TapeSectionProps = {
   tape: TapeEntry[]
@@ -13,13 +13,12 @@ export function TapeSection({ tape, tapeRef }: TapeSectionProps) {
   return (
     <AsciiCard
       className={cardClass}
-      style={cardStyle}
     >
       <div className='flex items-center justify-between border-b border-[var(--border)] px-3.5 py-2'>
         <div className={sectionTitleClass}>FLOOR TAPE</div>
-        <AsciiBadge color='success' style={{ color: 'var(--positive)' }}>live</AsciiBadge>
+        <AsciiBadge color='success' className='text-[var(--positive)]'>live</AsciiBadge>
       </div>
-      <div className='max-h-[300px] overflow-y-auto overflow-x-hidden py-1' ref={tapeRef} aria-label='event tape'>
+      <div className={terminalPanelClass} ref={tapeRef} aria-label='event tape'>
         {tape.map((entry, i) => {
           const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
           const levelTone =
