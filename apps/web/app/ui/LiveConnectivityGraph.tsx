@@ -38,30 +38,30 @@ type LiveNodePosition = { id: string; x: number; y: number }
 
 function linkColor(status: EdgeStatus, theme: 'light' | 'dark') {
   if (status === 'active') {
-    return theme === 'dark' ? '#6ea29a' : '#4b9a87'
+    return theme === 'dark' ? 'stroke-hlpPositiveDark' : 'stroke-hlpPositive'
   }
 
   if (status === 'warning' || status === 'congested') {
-    return theme === 'dark' ? '#b89d70' : '#c09659'
+    return theme === 'dark' ? 'stroke-hlpWarningDark' : 'stroke-hlpWarning'
   }
 
   if (status === 'error') {
-    return theme === 'dark' ? '#ad7f88' : '#b26f78'
+    return theme === 'dark' ? 'stroke-hlpNegativeDark' : 'stroke-hlpNegative'
   }
 
-  return theme === 'dark' ? 'rgba(120, 136, 157, 0.48)' : 'rgba(144, 139, 128, 0.45)'
+  return theme === 'dark' ? 'stroke-hlpMutedDark/50' : 'stroke-hlpMuted/45'
 }
 
 function nodeStatusColor(status: NodeStatus, theme: 'light' | 'dark') {
   if (status === 'online') {
-    return theme === 'dark' ? '#6ea29a' : '#4b9a87'
+    return theme === 'dark' ? 'fill-hlpPositiveDark' : 'fill-hlpPositive'
   }
 
   if (status === 'warning') {
-    return theme === 'dark' ? '#b89d70' : '#c09659'
+    return theme === 'dark' ? 'fill-hlpWarningDark' : 'fill-hlpWarning'
   }
 
-  return theme === 'dark' ? '#ad7f88' : '#b06a75'
+  return theme === 'dark' ? 'fill-hlpNegativeDark' : 'fill-hlpNegative'
 }
 
 function rank(nodeId: string, nodes: LiveNode[]) {
@@ -182,23 +182,21 @@ export function LiveConnectivityGraph({
                   y1={y1}
                   x2={x2}
                   y2={y2}
-                  stroke={color}
+                  stroke='currentColor'
                   strokeWidth={active ? 2.05 : 1.35}
                   strokeOpacity={loading ? 0.5 : 0.9}
                   strokeDasharray={edge.status === 'inactive' ? '5 5' : undefined}
                   markerEnd={`url(#${markerId})`}
-                  className={active ? 'animate-pulse' : ''}
-                  style={{ color }}
+                  className={`${active ? 'animate-pulse' : ''} ${color}`}
                 />
                 {!loading && (
                   <text
                     x={midX}
                     y={midY - 8}
-                    fill={theme === 'dark' ? '#d5dce7' : '#3b4b5f'}
+                    className={`${theme === 'dark' ? 'fill-hlpFgDark' : 'fill-hlpFg'} tracking-[0.08em]`}
                     fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                     fontSize={8}
                     textAnchor='middle'
-                    className='tracking-[0.08em]'
                   >
                     {truncateLabel(edge.label ?? '', 8)}
                   </text>
@@ -210,10 +208,8 @@ export function LiveConnectivityGraph({
         {mappedNodes.map((node) => {
           const x = clamp(node.x, PADDING, safeWidth - PADDING)
           const y = clamp(node.y, PADDING, safeHeight - PADDING)
-          const status = nodeStatusColor(node.status, theme)
-          const heartbeat = truncateLabel(String(node.metadata?.heartbeat ?? '--'), HEARTBEAT_MAX_LENGTH)
-          const textColor = theme === 'dark' ? '#d5dce7' : '#223144'
-          const mutedColor = theme === 'dark' ? '#97a5bb' : '#5a6675'
+            const status = nodeStatusColor(node.status, theme)
+            const heartbeat = truncateLabel(String(node.metadata?.heartbeat ?? '--'), HEARTBEAT_MAX_LENGTH)
 
           return (
             <g key={node.id} transform={`translate(${x}, ${y})`}>
@@ -221,20 +217,18 @@ export function LiveConnectivityGraph({
                 cx={0}
                 cy={0}
                 r={NODE_BASE_SIZE + 2}
-                fill={theme === 'dark' ? 'rgba(86, 101, 123, 0.38)' : 'rgba(120, 127, 145, 0.28)'}
-                opacity={0.95}
+                className={theme === 'dark' ? 'fill-hlpSurfaceDark/40' : 'fill-hlpSurface/35'}
               />
               <circle
                 cx={0}
                 cy={0}
                 r={NODE_BASE_SIZE}
-                fill={status}
-                className={node.status === 'online' ? 'animate-pulse' : ''}
+                className={`${status} ${node.status === 'online' ? 'animate-pulse' : ''}`}
               />
               <text
                 x={0}
                 y={-12}
-                fill={textColor}
+                className={theme === 'dark' ? 'fill-hlpFgDark' : 'fill-hlpFg'}
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                 fontSize={9}
                 textAnchor='middle'
@@ -246,7 +240,7 @@ export function LiveConnectivityGraph({
               <text
                 x={0}
                 y={16}
-                fill={mutedColor}
+                className={theme === 'dark' ? 'fill-hlpMutedDark' : 'fill-hlpMuted'}
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                 fontSize={8}
                 textAnchor='middle'
