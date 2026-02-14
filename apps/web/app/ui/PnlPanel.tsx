@@ -53,6 +53,7 @@ type SparklineMetric = {
   padY: number
   chartWidth: number
   chartHeight: number
+  xAxisY: number
 }
 
 function toSigned(value: number): string {
@@ -113,23 +114,25 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
     samples: numeric.length,
     path: '',
     zeroY: null,
-    width: 100,
-    height: 32,
+    width: 420,
+    height: 220,
     padX: 0,
     padY: 0,
     chartWidth: 0,
     chartHeight: 0,
+    xAxisY: 0,
   }
 
   if (numeric.length === 0 && safeFallback === undefined) {
     return baseline
   }
 
-  const width = 100
-  const height = 32
-  const padX = 6
-  const padY = 4
-  const chartHeight = height - padY * 2
+  const width = 420
+  const height = 220
+  const padX = 18
+  const padY = 12
+  const xAxisY = 200
+  const chartHeight = xAxisY - padY
   const chartWidth = width - padX * 2
   const min = Math.min(...ordered)
   const max = Math.max(...ordered)
@@ -162,6 +165,7 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
     padY,
     chartWidth,
     chartHeight,
+    xAxisY,
   }
 }
 
@@ -220,17 +224,17 @@ export function PnlPanel({
                 x1={stats.padX}
                 x2={stats.padX}
                 y1={stats.padY}
-                y2={stats.height - stats.padY}
+                y2={stats.xAxisY}
                 className='stroke-hlpPanel/70'
-                strokeWidth='0.25'
+                strokeWidth='0.28'
               />
               <line
                 x1={stats.padX}
                 x2={stats.width - stats.padX}
-                y1={stats.height - stats.padY}
-                y2={stats.height - stats.padY}
+                y1={stats.xAxisY}
+                y2={stats.xAxisY}
                 className='stroke-hlpPanel/70'
-                strokeWidth='0.25'
+                strokeWidth='0.28'
               />
 
               {Array.from({ length: 5 }).map((_, index) => {
@@ -246,7 +250,7 @@ export function PnlPanel({
                       y1={y}
                       y2={y}
                       className='stroke-hlpBorder/28'
-                      strokeWidth='0.2'
+                      strokeWidth='0.18'
                     />
                     <text
                       key={`y-label-${id}-${index}`}
@@ -254,7 +258,7 @@ export function PnlPanel({
                       y={y + 0.2}
                       textAnchor='end'
                       dominantBaseline='middle'
-                      className='text-[5px] fill-hlpMuted'
+                      className='text-[4px] fill-hlpMuted'
                     >
                       {axisLabel(value)}
                     </text>
@@ -273,24 +277,24 @@ export function PnlPanel({
                       x1={x}
                       x2={x}
                       y1={stats.padY}
-                      y2={stats.height - stats.padY}
+                      y2={stats.xAxisY}
                       className='stroke-hlpBorder/28'
-                      strokeWidth='0.2'
+                      strokeWidth='0.16'
                     />
                     <line
                       x1={x}
                       x2={x}
-                      y1={stats.height - stats.padY}
-                      y2={stats.height - stats.padY + 1.2}
+                      y1={stats.xAxisY}
+                      y2={stats.xAxisY + 1.4}
                       className='stroke-hlpBorder'
-                      strokeWidth='0.25'
+                      strokeWidth='0.22'
                     />
                     {label ? (
                       <text
                         x={x}
-                        y={stats.height - stats.padY + 4}
+                        y={stats.xAxisY + 4}
                         textAnchor='middle'
-                        className='text-[5px] fill-hlpMuted'
+                        className='text-[4px] fill-hlpMuted'
                       >
                         {label}
                       </text>
@@ -316,7 +320,7 @@ export function PnlPanel({
                 d={stats.path}
                 fill='none'
                 className={colorClass}
-                strokeWidth='0.7'
+                strokeWidth='0.6'
                 strokeLinecap='square'
                 strokeLinejoin='miter'
               />
