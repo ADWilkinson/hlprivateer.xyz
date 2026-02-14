@@ -1,6 +1,6 @@
-import { AsciiBadge } from 'react-ascii-ui'
+import { AsciiBadge } from './ascii-kit'
 import { crewLabel, type CrewHeartbeat, type CrewRole, type CrewStats, formatAge, formatTime, heartbeatLevel, floorHeartbeatGlyph, type TapeEntry } from './floor-dashboard'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionTitleClass, statusCellClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, monitorClass, sectionTitleClass } from './ascii-style'
 
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
@@ -11,9 +11,31 @@ type CrewStationsPanelProps = {
   nowMs: number
 }
 
+const roleLane: Record<CrewRole, string> = {
+  scout: 'Market scanning',
+  research: 'Signal validation',
+  strategist: 'Playbook synthesis',
+  execution: 'Execution routing',
+  risk: 'Exposure guardrails',
+  scribe: 'Action ledger',
+  ops: 'Global coordination',
+}
+
+const roleGate: Record<CrewRole, string> = {
+  scout: 'feeds -> research',
+  research: 'research -> strategist',
+  strategist: 'signals -> execution',
+  execution: 'orders -> scribe',
+  risk: 'risk checks',
+  scribe: 'decisions -> archive',
+  ops: 'state bus',
+}
+
 export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs }: CrewStationsPanelProps) {
   const getActivityWidth = (beatScore: number) => `${Math.max(0, Math.min(100, Math.round(beatScore / 10) * 10))}%`
   const roles = Object.keys(crewHeartbeat) as CrewRole[]
+
+  const maxSignals = Math.max(...roles.map((role) => crewSignals[role])) || 1
 
   return (
     <section className={cardClass}>
@@ -33,21 +55,30 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
           const beatScore = heartbeatLevel(crewHeartbeat[role], nowMs)
           const line = last?.line || '…'
           const level = last?.level ?? 'INFO'
+          const nextGate = roleGate[role]
+          const lane = roleLane[role]
+          const nextGateLabel = nextGate.includes('->') ? `route: ${nextGate}` : `route: ${nextGate}`
+          const statusLabel = beatScore > 75 ? 'active' : beatScore > 35 ? 'idle' : beatScore > 0 ? 'warming' : 'offline'
 
           const normalizedLevel = level.toLowerCase()
           const heartbeatPulse = `${'◉'.repeat(Math.min(Math.round(beatScore / 20), 5)).padEnd(5, '◌')}`
 
           return (
-            <div
-              className={`overflow-hidden border rounded-hlp ${statusCellClass} transition-colors ${
+            <article
+              className={`${monitorClass} transition-colors ${
                 active
-                  ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel dark:bg-hlpPanelDark'
-                  : 'border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark'
+                  ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel/95 dark:bg-hlpPanelDark/95'
+                  : 'border-hlpBorder dark:border-hlpBorderDark'
               }`}
               key={role}
             >
               <div className='flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark px-2 py-1.5'>
-                <span className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</span>
+                <div className='flex min-w-0 items-center gap-1.5'>
+                  <span className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</span>
+                  <span className='truncate rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/55 px-1.5 py-0.5 text-[7px] uppercase tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark'>
+                    {lane}
+                  </span>
+                </div>
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
                     active
@@ -73,7 +104,7 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
                 <div className='mt-1 flex items-center gap-1.5'>
                   <span className='relative h-1 w-full min-w-0 border border-hlpBorder dark:border-hlpBorderDark rounded-sm overflow-hidden' aria-hidden='true'>
                     <span
-                      className='absolute inset-y-0 left-0 bg-hlpPositive dark:bg-hlpPositiveDark'
+                      className='absolute inset-y-0 left-0 bg-gradient-to-r from-hlpPositive dark:from-hlpPositiveDark to-hlpPositive/60 dark:to-hlpPositiveDark/60'
                       style={{ width: getActivityWidth(beatScore) }}
                     />
                   </span>
@@ -88,22 +119,30 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
 
                 <div className='mt-1 flex items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] tracking-[0.15em] text-hlpMuted dark:text-hlpMutedDark'>
                   <span className='text-[10px]'>{active ? '◉' : '◌'}</span>
-                  heartbeat {heartbeatPulse}
+                  heartbeat {heartbeatPulse} · {statusLabel}
+                </div>
+                <div className='mt-1 text-[8px] uppercase tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark' title={nextGateLabel}>
+                  {nextGateLabel}
                 </div>
               </div>
 
               <div className='flex items-center justify-between border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-1 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
                 <span>{last?.ts ? formatTime(last.ts) : '—'}</span>
-                <span className='whitespace-nowrap'>events {crewSignals[role]}</span>
+                <span className='whitespace-nowrap'>events {crewSignals[role]}/max {maxSignals}</span>
               </div>
 
-              <div className={inlineBadgeClass}>
-                <span className='uppercase tracking-[0.2em] text-[8px]'>signal state</span>
+              <div className='flex flex-wrap gap-1 p-1.5'>
+                <span className={inlineBadgeClass}>
+                  <span className='uppercase tracking-[0.2em] text-[8px]'>last command</span>
+                </span>
+                <span className={inlineBadgeClass}>
+                  <span className='uppercase tracking-[0.2em] text-[8px]'>{active ? 'live lane' : 'offline lane'}</span>
+                </span>
               </div>
-            </div>
+            </article>
           )
         })}
-          </div>
+      </div>
     </section>
   )
 }

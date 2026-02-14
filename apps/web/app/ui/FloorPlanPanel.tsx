@@ -18,6 +18,7 @@ type CrewNode = {
   ageText: string
   status: 'active' | 'stale' | 'silent'
   pulse: string
+  route: string
 }
 
 type FloorPlanPanelProps = {
@@ -93,6 +94,16 @@ function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 's
 }
 
 function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number): CrewNode[] {
+  const roleRoute: Record<CrewRole, string> = {
+    scout: 'SCOUT -> RESEARCH',
+    research: 'RESEARCH -> STRATEGIST',
+    strategist: 'STRATEGIST -> EXECUTION',
+    execution: 'EXECUTION -> SCRIBE',
+    risk: 'RISK -> EXECUTION',
+    scribe: 'SCRIBE -> OPS',
+    ops: 'OPS -> BROADCAST',
+  }
+
   return CREW.map((role) => {
     const lastPing = crewHeartbeat[role]
     const heartbeatMs = lastPing > 0 ? Math.max(0, nowMs - lastPing) : Number.POSITIVE_INFINITY
@@ -104,6 +115,7 @@ function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number): CrewNode[] 
       ageText: Number.isFinite(heartbeatMs) ? (heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)) : 'offline',
       status: status.label === 'active' ? 'active' : status.label === 'stale' ? 'stale' : 'silent',
       pulse: status.pulse,
+      route: roleRoute[role],
     }
   })
 }
@@ -187,18 +199,18 @@ export function FloorPlanPanel({
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <div>
-          <div className={sectionTitleClass}>FLOOR PLAN</div>
-          <div className='text-[11px] text-hlpMuted dark:text-hlpMutedDark'>TRADING FLOOR TOPOLOGY</div>
+          <div className={sectionTitleClass}>FLOOR PLAN MAP</div>
+          <div className='text-[11px] text-hlpMuted dark:text-hlpMutedDark'>LIVE CONNECTIVITY GRAPH</div>
         </div>
         <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
-          live telemetry
+          topology mode
         </AsciiBadge>
       </div>
 
       <div className='grid grid-cols-1 gap-2 p-2 md:grid-cols-[minmax(220px,_320px)_1fr]'>
         <div className='overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
           <div className={cardHeaderClass}>
-            <span className={sectionTitleClass}>STATION SIGNALS</span>
+            <span className={sectionTitleClass}>NODE TABLE</span>
           </div>
           <AsciiTable
             columns={[
@@ -206,6 +218,7 @@ export function FloorPlanPanel({
               { key: 'status', header: 'STATUS', align: 'center' },
               { key: 'ageText', header: 'HEARTBEAT', align: 'right' },
               { key: 'pulse', header: 'PULSE', align: 'center' },
+              { key: 'route', header: 'ROUTE', align: 'left' },
             ]}
             data={stationRows}
             className='text-[9px]'
@@ -236,10 +249,27 @@ export function FloorPlanPanel({
           </div>
           <div className='flex flex-wrap gap-1 border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-2 bg-hlpSurface dark:bg-hlpSurfaceDark'>
             <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
-            <span className={inlineBadgeClass}>missing={deckMissing}</span>
             <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>
+            <span className={inlineBadgeClass}>missing={deckMissing}</span>
             <span className={inlineBadgeClass}>stations={stationRows.length}</span>
             <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
+          </div>
+          <div className='px-2 py-2 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
+            <div className='mb-1 uppercase tracking-[0.16em]'>LINK LEGEND</div>
+            <div className='flex flex-wrap gap-1'>
+              <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
+                <span className='inline-block h-2 w-2 rounded-full bg-hlpPositive dark:bg-hlpPositiveDark' />
+                active
+              </span>
+              <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
+                <span className='inline-block h-2 w-2 rounded-full bg-hlpWarning dark:bg-hlpWarningDark' />
+                congested
+              </span>
+              <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
+                <span className='inline-block h-2 w-2 rounded-full bg-hlpNegative dark:bg-hlpNegativeDark' />
+                risk/error
+              </span>
+            </div>
           </div>
         </div>
       </div>
