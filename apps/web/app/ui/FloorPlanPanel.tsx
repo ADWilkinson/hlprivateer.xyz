@@ -220,25 +220,8 @@ export function FloorPlanPanel({
         </AsciiBadge>
       </div>
 
-      <div className={`grid grid-cols-1 gap-2 ${panelBodyPad} lg:grid-cols-[minmax(250px,_340px)_minmax(460px,_1fr)]`}>
-        <div className={`min-h-[320px] ${monitorClass} flex flex-col`}>
-          <div className={cardHeaderClass}>
-            <span className={sectionTitleClass}>NODE TABLE</span>
-          </div>
-          <AsciiTable
-            columns={[
-              { key: 'label', header: 'STATION' },
-              { key: 'status', header: 'STATUS', align: 'center' },
-              { key: 'ageText', header: 'HEARTBEAT', align: 'right' },
-              { key: 'pulse', header: 'PULSE', align: 'center' },
-              { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
-            ]}
-            data={stationRows}
-            className='min-h-0 flex-1 text-[9px]'
-          />
-        </div>
-
-        <div className={`min-h-[320px] ${monitorClass} flex flex-col`}>
+      <div className={`grid grid-cols-1 gap-2 ${panelBodyPad}`}>
+        <div className={`min-h-[420px] ${monitorClass} flex flex-col`}>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
@@ -249,7 +232,7 @@ export function FloorPlanPanel({
               width={networkWidth}
               theme={theme}
               pulseMs={nowMs}
-              className='text-[11px] leading-none text-hlpFg dark:text-hlpFgDark'
+              className='text-[12px] leading-none text-hlpFg dark:text-hlpFgDark'
               loading={isLoading}
             />
           </div>
@@ -271,7 +254,7 @@ export function FloorPlanPanel({
               </>
             )}
           </div>
-          <div className={`${panelBodyPad} text-[9px] text-hlpMuted dark:text-hlpMutedDark`}>
+          <div className={`${panelBodyPad} text-[10px] text-hlpMuted dark:text-hlpMutedDark`}>
             <div className='mb-1 uppercase tracking-[0.16em]'>LINK LEGEND</div>
             <div className='flex flex-wrap gap-1'>
               <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
@@ -288,6 +271,23 @@ export function FloorPlanPanel({
               </span>
             </div>
           </div>
+        </div>
+
+        <div className={`min-h-[320px] ${monitorClass} flex flex-col`}>
+          <div className={cardHeaderClass}>
+            <span className={sectionTitleClass}>NODE TABLE</span>
+          </div>
+          <AsciiTable
+            columns={[
+              { key: 'label', header: 'STATION' },
+              { key: 'status', header: 'STATUS', align: 'center' },
+              { key: 'ageText', header: 'HEARTBEAT', align: 'right' },
+              { key: 'pulse', header: 'PULSE', align: 'center' },
+              { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
+            ]}
+            data={stationRows}
+            className='min-h-0 flex-1 text-[10px]'
+          />
         </div>
       </div>
     </section>

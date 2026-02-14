@@ -169,9 +169,9 @@ function renderTopologyMap(
   pulseMs = 0,
   loading = false,
 ): string {
-  const width = Math.max(72, Math.min(184, Math.floor(widthPx / 4.8)))
-  const height = Math.max(24, Math.min(62, Math.floor(width * 0.42)))
-  const compact = width < 100
+  const width = Math.max(84, Math.min(230, Math.floor(widthPx / 4)))
+  const height = Math.max(30, Math.min(72, Math.floor(width * 0.4)))
+  const compact = width < 112
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '))
 
   const pulsePhase = Math.floor(pulseMs / 280)

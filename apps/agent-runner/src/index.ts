@@ -244,6 +244,7 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
 const FLOOR_TAPE_CONTEXT_LINES = 12
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
 const DECK_STATUS_HEARTBEAT_MS = 60_000
+const STRATEGIST_NO_ACTION_SUPPRESS_MS = 60_000
 
 type FloorTapeLine = {
   ts: string
@@ -1741,6 +1742,8 @@ let lastProposalPublishedAt = 0
 let lastRiskDecision: RuntimeRiskDecision | null = null
 let lastRiskRecoverySignature = ''
 let lastRiskRecoveryNoticeAt = 0
+let lastStrategistNoActionSignature = ''
+let lastStrategistNoActionAtMs = 0
 let lastStateUpdate:
   | {
     mode?: string
@@ -2426,13 +2429,20 @@ async function runStrategistCycle(): Promise<void> {
   if (activeDirective.decision === 'EXIT') {
     const exitSignature = buildFlatSignature(lastPositions)
     if (exitSignature === 'FLAT') {
-      if (lastExitProposalSignature !== 'FLAT') {
+      const noActionLine = `no action (mode=${lastMode} already flat)`
+      const now = Date.now()
+      const shouldPublishNoAction =
+        noActionLine !== lastStrategistNoActionSignature || now - lastStrategistNoActionAtMs >= STRATEGIST_NO_ACTION_SUPPRESS_MS
+      if (shouldPublishNoAction) {
+        lastStrategistNoActionAtMs = now
+        lastStrategistNoActionSignature = noActionLine
         await publishTape({
           correlationId: ulid(),
           role: 'scout',
-          line: `no action (mode=${lastMode} already flat)`
+          line: noActionLine
         })
       }
+
       lastExitProposalSignature = 'FLAT'
       if (
         activeDirective.decision === 'EXIT' &&
@@ -2517,11 +2527,19 @@ async function runStrategistCycle(): Promise<void> {
     }
   }
   if (!proposal) {
-    await publishTape({
-      correlationId: ulid(),
-      role: 'scout',
-      line: `no action (mode=${lastMode})`
-    })
+    const noActionLine = `no action (mode=${lastMode})`
+    const now = Date.now()
+    const shouldPublishNoAction =
+      noActionLine !== lastStrategistNoActionSignature || now - lastStrategistNoActionAtMs >= STRATEGIST_NO_ACTION_SUPPRESS_MS
+    if (shouldPublishNoAction) {
+      lastStrategistNoActionAtMs = now
+      lastStrategistNoActionSignature = noActionLine
+      await publishTape({
+        correlationId: ulid(),
+        role: 'scout',
+        line: noActionLine
+      })
+    }
     return
   }
 
