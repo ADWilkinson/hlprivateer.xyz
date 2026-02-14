@@ -158,9 +158,19 @@ export class ApiStore {
   }
 
   public setSnapshot(snapshot: Partial<ApiSnapshot>) {
+    const hasOwn = (key: keyof ApiSnapshot) => Object.prototype.hasOwnProperty.call(snapshot, key)
+
     this.snapshot = {
       ...this.snapshot,
       ...snapshot,
+      openPositions: hasOwn('openPositions')
+        ? (Array.isArray(snapshot.openPositions) ? snapshot.openPositions : [])
+        : [],
+      openPositionCount: hasOwn('openPositionCount') ? snapshot.openPositionCount : undefined,
+      openPositionNotionalUsd: hasOwn('openPositionNotionalUsd') ? snapshot.openPositionNotionalUsd : undefined,
+      accountValueUsd: hasOwn('accountValueUsd') ? snapshot.accountValueUsd : undefined,
+      message: hasOwn('message') ? snapshot.message : undefined,
+      riskPolicy: hasOwn('riskPolicy') ? snapshot.riskPolicy : undefined,
       lastUpdateAt: snapshot.lastUpdateAt ?? new Date().toISOString()
     }
 
