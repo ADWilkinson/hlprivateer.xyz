@@ -17,6 +17,8 @@ import {
   EMPTY_HEARTBEAT,
   EMPTY_STATS,
 } from './ui/floor-dashboard'
+import { AsciiBackground } from './ui/AsciiBackground'
+import { AsciiDivider } from './ui/AsciiDivider'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
 import { FloorPlanPanel } from './ui/FloorPlanPanel'
 import { FloorHeader } from './ui/FloorHeader'
@@ -280,7 +282,7 @@ function parseLevel(level: unknown): TapeEntry['level'] {
   return level === 'WARN' || level === 'ERROR' ? level : 'INFO'
 }
 
-function normalizeTapeEntry(input: { ts?: unknown; role?: unknown; level?: unknown; line?: unknown }): TapeEntry | null {
+    function normalizeTapeEntry(input: { ts?: unknown; role?: unknown; level?: unknown; line?: unknown }): TapeEntry | null {
   const line = typeof input.line === 'string' ? input.line.trim() : ''
   if (!line) {
     return null
@@ -292,6 +294,25 @@ function normalizeTapeEntry(input: { ts?: unknown; role?: unknown; level?: unkno
     level: parseLevel(input.level),
     line,
   }
+}
+
+function isHeartbeatPayload(payload: unknown, tsField?: unknown): boolean {
+  if (!payload || typeof payload !== 'object') {
+    return false
+  }
+
+  const record = payload as Record<string, unknown>
+  const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : ''
+  if (type === 'heartbeat' || type === 'ping' || type === 'pong') {
+    return true
+  }
+
+  const ts = tsField
+  if (typeof ts === 'string' && ts) {
+    return false
+  }
+
+  return false
 }
 
 export default function DeckPage() {
@@ -333,8 +354,8 @@ export default function DeckPage() {
     status: false,
     pnl: false,
     floorPlan: true,
-    crew: true,
-    tape: true,
+    crew: false,
+    tape: false,
     x402: true,
   })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
@@ -546,6 +567,18 @@ export default function DeckPage() {
               ? parsed.payload
               : parsed) as SnapshotPayload
 
+            const envelopeHeartbeatTs = typeof parsed.ts === 'string' ? Date.parse(parsed.ts) : NaN
+
+            if (envelopeType === 'heartbeat') {
+              setDeckHeartbeatMs(Number.isFinite(envelopeHeartbeatTs) ? envelopeHeartbeatTs : Date.now())
+              return
+            }
+
+            if (envelopeType === 'pong' || envelopeType === 'ping') {
+              setDeckHeartbeatMs(Date.now())
+              return
+            }
+
             if (envelopeType === 'event' && envelopeChannel !== 'public') {
               logInfo('websocket envelope ignored', { type: envelopeType, channel: envelopeChannel })
               return
@@ -723,67 +756,93 @@ export default function DeckPage() {
   }
 
   return (
-    <main className={pageShellClass}>
-      <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
-      <div className='space-y-2'>
-        <StatusStrip
-          isLoading={isBootstrapping}
-          snapshot={snapshot}
-          wsState={wsState}
-          suppressedNoAction={suppressedNoAction}
-          riskDeniedCount={riskDeniedCount}
-          heartbeatAgeMs={heartbeatMs}
-          snapshotAgeMs={snapshotAgeMs}
-          deckFeedAgeMs={deckFeedAgeMs}
-          deckMissing={deckMissing}
-          isCollapsed={collapsedSections.status}
-          onToggle={() => toggleSection('status')}
-          sectionId='status'
-        />
-        <PnlPanel
-          snapshot={snapshot}
-          trajectory={pnlSeries}
-          accountValueTrajectory={accountValueSeries}
-          isLoading={isBootstrapping}
-          isCollapsed={collapsedSections.pnl}
-          onToggle={() => toggleSection('pnl')}
-          sectionId='pnl'
-        />
-        <FloorPlanPanel
-          isLoading={isBootstrapping}
-          crewHeartbeat={crewHeartbeat}
-          nowMs={crewNow}
-          deckFeedAgeMs={deckFeedAgeMs}
-          deckMissing={deckMissing}
-          deckHeartbeatMs={deckHeartbeatMs}
-          isCollapsed={collapsedSections.floorPlan}
-          onToggle={() => toggleSection('floorPlan')}
-          sectionId='floorPlan'
-        />
-        <CrewStationsPanel
-          crewLast={crewLast}
-          crewHeartbeat={crewHeartbeat}
-          crewSignals={crewSignals}
-          nowMs={crewNow}
-          isLoading={isBootstrapping}
-          isCollapsed={collapsedSections.crew}
-          onToggle={() => toggleSection('crew')}
-          sectionId='crew'
-        />
-        <TapeSection
-          tape={tape}
-          tapeRef={tapeRef}
-          isLoading={isBootstrapping}
-          isCollapsed={collapsedSections.tape}
-          onToggle={() => toggleSection('tape')}
-          sectionId='tape'
-        />
-        <X402AgentMaterialsPanel
-          isCollapsed={collapsedSections.x402}
-          onToggle={() => toggleSection('x402')}
-          sectionId='x402'
-        />
-      </div>
-    </main>
+    <>
+      <AsciiBackground />
+      <main className={pageShellClass}>
+        <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
+
+        <div className='space-y-3'>
+          <StatusStrip
+            isLoading={isBootstrapping}
+            snapshot={snapshot}
+            wsState={wsState}
+            suppressedNoAction={suppressedNoAction}
+            riskDeniedCount={riskDeniedCount}
+            heartbeatAgeMs={heartbeatMs}
+            snapshotAgeMs={snapshotAgeMs}
+            deckFeedAgeMs={deckFeedAgeMs}
+            deckMissing={deckMissing}
+            isCollapsed={collapsedSections.status}
+            onToggle={() => toggleSection('status')}
+            sectionId='status'
+          />
+
+          <AsciiDivider variant='dots' />
+
+          <PnlPanel
+            snapshot={snapshot}
+            trajectory={pnlSeries}
+            accountValueTrajectory={accountValueSeries}
+            isLoading={isBootstrapping}
+            isCollapsed={collapsedSections.pnl}
+            onToggle={() => toggleSection('pnl')}
+            sectionId='pnl'
+          />
+
+          <AsciiDivider variant='wave' />
+
+          <FloorPlanPanel
+            isLoading={isBootstrapping}
+            crewHeartbeat={crewHeartbeat}
+            nowMs={crewNow}
+            deckFeedAgeMs={deckFeedAgeMs}
+            deckMissing={deckMissing}
+            deckHeartbeatMs={deckHeartbeatMs}
+            isCollapsed={collapsedSections.floorPlan}
+            onToggle={() => toggleSection('floorPlan')}
+            sectionId='floorPlan'
+          />
+
+          <CrewStationsPanel
+            crewLast={crewLast}
+            crewHeartbeat={crewHeartbeat}
+            crewSignals={crewSignals}
+            nowMs={crewNow}
+            isLoading={isBootstrapping}
+            isCollapsed={collapsedSections.crew}
+            onToggle={() => toggleSection('crew')}
+            sectionId='crew'
+          />
+
+          <AsciiDivider variant='compass' />
+
+          <TapeSection
+            tape={tape}
+            tapeRef={tapeRef}
+            isLoading={isBootstrapping}
+            isCollapsed={collapsedSections.tape}
+            onToggle={() => toggleSection('tape')}
+            sectionId='tape'
+          />
+
+          <AsciiDivider variant='line' />
+
+          <X402AgentMaterialsPanel
+            isCollapsed={collapsedSections.x402}
+            onToggle={() => toggleSection('x402')}
+            sectionId='x402'
+          />
+        </div>
+
+        <footer className='mt-4 pb-6 text-center space-y-2' aria-label='site footer'>
+          <div className='text-[10px] tracking-[0.35em] text-hlpDim/20 select-none overflow-hidden whitespace-nowrap'>
+            {`~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~`}
+          </div>
+          <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim/50'>
+            {`[HL] PRIVATEER \u00B7 hlprivateer.xyz`}
+          </div>
+        </footer>
+      </main>
+    </>
   )
 }
