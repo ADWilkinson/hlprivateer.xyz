@@ -90,6 +90,42 @@ validate_unit_env_files() {
   fi
 }
 
+validate_unit_accounts() {
+  local services=("$@")
+  local missing_accounts=()
+
+  for service in "${services[@]}"; do
+    local unit_file="$SYSTEMD_SOURCE_DIR/${service}.service"
+    if [[ ! -f "$unit_file" ]]; then
+      continue
+    fi
+
+    local service_user
+    local service_group
+    service_user="$(awk -F= 'tolower($1)=="user"{print $2}' "$unit_file" | tr -d '[:space:]')"
+    service_group="$(awk -F= 'tolower($1)=="group"{print $2}' "$unit_file" | tr -d '[:space:]')"
+
+    if [[ -n "$service_user" ]] && ! getent passwd "$service_user" >/dev/null; then
+      missing_accounts+=("${service}:user=$service_user")
+    fi
+
+    if [[ -n "$service_group" ]] && ! getent group "$service_group" >/dev/null; then
+      missing_accounts+=("${service}:group=$service_group")
+    fi
+  done
+
+  if (( ${#missing_accounts[@]} > 0 )); then
+    echo
+    echo "deploy blocked: required systemd users/groups are missing"
+    for missing in "${missing_accounts[@]}"; do
+      echo "  - ${missing}"
+    done
+    echo "Create these principals before restarting services."
+    echo
+    return 1
+  fi
+}
+
 if [[ ! -d "$ROOT_DIR" ]]; then
   echo "deploy root not found: $ROOT_DIR" >&2
   exit 1
@@ -148,6 +184,8 @@ fi
 
 log "validating systemd unit environment files"
 validate_unit_env_files "${SERVICES[@]}"
+log "validating systemd service accounts"
+validate_unit_accounts "${SERVICES[@]}"
 
 log "restarting services: ${SERVICES[*]}"
 for service in "${SERVICES[@]}"; do
