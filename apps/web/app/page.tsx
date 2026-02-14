@@ -242,7 +242,7 @@ export default function DeckPage() {
   const [deckFeedAgeMs, setDeckFeedAgeMs] = useState<number>(0)
   const [deckMissing, setDeckMissing] = useState<number>(0)
   const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(Date.now())
-  const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const theme: 'light' = 'light'
   const [riskDeniedCount, setRiskDeniedCount] = useState(0)
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
@@ -254,31 +254,9 @@ export default function DeckPage() {
   const lastPnlSampleAtRef = useRef<number>(0)
 
   useEffect(() => {
-    const stored = localStorage.getItem('hlp-theme')
-    if (stored === 'light' || stored === 'dark') {
-      setTheme(stored)
-      return
-    }
-
-    const theme = document.documentElement.dataset.theme
-    if (theme === 'light' || theme === 'dark') {
-      setTheme(theme)
-    }
-  }, [])
-
-  useEffect(() => {
     const tick = setInterval(() => setNowTick(Date.now()), UI_TICK_MS)
     return () => clearInterval(tick)
   }, [])
-
-  const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light'
-    setTheme(next)
-    localStorage.setItem('hlp-theme', next)
-    document.documentElement.setAttribute('data-theme', next)
-    document.documentElement.classList.toggle('dark', next === 'dark')
-  }
-
 
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
@@ -538,7 +516,7 @@ export default function DeckPage() {
 
   return (
     <main className={pageShellClass}>
-      <FloorHeader theme={theme} onToggleTheme={toggleTheme} />
+      <FloorHeader />
       <div className='space-y-2'>
         <StatusStrip
           isLoading={isBootstrapping}
