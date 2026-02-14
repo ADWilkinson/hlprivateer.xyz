@@ -337,6 +337,7 @@ let activeDirective: StrategistDirective = {
 }
 let basketSelectInFlight = false
 let directiveInFlight = false
+let lastExitProposalSignature: string | null = null
 let cachedUniverse: { assets: HyperliquidUniverseAsset[]; fetchedAtMs: number } = { assets: [], fetchedAtMs: 0 }
 let basketPivot: { basketSymbols: string[]; startedAtMs: number; expiresAtMs: number } | null = null
 
@@ -738,6 +739,29 @@ function signedNotionalBySymbol(positions: OperatorPosition[]): Map<string, numb
     currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
   }
   return currentBySymbol
+}
+
+function buildFlatSignature(positions: OperatorPosition[]): string {
+  const rows = positions
+    .filter((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) >= 5)
+    .map((position) => ({
+      symbol: String(position.symbol).toUpperCase(),
+      side: position.side,
+      qtyBucket: Number((Math.round(Math.abs(position.qty) * 10000) / 10000).toFixed(4))
+    }))
+    .sort((a, b) => {
+      const symbolCmp = a.symbol.localeCompare(b.symbol)
+      if (symbolCmp !== 0) {
+        return symbolCmp
+      }
+      return a.side.localeCompare(b.side)
+    })
+
+  if (rows.length === 0) {
+    return 'FLAT'
+  }
+
+  return rows.map((row) => `${row.symbol}:${row.side}:${row.qtyBucket.toFixed(4)}`).join('|')
 }
 
 function buildTargetProposal(params: {
@@ -1770,6 +1794,29 @@ async function runStrategistCycle(): Promise<void> {
   )
 
   let proposal: StrategyProposal | null = null
+  if (activeDirective.decision !== 'EXIT') {
+    lastExitProposalSignature = null
+  }
+
+  if (activeDirective.decision === 'EXIT') {
+    const exitSignature = buildFlatSignature(lastPositions)
+    if (exitSignature === 'FLAT') {
+      if (lastExitProposalSignature !== 'FLAT') {
+        await publishTape({
+          correlationId: ulid(),
+          role: 'scout',
+          line: `no action (mode=${lastMode} already flat)`
+        })
+      }
+      lastExitProposalSignature = 'FLAT'
+      return
+    }
+    if (lastExitProposalSignature === exitSignature) {
+      return
+    }
+    lastExitProposalSignature = exitSignature
+  }
+
   if (activeDirective.decision === 'EXIT') {
     proposal = buildExitProposal({
       createdBy: roleActorId('strategist'),
@@ -1865,7 +1912,7 @@ async function runStrategistCycle(): Promise<void> {
   await publishTape({
     correlationId: parsed.proposal.proposalId,
     role: 'strategist',
-    line: `${parsed.proposal.summary} (confidence=${parsed.proposal.confidence.toFixed(2)} mode=${parsed.proposal.requestedMode})`
+    line: `${parsed.proposal.summary} (confidence=${parsed.proposal.confidence.toFixed(2)} mode=${parsed.proposal.requestedMode} positions=${lastPositions.length})`
   })
 
   lastProposal = parsed.proposal
