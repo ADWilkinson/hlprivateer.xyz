@@ -61,7 +61,7 @@ export default {
     requiredTier: 'tier0',
     capabilities: ['signal.correlation'],
     permissions: ['market.read'],
-    cooldownMs: 20000
+    cooldownMs: 600000
   },
   initialize: async (context: PluginContext) => {
     ctx = context
