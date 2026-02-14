@@ -26,18 +26,45 @@ export interface HyperliquidFundingEntry {
   time: number
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
-  })
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
 
-  if (!response.ok) {
-    throw new Error(`hyperliquid info http ${response.status}`)
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const timeoutMs = 2500
+  const retries = 3
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`hyperliquid info http ${response.status}`)
+      }
+
+      return (await response.json()) as T
+    } catch (error) {
+      lastError = error
+      if (attempt >= retries) {
+        break
+      }
+      // Mitigate occasional TLS/DNS edge failures by retrying with jitter.
+      const backoffMs = 150 * (attempt + 1) + Math.floor(Math.random() * 150)
+      await sleep(backoffMs)
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
-  return (await response.json()) as T
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 export async function fetchCandleSnapshot(params: {
@@ -82,4 +109,3 @@ export function parseFiniteNumber(value: unknown): number | null {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
-
