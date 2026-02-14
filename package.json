@@ -33,5 +33,8 @@
     "ulid": "^2.3.0",
     "vitest": "^2.1.8",
     "zod": "^3.24.1"
+  },
+  "dependencies": {
+    "react-ascii-ui": "^0.2.1"
   }
 }
