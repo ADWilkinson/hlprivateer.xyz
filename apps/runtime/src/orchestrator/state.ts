@@ -613,6 +613,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const notionalUsd = typeof position.notionalUsd === 'number' && Number.isFinite(position.notionalUsd) ? position.notionalUsd : 0
       return seed + Math.abs(notionalUsd)
     }, 0)
+    const accountValueUsd = env.ENABLE_LIVE_OMS
+      ? cachedLiveAccountValueUsd > 0
+        ? cachedLiveAccountValueUsd
+        : minLiveAccountValueUsd()
+      : env.ACCOUNT_VALUE_USD
 
     await bus.publish('hlp.ui.events', {
       type: 'STATE_UPDATE',
@@ -625,6 +630,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         mode: state.mode,
         pnlPct: state.pnlPct,
         realizedPnlUsd: state.realizedPnlUsd,
+        accountValueUsd,
         openPositions: state.positions,
         openPositionCount: state.positions.length,
         openPositionNotionalUsd,

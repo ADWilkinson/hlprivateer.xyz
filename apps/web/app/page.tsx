@@ -44,6 +44,13 @@ type SnapshotPayload = {
   lastUpdateAt?: unknown
   message?: unknown
   pnlPct?: unknown
+  accountValue?: unknown
+  accountValueUsd?: unknown
+  account_value_usd?: unknown
+  account_equity_usd?: unknown
+  accountEquityUsd?: unknown
+  equityUsd?: unknown
+  equity?: unknown
   pnl?: unknown
   pnlPercent?: unknown
   pnl_percent?: unknown
@@ -126,9 +133,46 @@ function pickPnlPercent(payload: SnapshotPayload): number | undefined {
   return undefined
 }
 
+function pickAccountValueUsd(payload: SnapshotPayload): number | undefined {
+  const pickFromRecord = (value: Record<string, unknown>, depth = 0): number | undefined => {
+    const maybe = toFiniteNumber(
+      value.accountValue ??
+        value.accountValueUsd ??
+        value.account_value_usd ??
+        value.accountEquityUsd ??
+        value.account_equity_usd ??
+        value.equityUsd ??
+        value.equity ??
+        value.account ??
+        value.balance ??
+        value.accountBalance ??
+        value.walletBalance ??
+        value.value,
+    )
+    if (maybe !== undefined) return maybe
+
+    if (depth >= 2) return undefined
+
+    const nestedValue = value.account && typeof value.account === 'object' ? (value.account as object | undefined) : undefined
+    if (nestedValue && typeof nestedValue === 'object') {
+      return pickFromRecord(nestedValue as Record<string, unknown>, depth + 1)
+    }
+
+    const walletValue = value.wallet && typeof value.wallet === 'object' ? (value.wallet as object | undefined) : undefined
+    if (walletValue && typeof walletValue === 'object') {
+      return pickFromRecord(walletValue as Record<string, unknown>, depth + 1)
+    }
+
+    return undefined
+  }
+
+  return pickFromRecord(payload)
+}
+
 function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapshot {
   const rawOpenPositions = payload.openPositions ?? payload.open_positions ?? payload.positions
   const nextPnl = pickPnlPercent(payload)
+  const nextAccountValueUsd = pickAccountValueUsd(payload)
   const nextOpenPositionCount = toFiniteNumber(payload.openPositionCount ?? payload.open_position_count)
     ?? toFiniteNumber(payload.position_count)
     ?? toFiniteNumber(payload.positionCount)
@@ -164,6 +208,16 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
       'openPositionNotionalUsd' in payload || 'openPositionNotional' in payload || 'positionNotional' in payload || 'open_position_notional' in payload || 'position_notional' in payload
         ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
         : fallback.openPositionNotionalUsd,
+    accountValueUsd:
+      payload.accountValueUsd !== undefined ||
+      payload.accountValue !== undefined ||
+      payload.account_value_usd !== undefined ||
+      payload.account_equity_usd !== undefined ||
+      payload.accountEquityUsd !== undefined ||
+      payload.equityUsd !== undefined ||
+      payload.equity !== undefined
+        ? nextAccountValueUsd ?? fallback.accountValueUsd
+        : fallback.accountValueUsd,
   }
 }
 
@@ -228,6 +282,7 @@ export default function DeckPage() {
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
   const [nowTick, setNowTick] = useState<number>(Date.now())
   const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
+  const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>([])
   const [crewLast, setCrewLast] = useState<CrewLast>(() => ({
     scout: null,
     research: null,
@@ -252,6 +307,7 @@ export default function DeckPage() {
 
   const tapeRef = useRef<HTMLDivElement | null>(null)
   const lastPnlSampleAtRef = useRef<number>(0)
+  const lastAccountValueSampleAtRef = useRef<number>(0)
 
   useEffect(() => {
     const tick = setInterval(() => setNowTick(Date.now()), UI_TICK_MS)
@@ -358,6 +414,18 @@ export default function DeckPage() {
       setPnlSeries((current) => [...current, { ts, pnlPct: nextPnlPct }].slice(-MAX_TRAJECTORY_POINTS))
     }
 
+    const sampleAccountValue = (payload: SnapshotPayload) => {
+      const nextAccountValueUsd = pickAccountValueUsd(payload)
+      if (nextAccountValueUsd === undefined) return
+      const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
+      const now = Date.now()
+      if (now - lastAccountValueSampleAtRef.current < TRAJECTORY_REFRESH_MS) return
+      lastAccountValueSampleAtRef.current = now
+      setAccountValueSeries((current) =>
+        [...current, { ts, accountValueUsd: nextAccountValueUsd }].slice(-MAX_TRAJECTORY_POINTS),
+      )
+    }
+
     const load = async () => {
       try {
         const [snapshotResponse, tapeResponse] = await Promise.all([
@@ -370,6 +438,7 @@ export default function DeckPage() {
           setSnapshot((current) => normalizeSnapshot(rawSnapshot, current))
           setDeckHeartbeatMs(Date.now())
           samplePnl(rawSnapshot)
+          sampleAccountValue(rawSnapshot)
         }
 
         if (tapeResponse.ok) {
@@ -429,6 +498,7 @@ export default function DeckPage() {
               setSnapshot((current) => normalizeSnapshot(payload, current))
               setDeckHeartbeatMs(Date.now())
               samplePnl(payload)
+              sampleAccountValue(payload)
               const message = typeof payload.message === 'string' ? payload.message : ''
               if (message) {
                 const parsedMessage = normalizeTapeEntry({
@@ -529,7 +599,12 @@ export default function DeckPage() {
           deckFeedAgeMs={deckFeedAgeMs}
           deckMissing={deckMissing}
         />
-        <PnlPanel snapshot={snapshot} trajectory={pnlSeries} isLoading={isBootstrapping} />
+        <PnlPanel
+          snapshot={snapshot}
+          trajectory={pnlSeries}
+          accountValueTrajectory={accountValueSeries}
+          isLoading={isBootstrapping}
+        />
         <FloorPlanPanel
           isLoading={isBootstrapping}
           crewHeartbeat={crewHeartbeat}

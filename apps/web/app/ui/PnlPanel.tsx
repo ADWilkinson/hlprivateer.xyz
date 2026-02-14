@@ -17,12 +17,20 @@ const SMALL_PNL_FORMAT = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 3,
   minimumFractionDigits: 3,
 })
+const ACCOUNT_VALUE_FORMAT = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+})
 
 type TrajectoryPoint = { ts: string; pnlPct: number }
+type AccountValuePoint = { ts: string; accountValueUsd: number }
 
 type PnlPanelProps = {
   snapshot: Snapshot
   trajectory?: TrajectoryPoint[]
+  accountValueTrajectory?: AccountValuePoint[]
   isLoading?: boolean
 }
 
@@ -35,7 +43,6 @@ type SparklineMetric = {
   deltaPct: number
   samples: number
   path: string
-  areaPath: string
   zeroY: number | null
   width: number
   height: number
@@ -47,18 +54,26 @@ function toSigned(value: number): string {
   return `${sign}${SMALL_PNL_FORMAT.format(value)}%`
 }
 
+function toSignedUsd(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${ACCOUNT_VALUE_FORMAT.format(value)}`
+}
+
+function toUsd(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  return ACCOUNT_VALUE_FORMAT.format(value)
+}
+
 function safePnlClass(value: number): string {
   if (value > 0) return 'text-hlpPositive'
   if (value < 0) return 'text-hlpNegative'
   return 'text-hlpMuted'
 }
 
-function buildSquareWavePath(points: Array<{ x: number; y: number }>): { path: string; areaPath: string; minY: number } {
-  if (points.length < 2) {
-    return { path: '', areaPath: '', minY: 0 }
-  }
+function buildSquareWavePath(points: Array<{ x: number; y: number }>): string {
+  if (points.length < 2) return ''
 
-  const baselineY = points.reduce((maxY, point) => Math.max(maxY, point.y), points[0]!.y)
   const segments = [`M ${points[0]!.x.toFixed(3)} ${points[0]!.y.toFixed(3)}`]
 
   for (let index = 1; index < points.length; index += 1) {
@@ -72,15 +87,14 @@ function buildSquareWavePath(points: Array<{ x: number; y: number }>): { path: s
     segments.push(`L ${current.x.toFixed(3)} ${current.y.toFixed(3)}`)
   }
 
-  const path = segments.join(' ')
-  const areaPath = `${path} L ${points.at(-1)?.x.toFixed(3)} ${baselineY.toFixed(3)} L ${points[0]?.x.toFixed(3)} ${baselineY.toFixed(3)} Z`
-
-  return { path, areaPath, minY: baselineY }
+  return segments.join(' ')
 }
 
-function buildSparkline(values: number[]): SparklineMetric {
+function buildSparkline(values: number[], fallback: number): SparklineMetric {
   const numeric = values.filter((value) => Number.isFinite(value))
-  const fallback = {
+  const ordered = numeric.length >= 2 ? numeric : [fallback, fallback]
+  const pointCount = ordered.length
+  const baseline = {
     min: 0,
     max: 0,
     first: 0,
@@ -89,16 +103,14 @@ function buildSparkline(values: number[]): SparklineMetric {
     deltaPct: 0,
     samples: numeric.length,
     path: '',
-    areaPath: '',
     zeroY: null,
     width: 100,
     height: 32,
   }
 
-  if (numeric.length < 1) return fallback
-
-  const chartValues = numeric.length === 1 ? [numeric[0], numeric[0]] : numeric
-  const pointCount = chartValues.length
+  if (!Number.isFinite(fallback) && numeric.length === 0) {
+    return baseline
+  }
 
   const width = 100
   const height = 32
@@ -106,20 +118,16 @@ function buildSparkline(values: number[]): SparklineMetric {
   const padY = 4
   const chartHeight = height - padY * 2
   const chartWidth = width - padX * 2
-  const min = Math.min(...chartValues)
-  const max = Math.max(...chartValues)
+  const min = Math.min(...ordered)
+  const max = Math.max(...ordered)
   const range = max - min || 1
   const getX = (index: number) => padX + (index / Math.max(1, pointCount - 1)) * chartWidth
   const getY = (value: number) => padY + (1 - (value - min) / range) * chartHeight
 
-  const points = chartValues.map((value, index) => ({ x: getX(index), y: getY(value) }))
-  const squareWave = buildSquareWavePath(points)
-  const areaPath = squareWave.path
-    ? `${squareWave.path} L ${points.at(-1)?.x.toFixed(3)} ${squareWave.minY.toFixed(3)} L ${points[0]?.x.toFixed(3)} ${squareWave.minY.toFixed(3)} Z`
-    : ''
-
-  const first = numeric[0] ?? 0
-  const last = numeric[numeric.length - 1] ?? 0
+  const points = ordered.map((value, index) => ({ x: getX(index), y: getY(value) }))
+  const path = buildSquareWavePath(points)
+  const first = ordered[0] ?? 0
+  const last = ordered[pointCount - 1] ?? 0
   const delta = last - first
   const base = Math.abs(first) > 0 ? Math.abs(first) : 1
   const deltaPct = (delta / base) * 100
@@ -133,22 +141,137 @@ function buildSparkline(values: number[]): SparklineMetric {
     delta,
     deltaPct,
     samples: numeric.length,
-    path: squareWave.path,
-    areaPath,
+    path,
     zeroY,
     width,
     height,
   }
 }
 
-export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPanelProps) {
-  const pnlStats = useMemo(() => buildSparkline(trajectory.map((point) => point.pnlPct)), [trajectory])
+export function PnlPanel({
+  snapshot,
+  trajectory = [],
+  accountValueTrajectory = [],
+  isLoading = false,
+}: PnlPanelProps) {
+  const pnlValues = trajectory.map((point) => point.pnlPct)
+  const pnlStats = useMemo(() => buildSparkline(pnlValues, snapshot.pnlPct), [pnlValues, snapshot.pnlPct])
+  const accountValueValues = accountValueTrajectory.map((point) => point.accountValueUsd)
+  const accountValueStats = useMemo(
+    () => buildSparkline(accountValueValues, snapshot.accountValueUsd ?? 0),
+    [accountValueValues, snapshot.accountValueUsd],
+  )
+
+  const SparklineCard = ({
+    id,
+    title,
+    colorClass,
+    fallbackValue,
+    metricSuffix,
+    renderLabelValue,
+    stats,
+  }: {
+    id: string
+    title: string
+    colorClass: string
+    fallbackValue: number
+    metricSuffix: (value: number) => string
+    renderLabelValue: (value: number) => string
+    stats: SparklineMetric
+  }) => (
+    <article className={monitorClass} aria-label={id}>
+      <div className={`flex items-center justify-between border-b border-hlpBorder ${panelBodyPad} ${panelHeaderPad}`}>
+        <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted'>{title}</span>
+        <AsciiBadge tone='neutral' variant='angle' className='text-[8px] tracking-[0.16em]'>
+          live sparkline
+        </AsciiBadge>
+      </div>
+      <div className='px-3 pb-3 pt-2'>
+        {isLoading ? (
+          <div className='grid min-h-[190px] items-center gap-3 rounded-sm bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
+            <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
+            <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
+            <span className='inline-block h-32 w-full rounded-sm bg-hlpPanel/85 animate-pulse' />
+          </div>
+        ) : (
+          <div className='relative h-[220px] w-full overflow-hidden rounded-sm border border-hlpBorder/55 bg-hlpPanel/95'>
+            <svg
+              viewBox={`0 0 ${stats.width} ${stats.height}`}
+              preserveAspectRatio='none'
+              className='h-full w-full'
+            >
+              {Array.from({ length: 5 }).map((_, index) => {
+                const ratio = index / 4
+                const y = ratio * 100
+                return (
+                  <line
+                    key={`h-grid-${id}-${index}`}
+                    x1='0'
+                    x2={String(stats.width)}
+                    y1={y}
+                    y2={y}
+                    className='stroke-hlpBorder/35'
+                    strokeWidth='0.2'
+                  />
+                )
+              })}
+
+              {Array.from({ length: 8 }).map((_, index) => {
+                const x = (index / 7) * 100
+                return (
+                  <line
+                    key={`v-grid-${id}-${index}`}
+                    x1={x}
+                    x2={x}
+                    y1='0'
+                    y2={String(stats.height)}
+                    className='stroke-hlpBorder/28'
+                    strokeWidth='0.2'
+                  />
+                )
+              })}
+
+              {stats.zeroY !== null ? (
+                <line
+                  x1='0'
+                  x2={String(stats.width)}
+                  y1={stats.zeroY}
+                  y2={stats.zeroY}
+                  className='stroke-hlpWarning/40'
+                  strokeWidth='0.15'
+                  strokeDasharray='2 1'
+                />
+              ) : null}
+
+              <path
+                d={stats.path}
+                fill='none'
+                className={colorClass}
+                strokeWidth='0.7'
+                strokeLinecap='square'
+                strokeLinejoin='miter'
+              />
+            </svg>
+          </div>
+        )}
+      </div>
+      <div className={sectionStripClass}>
+        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>range</span>
+        <span className={inlineBadgeClass}>min={metricSuffix(stats.min)}</span>
+        <span className={inlineBadgeClass}>max={metricSuffix(stats.max)}</span>
+        <span className={inlineBadgeClass}>first={metricSuffix(stats.first)}</span>
+        <span className={inlineBadgeClass}>last={metricSuffix(stats.last)}</span>
+        <span className={inlineBadgeClass}>samples={Math.max(stats.samples, 1)}</span>
+        <span className={inlineBadgeClass}>latest={renderLabelValue(fallbackValue)}</span>
+      </div>
+    </article>
+  )
 
   return (
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
-        <AsciiBadge tone='positive' className='text-hlpPositive'>
+        <AsciiBadge tone='neutral' className='text-hlpMuted'>
           alpha stream
         </AsciiBadge>
       </div>
@@ -159,7 +282,15 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
             <div className='flex flex-wrap items-start justify-between gap-2'>
               <div className='min-w-0'>
                 <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>MARKET PNL</div>
-                <div className={`text-2xl font-bold tracking-[0.14em] ${safePnlClass(snapshot.pnlPct)}`}>{toSigned(snapshot.pnlPct)}</div>
+                <div className={`text-2xl font-bold tracking-[0.14em] ${safePnlClass(snapshot.pnlPct)}`}>
+                  {toSigned(snapshot.pnlPct)}
+                </div>
+              </div>
+              <div className='min-w-0'>
+                <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>ACCOUNT VALUE</div>
+                <div className='text-2xl font-bold tracking-[0.14em] text-hlpHealthy'>
+                  {isLoading ? <span className={`inline-block h-7 w-40 ${skeletonPulseClass} ${panelRadiusSubtle}`} /> : toUsd(snapshot.accountValueUsd ?? 0)}
+                </div>
               </div>
               <div className='flex flex-wrap gap-1'>
                 {isLoading ? (
@@ -171,8 +302,8 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                 ) : (
                   <>
                     <span className={`${inlineBadgeClass} ${safePnlClass(pnlStats.delta)}`}>delta {toSigned(pnlStats.delta)}</span>
-                    <span className={inlineBadgeClass}>samples={pnlStats.samples}</span>
                     <span className={inlineBadgeClass}>delta%={toSigned(pnlStats.deltaPct)}</span>
+                    <span className={inlineBadgeClass}>samples={Math.max(pnlStats.samples, 1)}</span>
                   </>
                 )}
               </div>
@@ -182,97 +313,38 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</div>
                 <div className='text-[11px] font-semibold'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
               </div>
+              <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
+                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>Pnl current</div>
+                <div className='text-[11px] font-semibold'>{isLoading ? '--' : toSigned(snapshot.pnlPct)}</div>
+              </div>
+              <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
+                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>VALUE now</div>
+                <div className='text-[11px] font-semibold'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd ?? 0)}</div>
+              </div>
             </div>
           </div>
         </article>
 
-        <article className={monitorClass}>
-          <div
-            className={`flex items-center justify-between border-b border-hlpBorder ${panelBodyPad} ${panelHeaderPad}`}
-          >
-            <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted'>TRAJECTORY</span>
-            <AsciiBadge tone='neutral' variant='angle' className='text-[8px] tracking-[0.16em]'>
-              live sparkline
-            </AsciiBadge>
-          </div>
-          <div className='px-3 pb-3 pt-2'>
-            {isLoading || pnlStats.samples < 1 ? (
-              <div className='grid min-h-[190px] items-center gap-3 rounded-sm bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
-                <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
-                <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-                <span className='inline-block h-32 w-full rounded-sm bg-hlpSurface/85 animate-pulse' />
-              </div>
-            ) : (
-                <div className='relative h-[220px] w-full overflow-hidden rounded-sm bg-hlpPanel/90'>
-                <svg
-                  viewBox={`0 0 ${pnlStats.width} ${pnlStats.height}`}
-                  preserveAspectRatio='none'
-                  className='h-full w-full text-hlpPositive'
-                >
-                  {Array.from({ length: 5 }).map((_, index) => {
-                    const ratio = index / 4
-                    const top = ratio * 100
-                    return (
-                      <line
-                        key={`grid-${index}`}
-                        x1='0'
-                        x2={String(pnlStats.width)}
-                        y1={top}
-                        y2={top}
-                        className='stroke-hlpBorder/40'
-                        strokeWidth='0.2'
-                      />
-                    )
-                  })}
-
-                  {Array.from({ length: 8 }).map((_, index) => {
-                    const x = (index / 7) * 100
-                    return (
-                      <line
-                        key={`v-grid-${index}`}
-                        x1={x}
-                        x2={x}
-                        y1='0'
-                        y2={String(pnlStats.height)}
-                        className='stroke-hlpBorder/30'
-                        strokeWidth='0.2'
-                      />
-                    )
-                  })}
-
-                  {pnlStats.zeroY !== null ? (
-                    <line
-                      x1='0'
-                      x2={String(pnlStats.width)}
-                      y1={pnlStats.zeroY}
-                      y2={pnlStats.zeroY}
-                      className='stroke-hlpWarning/45'
-                      strokeWidth='0.15'
-                      strokeDasharray='2 1'
-                    />
-                  ) : null}
-
-                  <path
-                    d={pnlStats.path}
-                    fill='none'
-                    className='stroke-hlpPositive'
-                    strokeWidth='0.9'
-                    strokeLinecap='square'
-                    strokeLinejoin='miter'
-                  />
-                </svg>
-              </div>
-            )}
-          </div>
-          <div className={sectionStripClass}>
-            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>range</span>
-            <span className={inlineBadgeClass}>min={toSigned(pnlStats.min)}</span>
-            <span className={inlineBadgeClass}>max={toSigned(pnlStats.max)}</span>
-            <span className={inlineBadgeClass}>first={toSigned(pnlStats.first)}</span>
-            <span className={inlineBadgeClass}>last={toSigned(pnlStats.last)}</span>
-          </div>
-        </article>
-
+        <div className='grid gap-2 xl:grid-cols-2'>
+          <SparklineCard
+            id='market-pnl'
+            title='MARKET PNL OVER TIME'
+            colorClass='text-hlpHealthy'
+            fallbackValue={snapshot.pnlPct}
+            metricSuffix={toSigned}
+            renderLabelValue={toSigned}
+            stats={pnlStats}
+          />
+          <SparklineCard
+            id='account-value'
+            title='ACCOUNT VALUE OVER TIME'
+            colorClass='text-hlpNeutral'
+            fallbackValue={snapshot.accountValueUsd ?? 0}
+            metricSuffix={toSignedUsd}
+            renderLabelValue={(value) => toSignedUsd(value)}
+            stats={accountValueStats}
+          />
+        </div>
       </div>
     </section>
   )

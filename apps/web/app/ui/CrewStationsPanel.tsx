@@ -29,11 +29,11 @@ type CrewStationsPanelProps = {
   isLoading?: boolean
 }
 
-const roleLane: Record<CrewRole, string> = {
+  const roleLane: Record<CrewRole, string> = {
   scout: 'Market scanning',
   research: 'Signal validation',
   strategist: 'Playbook synthesis',
-  execution: 'Execution routing',
+  execution: 'Execution control',
   risk: 'Exposure guardrails',
   scribe: 'Action ledger',
   ops: 'Global coordination',
@@ -46,7 +46,7 @@ const roleGate: Record<CrewRole, string> = {
   execution: 'orders -> scribe',
   risk: 'risk checks',
   scribe: 'decisions -> archive',
-  ops: 'state bus',
+  ops: 'state channel',
 }
 
 export function CrewStationsPanel({
@@ -65,40 +65,40 @@ export function CrewStationsPanel({
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span className={sectionTitleClass}>CREW STATIONS</span>
-        <AsciiBadge tone='positive' className='text-hlpPositive'>
+        <AsciiBadge tone='neutral'>
           {isLoading ? 'BOOTING' : '7 AGENTS'}
         </AsciiBadge>
       </div>
 
-      <div className={`grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3 ${panelBodyPad}`}>
+      <div className={`grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 ${panelBodyPad}`}>
         {roles.map((role) => {
           const last = isLoading ? null : crewLast[role]
           const lastMs = last?.ts ? Date.parse(last.ts) : 0
           const active = !isLoading && lastMs > 0 && nowMs - lastMs < 90_000
           const heartbeatMs = isLoading || !crewHeartbeat[role] ? Number.POSITIVE_INFINITY : nowMs - crewHeartbeat[role]
           const beatScore = isLoading ? 20 : heartbeatLevel(crewHeartbeat[role], nowMs)
-          const line = isLoading ? 'initializing route...' : last?.line || '…'
+          const line = isLoading ? 'initializing stream...' : last?.line || '…'
           const level = isLoading ? 'INFO' : last?.level ?? 'INFO'
           const nextGate = roleGate[role]
           const lane = roleLane[role]
-          const nextGateLabel = nextGate.includes('->') ? `route: ${nextGate}` : `route: ${nextGate}`
+          const nextGateLabel = nextGate.includes('->') ? `next: ${nextGate}` : `next: ${nextGate}`
           const statusLabel = beatScore > 75 ? 'active' : beatScore > 35 ? 'idle' : beatScore > 0 ? 'warming' : 'offline'
           const normalizedLevel = level.toLowerCase()
           const heartbeatPulse = `${'◉'.repeat(Math.min(Math.max(0, Math.round(beatScore / 20)), 5)).padEnd(5, '◌')}`
 
           return (
             <article
-              className={`${monitorClass} min-h-[202px] transition-colors ${active ? 'bg-hlpPanel/95' : 'bg-hlpSurface'}`}
+              className={`${monitorClass} min-h-[206px] border border-hlpBorder/65 transition-colors ${active ? 'bg-hlpPanel/95' : 'bg-hlpSurface'}`}
               key={role}
             >
-              <div className={`${panelInsetPad} space-y-1`}>
+              <div className={`${panelInsetPad} space-y-1 border-b border-hlpBorder/45`}>
                 <div className='flex items-start justify-between gap-2'>
                   <div className='min-w-0'>
                     <div className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</div>
                     {isLoading ? (
                       <span className='mt-1 inline-block h-3 w-24 rounded-sm bg-hlpSurface/80' />
                     ) : (
-                      <div className='mt-1 text-[8px] uppercase tracking-[0.18em] break-words text-hlpMuted'>{lane}</div>
+                      <div className='mt-1 break-words text-[8px] uppercase tracking-[0.18em] text-hlpMuted'>{lane}</div>
                     )}
                   </div>
                   <span
@@ -146,11 +146,11 @@ export function CrewStationsPanel({
                   <span>{isLoading ? 'heartbeat booting' : heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
                 </div>
 
-                <div className='min-h-9 overflow-hidden text-[11px] break-words' title={line}>
+                <div className='min-h-10 overflow-hidden text-[11px] break-words leading-snug' title={line}>
                   {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{line}</span>}
                 </div>
 
-                <div className='text-[8px] uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted'>
+                <div className='text-[8px] border-b border-hlpBorder/35 pb-1 uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted'>
                   {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{nextGateLabel}</span>}
                 </div>
               </div>

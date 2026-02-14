@@ -113,6 +113,7 @@ export function normalizeOpenPositions(raw: unknown): OpenPosition[] {
 export interface Snapshot {
   mode: string
   pnlPct: number
+  accountValueUsd?: number
   healthCode: string
   driftState: string
   lastUpdateAt: string
@@ -231,11 +232,11 @@ export function shouldSuppressTapeLine(line: string): boolean {
   return (
     !normalized ||
     /\b(no action|no changes?|awaiting agent proposal|idle|no-op)\b/i.test(normalized) ||
-    /^deck status /i.test(normalized)
+    /^(?:floor|system|deck) status /i.test(normalized)
   )
 }
 
-export function parseDeckStatus(line: string): { feedAgeMs: number | undefined; missing: number | undefined } {
+export function parseSystemStatus(line: string): { feedAgeMs: number | undefined; missing: number | undefined } {
   const feedAgeMatch = /feedAgeMs=(\d+)/.exec(line)
   const missingMatch = /missing=(\d+)/.exec(line)
   return {
