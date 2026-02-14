@@ -55,6 +55,7 @@ services:
       APP: api
       NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL_FILE: ""
+      API_HOST: 0.0.0.0
       PORT: 4000
       API_PORT: 4000
       REDIS_URL: redis://redis:6379
