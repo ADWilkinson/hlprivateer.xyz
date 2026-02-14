@@ -13,6 +13,7 @@ COPY config ./config
 COPY scripts ./scripts
 
 RUN bun install --frozen-lockfile
+RUN bun install -g @anthropic-ai/claude-code @openai/codex
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_WS_BASE_URL=$NEXT_PUBLIC_WS_BASE_URL
 
@@ -25,11 +26,15 @@ WORKDIR /app
 ARG APP
 ENV APP=$APP
 ENV NODE_ENV=production
+ENV HOME=/home/hlp
+ENV PATH="/home/hlp/.bun/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
 COPY --from=builder /app /app
 
-RUN addgroup --system --gid 1001 hlp && adduser --system --ingroup hlp --uid 1001 hlp
+RUN addgroup --system --gid 1001 hlp && adduser --system --home /home/hlp --uid 1001 --ingroup hlp
 
 USER hlp
+
+RUN bun install -g @anthropic-ai/claude-code @openai/codex
 
 CMD ["sh", "-lc", "case \"$APP\" in\n  api) bun run --cwd /app/apps/api start ;;\n  runtime) bun run --cwd /app/apps/runtime start ;;\n  ws-gateway) bun run --cwd /app/apps/ws-gateway start ;;\n  agent-runner) bun run --cwd /app/apps/agent-runner start ;;\n  web) bun run --cwd /app/apps/web start ;;\n  *) echo \"unknown APP value: $APP\"; exit 1 ;;\n esac"]

@@ -87,6 +87,15 @@ export const env = z
     AGENT_FEATURE_WINDOW_MIN: z.coerce.number().int().min(30).max(720).default(240),
     AGENT_FEATURE_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(6),
 
+    OPENAI_API_KEY: z.string().optional(),
+    OPENAI_API_KEY_FILE: z.string().optional(),
+    OPENAI_API_BASE_URL: z.string().optional(),
+    OPENAI_ORG_ID: z.string().optional(),
+    ANTHROPIC_API_KEY: z.string().optional(),
+    ANTHROPIC_API_KEY_FILE: z.string().optional(),
+    CLAUDE_CODE_API_KEY: z.string().optional(),
+    CLAUDE_CODE_API_KEY_FILE: z.string().optional(),
+
     // CoinGecko Pro (optional) for spot/sector context.
     COINGECKO_API_KEY: z.string().optional(),
     COINGECKO_BASE_URL: z.string().default('https://pro-api.coingecko.com/api/v3'),
@@ -102,7 +111,10 @@ export const env = z
   })
   .parse({
     ...process.env,
-    REDIS_URL: loadEnvValue('REDIS_URL')
+    REDIS_URL: loadEnvValue('REDIS_URL'),
+    OPENAI_API_KEY: loadEnvValue('OPENAI_API_KEY'),
+    ANTHROPIC_API_KEY: loadEnvValue('ANTHROPIC_API_KEY'),
+    CLAUDE_CODE_API_KEY: loadEnvValue('CLAUDE_CODE_API_KEY')
   })
 
 export type AgentRunnerEnv = typeof env

@@ -57,6 +57,19 @@ Legacy / seed:
 - `BASKET_SYMBOLS` (CSV) is a seed only; runtime trade entry is agent-driven and will not open new exposure from this env var.
 
 LLM:
+- Docker auth mounts (required for non-interactive Claude/Codex):
+  - `AGENT_RUNNER_CLAUDE_DIR=/home/dappnode/.claude`
+  - `AGENT_RUNNER_CODEX_DIR=/home/dappnode/.codex`
+  - `AGENT_RUNNER_CLAUDE_CFG_DIR=/home/dappnode/.config/claude`
+- Optional API keys for non-mounted CLI auth:
+  - `OPENAI_API_KEY`
+  - `OPENAI_API_KEY_FILE`
+  - `OPENAI_API_BASE_URL`
+  - `OPENAI_ORG_ID`
+  - `ANTHROPIC_API_KEY`
+  - `ANTHROPIC_API_KEY_FILE`
+  - `CLAUDE_CODE_API_KEY`
+  - `CLAUDE_CODE_API_KEY_FILE`
 - `AGENT_LLM=claude|codex|none`
 - Optional per-role overrides:
   - `AGENT_RESEARCH_LLM=claude|codex|none`

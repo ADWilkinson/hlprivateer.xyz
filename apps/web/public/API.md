@@ -20,6 +20,7 @@
 ### Public
 - `GET /v1/public/pnl`
 - `GET /v1/public/floor-snapshot`
+- `GET /v1/public/floor-tape`
 
 Response example:
 ```json
@@ -31,6 +32,8 @@ Response example:
 ```
 
 ### Operator
+- `POST /v1/operator/login`
+- `POST /v1/operator/refresh`
 - `GET /v1/operator/status`
 - `GET /v1/operator/positions`
 - `GET /v1/operator/orders`
@@ -71,6 +74,12 @@ Command request example:
 - `GET /v1/agent/orders`
 - `POST /v1/agent/command`
 - `POST /v1/agent/unlock/:tier`
+
+### Internal
+- `GET /v1/security/refresh-secrets` (operator auth required)
+- `GET /health`
+- `GET /healthz`
+- `GET /metrics`
 
 Required x402 capability (minimum tier) examples:
 - `stream.read.public`: `/v1/agent/stream/snapshot`

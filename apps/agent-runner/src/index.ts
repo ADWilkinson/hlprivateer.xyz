@@ -7,7 +7,7 @@ import { env } from './config'
 import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliquid'
 import { computePriceFeaturePack, type PriceFeature } from './price-features'
 import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMarketSnapshot } from './coingecko'
-import { runClaudeStructured, runCodexStructured } from './llm'
+import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
 
 type Tick = {
   symbol: string
@@ -264,6 +264,8 @@ type FloorTapePromptEntry = {
 }
 
 const RISK_RECOVERY_FORCE_EXIT_CODES = new Set([
+  'FAIL_CLOSED',
+  'ACTOR_NOT_ALLOWED',
   'DRAWDOWN',
   'EXPOSURE',
   'LEVERAGE',
@@ -273,10 +275,23 @@ const RISK_RECOVERY_FORCE_EXIT_CODES = new Set([
   'SYSTEM_GATED',
   'STALE_DATA',
   'LIQUIDITY',
-  'SLIPPAGE_BREACH'
+  'SLIPPAGE_BREACH',
+  'SYSTEM_GATED'
 ])
 const RISK_RECOVERY_TTL_MS = 120_000
 const RISK_POLICY_TUNING_COOLDOWN_MS = 120_000
+
+let claudeAvailableCached: boolean | null = null
+
+async function isClaudeAvailable(): Promise<boolean> {
+  if (claudeAvailableCached !== null) {
+    return claudeAvailableCached
+  }
+
+  const available = await isCommandAvailable('claude')
+  claudeAvailableCached = available
+  return available
+}
 
 type RuntimeRiskReason = {
   code: string
@@ -762,17 +777,13 @@ function buildRiskPolicyTuningArgs(): { args: string[]; reason: string; signatur
   }
 }
 
-function shouldForceRiskRecovery(nowMs: number, positions: OperatorPosition[]): {
+function shouldForceRiskRecovery(nowMs: number, _positions: OperatorPosition[]): {
   active: boolean
   signature: string
   reasonCodes: string[]
   computed: RuntimeRiskDecision['computed'] | undefined
   reasonMessage: string
 } {
-  if (!Array.isArray(positions) || positions.length === 0) {
-    return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
-  }
-
   if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
     return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
   }
@@ -783,6 +794,16 @@ function shouldForceRiskRecovery(nowMs: number, positions: OperatorPosition[]): 
   }
 
   const reasonCodes = parseRiskReasonCodes(lastRiskDecision)
+  if (reasonCodes.length === 0) {
+    return {
+      active: true,
+      signature: 'UNSPECIFIED_DENY',
+      reasonCodes: ['UNSPECIFIED_DENY'],
+      computed: lastRiskDecision.computed,
+      reasonMessage: 'risk denied without structured reason codes'
+    }
+  }
+
   const hasBlockingCode = reasonCodes.some((code) => RISK_RECOVERY_FORCE_EXIT_CODES.has(code))
   if (!hasBlockingCode) {
     return { active: false, signature: '', reasonCodes: [], computed: undefined, reasonMessage: '' }
@@ -1242,18 +1263,23 @@ async function maybeSelectBasket(params: {
       chosen = await generateBasketSelection({ llm, model, input })
     } catch (primaryError) {
       if (llm === 'codex') {
-        try {
-          chosen = await generateBasketSelection({ llm: 'claude', model: env.CLAUDE_MODEL, input })
-          const disabled = maybeDisableCodexFromError(primaryError, nowMs)
-          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
-          await publishTape({
-            correlationId: ulid(),
-            role: 'ops',
-            level: 'WARN',
-            line: `basket codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
-          })
-        } catch (fallbackError) {
-          chosen = { basketSymbols: fallback, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}` }
+        const canUseClaude = await isClaudeAvailable()
+        if (canUseClaude) {
+          try {
+            chosen = await generateBasketSelection({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+            const disabled = maybeDisableCodexFromError(primaryError, nowMs)
+            const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+            await publishTape({
+              correlationId: ulid(),
+              role: 'ops',
+              level: 'WARN',
+              line: `basket codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+            })
+          } catch (fallbackError) {
+            chosen = { basketSymbols: fallback, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}` }
+          }
+        } else {
+          chosen = { basketSymbols: fallback, rationale: `deterministic fallback: codex error and claude unavailable` }
         }
       } else {
         chosen = { basketSymbols: fallback, rationale: `deterministic fallback: ${String(primaryError).slice(0, 120)}` }
@@ -1262,6 +1288,15 @@ async function maybeSelectBasket(params: {
 
     const validated = validateBasketSelection({ requested: chosen.basketSymbols, allowed: candidates, size: env.AGENT_BASKET_SIZE })
     const finalBasket = validated.length === env.AGENT_BASKET_SIZE ? validated : fallback
+
+    if (chosen.rationale.includes('claude unavailable')) {
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: 'basket codex failed; claude unavailable, using deterministic fallback basket'
+      })
+    }
 
     const priceBySymbol: Record<string, PriceFeature> = {}
     for (const symbol of finalBasket) {
@@ -2161,23 +2196,34 @@ async function runResearchAgent(): Promise<void> {
     report = await generateResearchReport({ llm, model, input })
   } catch (primaryError) {
     if (llm === 'codex') {
-      try {
-        report = await generateResearchReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
-        const disabled = maybeDisableCodexFromError(primaryError, now)
-        const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
-        await publishTape({
-          correlationId: ulid(),
-          role: 'ops',
-          level: 'WARN',
-          line: `research codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
-        })
-      } catch (fallbackError) {
+      const canUseClaude = await isClaudeAvailable()
+      if (canUseClaude) {
+        try {
+          report = await generateResearchReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          const disabled = maybeDisableCodexFromError(primaryError, now)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `research codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+          })
+        } catch (fallbackError) {
+          report = await generateResearchReport({ llm: 'none', model, input })
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `research codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+          })
+        }
+      } else {
         report = await generateResearchReport({ llm: 'none', model, input })
         await publishTape({
           correlationId: ulid(),
           role: 'ops',
           level: 'WARN',
-          line: `research codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+          line: 'research codex failed; claude unavailable: using deterministic fallback report'
         })
       }
     } else {
@@ -2247,23 +2293,34 @@ async function runRiskAgent(): Promise<void> {
     report = await generateRiskReport({ llm, model, input })
   } catch (primaryError) {
     if (llm === 'codex') {
-      try {
-        report = await generateRiskReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
-        const disabled = maybeDisableCodexFromError(primaryError, now)
-        const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
-        await publishTape({
-          correlationId: ulid(),
-          role: 'ops',
-          level: 'WARN',
-          line: `risk codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
-        })
-      } catch (fallbackError) {
+      const canUseClaude = await isClaudeAvailable()
+      if (canUseClaude) {
+        try {
+          report = await generateRiskReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          const disabled = maybeDisableCodexFromError(primaryError, now)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `risk codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+          })
+        } catch (fallbackError) {
+          report = await generateRiskReport({ llm: 'none', model, input })
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `risk codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+          })
+        }
+      } else {
         report = await generateRiskReport({ llm: 'none', model, input })
         await publishTape({
           correlationId: ulid(),
           role: 'ops',
           level: 'WARN',
-          line: `risk codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+          line: 'risk codex failed; claude unavailable: using deterministic fallback risk posture'
         })
       }
     } else {
@@ -2413,10 +2470,12 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
     const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
     let raw: { decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }
-    try {
-      raw = await generateStrategistDirective({ llm, model, input })
-    } catch (primaryError) {
-      if (llm === 'codex') {
+  try {
+    raw = await generateStrategistDirective({ llm, model, input })
+  } catch (primaryError) {
+    if (llm === 'codex') {
+      const canUseClaude = await isClaudeAvailable()
+      if (canUseClaude) {
         try {
           raw = await generateStrategistDirective({ llm: 'claude', model: env.CLAUDE_MODEL, input })
           const disabled = maybeDisableCodexFromError(primaryError, nowMs)
@@ -2428,12 +2487,21 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
             line: `directive codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
           })
         } catch (fallbackError) {
-          raw = { decision: 'MAINTAIN', targetNotionalMultiplier: 1, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}`, confidence: 0.25 }
+          raw = { decision: 'EXIT', targetNotionalMultiplier: 1, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}`, confidence: 0.25 }
         }
       } else {
-        raw = { decision: 'MAINTAIN', targetNotionalMultiplier: 1, rationale: `deterministic fallback: ${String(primaryError).slice(0, 120)}`, confidence: 0.25 }
+        raw = { decision: 'EXIT', targetNotionalMultiplier: 1, rationale: 'LLM unavailable: request flatten posture', confidence: 0.25 }
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: 'directive codex failed; claude unavailable: forcing EXIT until dependencies recover'
+        })
       }
+    } else {
+      raw = { decision: 'EXIT', targetNotionalMultiplier: 1, rationale: `deterministic fallback: ${String(primaryError).slice(0, 120)}`, confidence: 0.25 }
     }
+  }
 
     const mult = clamp(
       Number(raw.targetNotionalMultiplier),
@@ -2736,23 +2804,34 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
     analysis = await generateAnalysis({ llm, model, input: analysisInput })
   } catch (primaryError) {
     if (llm === 'codex') {
-      try {
-        analysis = await generateAnalysis({ llm: 'claude', model: env.CLAUDE_MODEL, input: analysisInput })
-        const disabled = maybeDisableCodexFromError(primaryError, nowMs)
-        const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
-        await publishTape({
-          correlationId: proposal.proposalId,
-          role: 'ops',
-          level: 'WARN',
-          line: `scribe codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
-        })
-      } catch (fallbackError) {
+      const canUseClaude = await isClaudeAvailable()
+      if (canUseClaude) {
+        try {
+          analysis = await generateAnalysis({ llm: 'claude', model: env.CLAUDE_MODEL, input: analysisInput })
+          const disabled = maybeDisableCodexFromError(primaryError, nowMs)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: proposal.proposalId,
+            role: 'ops',
+            level: 'WARN',
+            line: `scribe codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+          })
+        } catch (fallbackError) {
+          analysis = await generateAnalysis({ llm: 'none', model, input: analysisInput })
+          await publishTape({
+            correlationId: proposal.proposalId,
+            role: 'ops',
+            level: 'WARN',
+            line: `scribe codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+          })
+        }
+      } else {
         analysis = await generateAnalysis({ llm: 'none', model, input: analysisInput })
         await publishTape({
           correlationId: proposal.proposalId,
           role: 'ops',
           level: 'WARN',
-          line: `scribe codex+claude failed; deterministic: ${String(fallbackError).slice(0, 120)}`
+          line: 'scribe codex unavailable: claude command missing, using deterministic analysis'
         })
       }
     } else {

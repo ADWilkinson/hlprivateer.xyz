@@ -38,12 +38,48 @@ async function runCommand(cmd: string, args: string[], timeoutMs: number): Promi
   })
 }
 
+const commandAvailabilityCache = new Map<string, boolean>()
+const commandAvailabilityPending = new Map<string, Promise<boolean>>()
+
+export async function isCommandAvailable(cmd: string): Promise<boolean> {
+  const cached = commandAvailabilityCache.get(cmd)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  const pending = commandAvailabilityPending.get(cmd)
+  if (pending) {
+    return pending
+  }
+
+  const probe = (async () => {
+    try {
+      await runCommand('which', [cmd], 2_500)
+      commandAvailabilityCache.set(cmd, true)
+      return true
+    } catch {
+      commandAvailabilityCache.set(cmd, false)
+      return false
+    } finally {
+      commandAvailabilityPending.delete(cmd)
+    }
+  })()
+
+  commandAvailabilityPending.set(cmd, probe)
+  return probe
+}
+
 export async function runClaudeStructured<T>(params: {
   prompt: string
   jsonSchema: Record<string, unknown>
   model: string
   timeoutMs?: number
 }): Promise<T> {
+  const available = await isCommandAvailable('claude')
+  if (!available) {
+    throw new Error('Executable not found in $PATH: "claude"')
+  }
+
   const timeoutMs = params.timeoutMs ?? 90_000
   const { stdout } = await runCommand(
     'claude',
@@ -78,6 +114,11 @@ export async function runCodexStructured<T>(params: {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   timeoutMs?: number
 }): Promise<T> {
+  const available = await isCommandAvailable('codex')
+  if (!available) {
+    throw new Error('Executable not found in $PATH: "codex"')
+  }
+
   const timeoutMs = params.timeoutMs ?? 120_000
   const runId = ulid()
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hlp-codex-'))
