@@ -1,6 +1,6 @@
 import { AsciiBadge } from './ascii-kit'
 import { formatTime, type Snapshot } from './floor-dashboard'
-import { cardClass, cardHeaderClass, sectionTitleClass, skeletonPulseClass } from './ascii-style'
+import { cardClass, cardHeaderClass, panelBalancedPad, sectionTitleClass, skeletonPulseClass } from './ascii-style'
 
 type PnlPanelProps = {
   snapshot: Snapshot
@@ -16,8 +16,8 @@ export function PnlPanel({ snapshot, chart, isLoading = false }: PnlPanelProps) 
     <section className={cardClass}>
       <div className={cardHeaderClass}>PROFIT / LOSS</div>
 
-      <section className='grid grid-cols-1 gap-2 xl:grid-cols-[minmax(240px,420px)_1fr] min-h-[314px]'>
-        <div className='flex min-h-[148px] flex-col justify-center gap-2 border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark rounded-hlp p-4'>
+      <section className='grid min-h-[330px] grid-cols-1 gap-2 xl:grid-cols-[minmax(240px,420px)_1fr]'>
+        <div className={`flex min-h-[180px] flex-col justify-center gap-2 border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark rounded-hlp ${panelBalancedPad}`}>
           <div className={sectionTitleClass}>PORTFOLIO P&L</div>
           {isLoading ? (
             <>
@@ -58,12 +58,12 @@ export function PnlPanel({ snapshot, chart, isLoading = false }: PnlPanelProps) 
           )}
         </div>
 
-        <div className='flex min-h-[148px] flex-col rounded-hlp border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark p-3'>
+        <div className={`flex min-h-[180px] flex-col rounded-hlp border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark ${panelBalancedPad}`}>
           <div className={sectionTitleClass}>PNL TRAJECTORY</div>
           {isLoading ? (
             <div className={`mt-2 min-h-0 flex-1 rounded-sm ${skeletonPulseClass}`} />
           ) : (
-            <pre className='m-0 min-h-0 flex-1 overflow-x-auto overflow-y-auto whitespace-pre text-[11px] leading-[1.25] text-hlpMuted dark:text-hlpMutedDark'>{chart}</pre>
+            <pre className='m-0 min-h-0 flex-1 overflow-x-auto overflow-y-auto whitespace-pre text-[11px] leading-[1.35] text-hlpMuted dark:text-hlpMutedDark'>{chart}</pre>
           )}
         </div>
       </section>

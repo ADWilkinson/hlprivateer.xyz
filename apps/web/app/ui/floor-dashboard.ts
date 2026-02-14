@@ -111,7 +111,7 @@ export function shouldSuppressTapeLine(line: string): boolean {
   const normalized = normalizeTapeLinePrefix(line)
   return (
     !normalized ||
-    /\b(no action|no changes?|idle|no-op)\b/i.test(normalized) ||
+    /\b(no action|no changes?|awaiting agent proposal|idle|no-op)\b/i.test(normalized) ||
     /^deck status /i.test(normalized)
   )
 }

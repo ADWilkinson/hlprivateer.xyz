@@ -10,7 +10,16 @@ import {
   heartbeatLevel,
   type TapeEntry,
 } from './floor-dashboard'
-import { cardClass, cardHeaderClass, inlineBadgeClass, monitorClass, sectionTitleClass, skeletonPulseClass } from './ascii-style'
+import {
+  cardClass,
+  cardHeaderClass,
+  inlineBadgeClass,
+  monitorClass,
+  panelBodyPad,
+  panelInsetPad,
+  sectionTitleClass,
+  skeletonPulseClass,
+} from './ascii-style'
 
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
@@ -73,7 +82,7 @@ export function CrewStationsPanel({
         </AsciiBadge>
       </div>
 
-      <div className='grid gap-2 p-2 [grid-template-columns:repeat(auto-fit,minmax(230px,1fr))]'>
+      <div className={`grid gap-2 ${panelBodyPad} [grid-template-columns:repeat(auto-fit,minmax(250px,1fr)]`}>
         {roles.map((role) => {
           const last = isLoading ? null : crewLast[role]
           const lastMs = last?.ts ? Date.parse(last.ts) : 0
@@ -91,20 +100,22 @@ export function CrewStationsPanel({
 
           return (
             <article
-              className={`${monitorClass} min-h-[168px] transition-colors ${
+              className={`${monitorClass} min-h-[190px] transition-colors ${
                 active
                   ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel/95 dark:bg-hlpPanelDark/95'
                   : 'border-hlpBorder dark:border-hlpBorderDark'
               }`}
               key={role}
             >
-              <div className='flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark px-2 py-1.5'>
+              <div className={`flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad}`}>
                 <div className='flex min-w-0 items-start gap-1.5'>
                   <span className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</span>
                   {isLoading ? (
                     <span className={`h-4 w-24 rounded-sm ${skeletonPulseClass}`} />
                   ) : (
-                    <span className='rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/55 px-1.5 py-0.5 text-[7px] uppercase leading-tight tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark break-words'>
+                    <span
+                      className={`rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/70 dark:bg-hlpSurfaceDark/55 ${panelInsetPad} text-[7px] uppercase leading-tight tracking-[0.14em] text-hlpMuted dark:text-hlpMutedDark break-words`}
+                    >
                       {lane}
                     </span>
                   )}
@@ -120,7 +131,7 @@ export function CrewStationsPanel({
                 />
               </div>
 
-              <div className='px-2 py-1.5'>
+              <div className={panelBodyPad}>
                 {isLoading ? (
                   <span className={`inline-block rounded-sm ${loadingSkeletonWidth[role]} h-3 ${skeletonPulseClass}`} />
                 ) : (
@@ -172,12 +183,14 @@ export function CrewStationsPanel({
                 </div>
               </div>
 
-              <div className='flex flex-wrap items-center justify-between gap-1 border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-1 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
+              <div
+                className={`flex flex-wrap items-center justify-between gap-1 border-t border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad} text-[9px] text-hlpMuted dark:text-hlpMutedDark`}
+              >
                 <span>{isLoading ? <span className={`inline-block h-3 w-14 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '—'}</span>
                 <span>events {isLoading ? '—' : crewSignals[role]}/max {maxSignals}</span>
               </div>
 
-              <div className='flex flex-wrap gap-1 p-1.5'>
+              <div className={`flex flex-wrap gap-1 ${panelInsetPad}`}>
                 {isLoading ? (
                   <>
                     <span className={`h-5 w-24 rounded-sm ${skeletonPulseClass}`} />

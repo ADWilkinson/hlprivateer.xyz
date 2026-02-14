@@ -33,7 +33,7 @@ type CrewLast = Record<CrewRole, TapeEntry | null>
 const chartWidth = 64
 const chartHeight = 12
 const UI_TICK_MS = 1000
-const RISK_DENIAL_SUPPRESS_MS = 45_000
+const RISK_DENIAL_SUPPRESS_MS = 180_000
 
 function normalizeTapePrefix(line: string): string {
   return normalizeTapeLinePrefix(line.trim())
@@ -219,8 +219,10 @@ export default function DeckPage() {
         riskDenialRef.current = { signature, atMs: now }
         setRiskDeniedCount((value) => value + 1)
         setRiskDeniedReason(display)
-
-        return false
+        entry.role = 'ops'
+        entry.level = 'WARN'
+        entry.line = `risk denied: ${display}`
+        return true
       }
 
       if (shouldSuppressTapeLine(entry.line)) {

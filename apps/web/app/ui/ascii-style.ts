@@ -2,6 +2,7 @@ export const pageShellClass = 'mx-auto w-full max-w-[1400px] flex flex-col gap-2
 export const panelRadius = 'rounded-hlp'
 export const panelRadiusSubtle = 'rounded-sm'
 export const panelGap = 'gap-2'
+export const panelBalancedPad = 'p-3'
 export const panelBodyPad = 'px-2 py-2'
 export const panelHeaderPad = 'px-3 py-2'
 export const panelInsetPad = 'px-2 py-1.5'
