@@ -1032,7 +1032,26 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           continue
         }
 
-        const tick = await marketAdapter.latest(position.symbol)
+        let tick = await marketAdapter.latest(position.symbol)
+        if (!tick) {
+          const snapshot = await fetchHyperliquidL2BookSnapshotCached({
+            infoUrl: env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL,
+            coin: position.symbol,
+            cache: l2BookDepthCache
+          })
+          if (snapshot) {
+            tick = {
+              symbol: position.symbol,
+              px: snapshot.px,
+              bid: snapshot.bidPx,
+              ask: snapshot.askPx,
+              bidSize: snapshot.bidPx > 0 ? snapshot.bidDepthUsd / snapshot.bidPx : 0,
+              askSize: snapshot.askPx > 0 ? snapshot.askDepthUsd / snapshot.askPx : 0,
+              updatedAt: snapshot.updatedAtIso,
+              source: 'runtime.market.l2book'
+            }
+          }
+        }
         if (!tick) {
           continue
         }

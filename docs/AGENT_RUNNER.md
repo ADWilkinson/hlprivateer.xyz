@@ -39,6 +39,8 @@ Core:
 - `AGENT_RISK_INTERVAL_MS` (default 30000)
 - `AGENT_OPS_INTERVAL_MS` (default 5000)
 - `OPS_AUTO_HALT` (default false; when true, ops-agent may publish `/halt` on severe stale data)
+- `AGENT_DIRECTIVE_INTERVAL_MS` (default 15m; LLM-guided strategist pivots: rotate basket / scale notional / exit)
+- `AGENT_NOTIONAL_MULTIPLIER_MIN`, `AGENT_NOTIONAL_MULTIPLIER_MAX` (bounds for strategist scaling decisions)
 
 Strategy knobs (shared with runtime):
 - `BASKET_TARGET_NOTIONAL_USD`
@@ -47,7 +49,7 @@ Strategy knobs (shared with runtime):
 Basket selection (dynamic short basket vs HYPE):
 - `AGENT_BASKET_SIZE`
 - `AGENT_BASKET_CANDIDATE_LIMIT`
-- `AGENT_BASKET_REFRESH_MS` (basket can only refresh when flat)
+- `AGENT_BASKET_REFRESH_MS` (basket refresh cadence; strategist may also force a rotate mid-trade)
 - `AGENT_FEATURE_WINDOW_MIN`, `AGENT_FEATURE_CONCURRENCY`
 - Optional spot/sector enrichment: `COINGECKO_API_KEY`, `COINGECKO_BASE_URL`, `COINGECKO_TIMEOUT_MS`
 
