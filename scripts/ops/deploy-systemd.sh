@@ -126,6 +126,90 @@ validate_unit_accounts() {
   fi
 }
 
+validate_unit_credentials() {
+  local services=("$@")
+  local missing_files=()
+
+  for service in "${services[@]}"; do
+    local unit_file="$SYSTEMD_SOURCE_DIR/${service}.service"
+    if [[ ! -f "$unit_file" ]]; then
+      continue
+    fi
+
+    while IFS= read -r line; do
+      if [[ "$line" != LoadCredential=* ]]; then
+        continue
+      fi
+      local mapping="${line#LoadCredential=}"
+      local source_path="${mapping#*:}"
+      source_path="$(echo "$source_path" | xargs)"
+      [[ -z "$source_path" ]] && continue
+
+      if [[ "${source_path:0:1}" == "/" ]]; then
+        if [[ ! -f "$source_path" ]]; then
+          missing_files+=("${service}:$source_path")
+        fi
+      else
+        missing_files+=("${service}:relative($source_path)")
+      fi
+    done < <(grep '^LoadCredential=' "$unit_file")
+  done
+
+  if (( ${#missing_files[@]} > 0 )); then
+    echo
+    echo "deploy blocked: required credential files are missing for systemd units"
+    for missing in "${missing_files[@]}"; do
+      echo "  - ${missing}"
+    done
+    echo "Create these files (and matching unit source paths) before restarting services."
+    echo
+    return 1
+  fi
+}
+
+validate_unit_working_dirs() {
+  local services=("$@")
+  local missing_paths=()
+
+  for service in "${services[@]}"; do
+    local unit_file="$SYSTEMD_SOURCE_DIR/${service}.service"
+    if [[ ! -f "$unit_file" ]]; then
+      continue
+    fi
+
+    local service_user
+    local service_workdir
+    service_user="$(awk -F= 'tolower($1)=="user"{print $2}' "$unit_file" | tr -d '[:space:]')"
+    service_workdir="$(awk -F= 'tolower($1)=="workingdirectory"{print $2}' "$unit_file" | tr -d '[:space:]')"
+
+    if [[ -z "$service_workdir" ]]; then
+      continue
+    fi
+
+    if [[ "${service_workdir:0:1}" == "/" && ! -d "$service_workdir" ]]; then
+      missing_paths+=("${service}:missing-working-dir($service_workdir)")
+      continue
+    fi
+
+    if [[ -n "$service_user" ]]; then
+      if ! sudo -u "$service_user" sh -c "test -d '$service_workdir' && test -x '$service_workdir'"; then
+        missing_paths+=("${service}:unreadable-working-dir($service_workdir) for user=$service_user")
+      fi
+    fi
+  done
+
+  if (( ${#missing_paths[@]} > 0 )); then
+    echo
+    echo "deploy blocked: service users cannot access working directories"
+    for missing in "${missing_paths[@]}"; do
+      echo "  - ${missing}"
+    done
+    echo "Grant traversal/read permissions to the service user, or set WorkingDirectory to an accessible path."
+    echo
+    return 1
+  fi
+}
+
 if [[ ! -d "$ROOT_DIR" ]]; then
   echo "deploy root not found: $ROOT_DIR" >&2
   exit 1
@@ -186,6 +270,10 @@ log "validating systemd unit environment files"
 validate_unit_env_files "${SERVICES[@]}"
 log "validating systemd service accounts"
 validate_unit_accounts "${SERVICES[@]}"
+log "validating systemd service credential files"
+validate_unit_credentials "${SERVICES[@]}"
+log "validating systemd service working directories"
+validate_unit_working_dirs "${SERVICES[@]}"
 
 log "restarting services: ${SERVICES[*]}"
 for service in "${SERVICES[@]}"; do
