@@ -247,7 +247,10 @@ function normalizeLimit(value: unknown, fallback: number, max = 200): number {
 
 function getEffectiveRiskConfig() {
   const runtimePolicy = store.snapshot.riskPolicy
-  const riskPolicy = typeof runtimePolicy === 'object' && runtimePolicy !== null ? runtimePolicy : null
+  const riskPolicy =
+    typeof runtimePolicy === 'object' && runtimePolicy !== null
+      ? (runtimePolicy as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
   const num = (value: unknown, fallback: number): number => {
     if (typeof value === 'number' && Number.isFinite(value)) {
       return value
@@ -257,17 +260,17 @@ function getEffectiveRiskConfig() {
   }
 
   return {
-    maxLeverage: Number.isFinite(riskPolicy?.maxLeverage) ? Number(riskPolicy.maxLeverage) : env.RISK_MAX_LEVERAGE,
-    maxDrawdownPct: Number.isFinite(riskPolicy?.maxDrawdownPct)
+    maxLeverage: Number.isFinite(riskPolicy.maxLeverage) ? Number(riskPolicy.maxLeverage) : env.RISK_MAX_LEVERAGE,
+    maxDrawdownPct: Number.isFinite(riskPolicy.maxDrawdownPct)
       ? Number(riskPolicy.maxDrawdownPct)
       : env.RISK_MAX_DRAWDOWN_PCT,
-    maxNotionalUsd: Number.isFinite(riskPolicy?.maxExposureUsd)
+    maxNotionalUsd: Number.isFinite(riskPolicy.maxExposureUsd)
       ? Number(riskPolicy.maxExposureUsd)
       : env.RISK_MAX_NOTIONAL_USD,
-    maxSlippageBps: num(riskPolicy?.maxSlippageBps, env.RISK_MAX_SLIPPAGE_BPS),
-    staleDataMs: num(riskPolicy?.staleDataMs, env.RISK_STALE_DATA_MS),
-    liquidityBufferPct: num(riskPolicy?.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT),
-    notionalParityTolerance: num(riskPolicy?.notionalParityTolerance, env.RISK_NOTIONAL_PARITY_TOLERANCE)
+    maxSlippageBps: num(riskPolicy.maxSlippageBps, env.RISK_MAX_SLIPPAGE_BPS),
+    staleDataMs: num(riskPolicy.staleDataMs, env.RISK_STALE_DATA_MS),
+    liquidityBufferPct: num(riskPolicy.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT),
+    notionalParityTolerance: num(riskPolicy.notionalParityTolerance, env.RISK_NOTIONAL_PARITY_TOLERANCE)
   }
 }
 
