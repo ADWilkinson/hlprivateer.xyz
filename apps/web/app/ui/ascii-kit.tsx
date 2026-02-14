@@ -25,9 +25,9 @@ type AsciiTableProps<T> = {
 
 const badgeToneClass: Record<BadgeTone, string> = {
   neutral: 'border-hlpBorder text-hlpMuted',
-  positive: 'border-hlpPositive/80 text-hlpPositive',
-  warning: 'border-hlpWarning/80 text-hlpWarning',
-  error: 'border-hlpNegative/80 text-hlpNegative',
+  positive: 'border-hlpBorder text-hlpPositive',
+  warning: 'border-hlpBorder text-hlpWarning',
+  error: 'border-hlpBorder text-hlpNegative',
   info: 'border-hlpMuted/80 text-hlpMuted',
 }
 
@@ -87,9 +87,9 @@ export function AsciiTable<T extends Record<string, unknown>>({
     <div className={`overflow-hidden ${panelRadiusSubtle} border border-hlpBorder bg-hlpSurface ${className}`}>
       {caption && <div className='border-b border-hlpBorder px-2 py-1 text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>{caption}</div>}
 
-      <table {...props} className='w-full border-collapse text-[10px]'>
+        <table {...props} className='w-full border-collapse text-[10px]'>
         <thead>
-          <tr className='bg-hlpPanel'>
+          <tr className='bg-hlpSurface'>
             {columns.map((column) => (
               <th
                 key={String(column.key)}

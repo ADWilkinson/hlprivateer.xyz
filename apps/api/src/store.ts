@@ -22,6 +22,7 @@ export interface ApiRuntimeSnapshot {
   lastUpdateAt: string
   healthCode: 'GREEN' | 'YELLOW' | 'RED'
   driftState?: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
+  accountValueUsd?: number
   message?: string
   riskPolicy?: {
     maxLeverage?: number

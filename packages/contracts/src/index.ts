@@ -197,6 +197,7 @@ export const PublicSnapshotSchema = z.object({
   pnlPct: z.number(),
   healthCode: z.enum(['GREEN', 'YELLOW', 'RED']),
   driftState: z.enum(['IN_TOLERANCE', 'POTENTIAL_DRIFT', 'BREACH']),
+  accountValueUsd: z.number().optional(),
   openPositions: z.array(PublicOpenPositionSchema).optional().default([]),
   openPositionCount: z.number().optional(),
   openPositionNotionalUsd: z.number().optional(),

@@ -146,10 +146,10 @@ export function FloorPlanPanel({
 
   useEffect(() => {
     const updateWidth = () => {
-      const fallback = typeof window === 'undefined' ? 980 : Math.max(300, window.innerWidth - 58)
+      const fallback = typeof window === 'undefined' ? 640 : Math.max(240, window.innerWidth - 58)
       const measured = mapRef.current?.clientWidth ?? fallback
-      const usable = Math.max(140, measured - 24)
-      setNetworkWidth(Math.max(160, Math.min(usable, 1400)))
+      const usable = Math.max(220, measured - 12)
+      setNetworkWidth(usable)
     }
 
     updateWidth()
@@ -225,19 +225,19 @@ export function FloorPlanPanel({
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <div>
-          <div className={sectionTitleClass}>FLOOR PLAN MAP</div>
+          <div className={sectionTitleClass}>OPERATION MAP</div>
         </div>
-        <AsciiBadge tone='positive' className='text-hlpPositive'>
-          {isLoading ? 'warming map' : 'topology mode'}
+        <AsciiBadge tone='neutral'>
+          {isLoading ? 'loading map' : 'topology view'}
         </AsciiBadge>
       </div>
 
       <div className={`flex flex-col ${panelBodyPad}`}>
         <div className={`min-h-[360px] ${monitorClass} flex flex-col`}>
           <div className={`flex items-center justify-between ${panelBodyPad} border-b border-hlpBorder/65 text-[9px] uppercase tracking-[0.14em] text-hlpMuted`}>
-            <span className={sectionTitleClass}>LIVE MAP</span>
+            <span className={sectionTitleClass}>LIVE NETWORK MAP</span>
             <AsciiBadge tone='neutral' variant='angle' className='text-hlpMuted'>
-              route topology
+              network view
             </AsciiBadge>
           </div>
           <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
@@ -245,7 +245,7 @@ export function FloorPlanPanel({
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
-              height={300}
+              height={340}
               className='text-hlpFg'
               loading={isLoading}
             />
@@ -261,7 +261,7 @@ export function FloorPlanPanel({
             ) : (
               <>
                 <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
-                <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>
+                <span className={inlineBadgeClass}>system heartbeat={formatAge(heartbeatAgeMs)}</span>
                 <span className={inlineBadgeClass}>stations={stationRows.length}</span>
                 <span className={inlineBadgeClass}>missing={deckMissing}</span>
               </>
