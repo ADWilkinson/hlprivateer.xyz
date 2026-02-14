@@ -30,7 +30,7 @@ export const mutedPanelClass = 'border-t border-hlpBorder bg-hlpSurface'
 export const terminalPanelClass = 'max-h-[380px] min-h-0 overflow-y-auto overflow-x-hidden py-1 px-2'
 
 export const statusCellClass =
-  'flex items-center justify-between gap-2 border-b border-hlpBorder/80 bg-hlpPanel/95 px-3 py-2 min-h-[34px]'
+  'flex items-center justify-between gap-2 border-b border-hlpBorder/45 bg-hlpPanel/95 px-3 py-2 min-h-[34px]'
 
 export const monitorClass = 'overflow-hidden rounded-[4px] bg-hlpSurface'
 
