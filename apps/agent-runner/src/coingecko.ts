@@ -1,3 +1,5 @@
+import { fetchJsonWithRetry } from "@hl/privateer-plugin-sdk"
+
 type CoinGeckoSearchCoin = {
   id: string
   name: string
@@ -52,24 +54,21 @@ function urlWithParams(baseUrl: string, path: string, params: Record<string, str
 }
 
 async function fetchJson<T>(url: string, config: ClientConfig): Promise<T> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
+  return await fetchJsonWithRetry<T>(
+    url,
+    {
+      method: "GET",
       headers: {
-        accept: 'application/json',
-        'x-cg-pro-api-key': config.apiKey
-      },
-      signal: controller.signal
-    })
-    if (!response.ok) {
-      throw new Error(`coingecko http ${response.status}`)
+        accept: "application/json",
+        "x-cg-pro-api-key": config.apiKey
+      }
+    },
+    {
+      timeoutMs: config.timeoutMs,
+      maxRetries: 3,
+      retryOnStatus: (status) => status === 429 || status >= 500
     }
-    return (await response.json()) as T
-  } finally {
-    clearTimeout(timeout)
-  }
+  )
 }
 
 function asFiniteNumber(value: unknown): number | null {
