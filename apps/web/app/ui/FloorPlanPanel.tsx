@@ -130,14 +130,14 @@ export function FloorPlanPanel({
   const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs, isLoading), [crewHeartbeat, nowMs, isLoading])
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
   const mapRef = useRef<HTMLDivElement | null>(null)
-  const [networkWidth, setNetworkWidth] = useState(460)
+  const [networkWidth, setNetworkWidth] = useState(640)
 
   useEffect(() => {
     const updateWidth = () => {
       const fallback = typeof window === 'undefined' ? 980 : Math.max(300, window.innerWidth - 58)
       const measured = mapRef.current?.clientWidth ?? fallback
-      const usable = Math.max(80, measured - 22)
-      setNetworkWidth(Math.max(120, Math.min(usable, 1600)))
+      const usable = Math.max(140, measured - 24)
+      setNetworkWidth(Math.max(160, Math.min(usable, 1400)))
     }
 
     updateWidth()
@@ -222,18 +222,18 @@ export function FloorPlanPanel({
       </div>
 
       <div className={`flex flex-col ${panelBodyPad}`}>
-        <div className={`min-h-[420px] ${monitorClass} flex flex-col`}>
+        <div className={`min-h-[360px] ${monitorClass} flex flex-col`}>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
-          <div ref={mapRef} className='min-h-[260px] w-full flex-1 overflow-hidden px-1 py-1'>
+          <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
             <AsciiTopology
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
               theme={theme}
               pulseMs={nowMs}
-              className='text-[10px] leading-none text-hlpFg dark:text-hlpFgDark sm:text-[11px]'
+              className='text-[9px] leading-none text-hlpFg dark:text-hlpFgDark sm:text-[10px]'
               loading={isLoading}
             />
           </div>
@@ -249,28 +249,10 @@ export function FloorPlanPanel({
               <>
                 <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
                 <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>
-                <span className={inlineBadgeClass}>missing={deckMissing}</span>
                 <span className={inlineBadgeClass}>stations={stationRows.length}</span>
-                <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
+                <span className={inlineBadgeClass}>missing={deckMissing}</span>
               </>
             )}
-          </div>
-          <div className={`${panelBodyPad} text-[10px] text-hlpMuted dark:text-hlpMutedDark`}>
-            <div className='mb-1 uppercase tracking-[0.16em]'>LINK LEGEND</div>
-            <div className='flex flex-wrap gap-1'>
-              <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
-                <span className='inline-block h-2 w-2 rounded-full bg-hlpPositive dark:bg-hlpPositiveDark' />
-                active
-              </span>
-              <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
-                <span className='inline-block h-2 w-2 rounded-full bg-hlpWarning dark:bg-hlpWarningDark' />
-                congested
-              </span>
-              <span className='inline-flex items-center gap-1 rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/45 dark:bg-hlpSurfaceDark/50 px-1.5 py-1'>
-                <span className='inline-block h-2 w-2 rounded-full bg-hlpNegative dark:bg-hlpNegativeDark' />
-                risk/error
-              </span>
-            </div>
           </div>
         </div>
       </div>
