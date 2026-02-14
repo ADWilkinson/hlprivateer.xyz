@@ -11,7 +11,7 @@ import {
 } from './floor-dashboard'
 import {
   cardClass,
-  cardHeaderClass,
+  collapsibleHeaderClass,
   inverseControlClass,
   inlineBadgeClass,
   monitorClass,
@@ -237,7 +237,7 @@ export function FloorPlanPanel({
     <section className={cardClass}>
       <button
         type='button'
-        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        className={collapsibleHeaderClass}
         aria-label='Toggle operation map panel'
         aria-expanded={!isCollapsed}
         aria-controls={`section-${sectionId}`}

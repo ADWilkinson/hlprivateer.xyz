@@ -1,5 +1,5 @@
 import { AsciiBadge } from './ascii-kit'
-import { cardClass, cardHeaderClass, inverseControlClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, statusCellClass } from './ascii-style'
+import { cardClass, collapsibleHeaderClass, inverseControlClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, statusCellClass, panelRadiusSubtle } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -61,7 +61,7 @@ export function StatusStrip({
     <section className={cardClass}>
       <button
         type='button'
-        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        className={collapsibleHeaderClass}
         aria-label='Toggle floor status panel'
         aria-expanded={!isCollapsed}
         aria-controls={`section-${sectionId}`}
@@ -70,10 +70,10 @@ export function StatusStrip({
         <span>FLOOR STATUS</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '−'}
+            {isCollapsed ? '+' : '\u2212'}
           </span>
           <AsciiBadge tone='info' variant='angle'>
-            telemetry layer
+            telemetry
           </AsciiBadge>
         </div>
       </button>
@@ -83,30 +83,12 @@ export function StatusStrip({
           <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder/55 bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
             {isLoading ? (
               <>
-                <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</span>
-                  <span className={`h-3 w-20 rounded-sm ${skeletonPulseClass}`} />
-                </div>
-                <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>WS</span>
-                  <span className={`h-3 w-16 rounded-sm ${skeletonPulseClass}`} />
-                </div>
-                <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEALTH</span>
-                  <span className={`h-3 w-14 rounded-sm ${skeletonPulseClass}`} />
-                </div>
-                <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DRIFT</span>
-                  <span className={`h-3 w-14 rounded-sm ${skeletonPulseClass}`} />
-                </div>
-                <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>FEED AGE</span>
-                  <span className={`h-3 w-14 rounded-sm ${skeletonPulseClass}`} />
-                </div>
-                <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DECK HEARTBEAT</span>
-                  <span className={`h-3 w-24 rounded-sm ${skeletonPulseClass}`} />
-                </div>
+                {['MODE', 'WS', 'HEALTH', 'DRIFT', 'FEED AGE', 'HEARTBEAT'].map((label) => (
+                  <div className={statusCellClass} key={label}>
+                    <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>{label}</span>
+                    <span className={`h-3 w-16 ${panelRadiusSubtle} ${skeletonPulseClass}`} />
+                  </div>
+                ))}
               </>
             ) : (
               <>
@@ -127,7 +109,9 @@ export function StatusStrip({
                 <div className={statusCellClass}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEALTH</span>
                   <span className='flex items-center gap-2'>
-                    <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
+                    <span className='relative'>
+                      <span className={`block h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
+                    </span>
                     <span className={`text-[11px] font-bold ${LED_TEXT_BY_STATE[health]}`}>{healthLabel}</span>
                   </span>
                 </div>
@@ -145,7 +129,7 @@ export function StatusStrip({
                   </span>
                 </div>
                 <div className={statusCellClass}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DECK HEARTBEAT</span>
+                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEARTBEAT</span>
                   <span className='text-[11px] font-bold'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
                 </div>
               </>
@@ -155,8 +139,7 @@ export function StatusStrip({
           <div className={sectionStripClass}>
             {isLoading ? (
               <>
-                <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>reconciling links…</span>
-                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+                <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>reconciling\u2026</span>
                 <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
                 <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
               </>

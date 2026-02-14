@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { AsciiBadge } from './ascii-kit'
 import {
   cardClass,
-  cardHeaderClass,
+  collapsibleHeaderClass,
+  heroCardClass,
   inverseControlClass,
   inlineBadgeClass,
   monitorClass,
@@ -57,13 +58,13 @@ type SparklineMetric = {
 }
 
 function toSigned(value: number): string {
-  if (!Number.isFinite(value)) return '—'
+  if (!Number.isFinite(value)) return '\u2014'
   const sign = value > 0 ? '+' : ''
   return `${sign}${SMALL_PNL_FORMAT.format(value)}%`
 }
 
 function toUsd(value: number | undefined): string {
-  if (value === undefined || !Number.isFinite(value)) return '—'
+  if (value === undefined || !Number.isFinite(value)) return '\u2014'
   return ACCOUNT_VALUE_FORMAT.format(value)
 }
 
@@ -174,41 +175,52 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
   }
 }
 
-export function PnlPanel({
-  snapshot,
-  trajectory = [],
-  accountValueTrajectory = [],
-  isLoading = false,
-  isCollapsed = false,
-  onToggle,
-  sectionId = 'pnl',
-}: PnlPanelProps) {
-  const pnlValues = trajectory.map((point) => point.pnlPct)
-  const pnlStats = useMemo(() => buildSparkline(pnlValues, snapshot.pnlPct), [pnlValues, snapshot.pnlPct])
-  const accountValueValues = accountValueTrajectory.map((point) => point.accountValueUsd)
-  const accountValueStats = useMemo(
-    () => buildSparkline(accountValueValues, snapshot.accountValueUsd),
-    [accountValueValues, snapshot.accountValueUsd],
+function HeroStat({
+  label,
+  value,
+  colorClass,
+  isLoading,
+}: {
+  label: string
+  value: string
+  colorClass: string
+  isLoading: boolean
+}) {
+  return (
+    <div className={heroCardClass}>
+      <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/50 mb-1.5'>{label}</div>
+      {isLoading ? (
+        <span className={`inline-block h-7 w-24 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
+      ) : (
+        <div className={`text-[20px] sm:text-[24px] md:text-[28px] font-bold tracking-[0.06em] leading-none ${colorClass}`}>
+          {value}
+        </div>
+      )}
+    </div>
   )
+}
 
-  const SparklineCard = ({
-    id,
-    title,
-    colorClass,
-    axisLabel,
-    stats,
-  }: {
-    id: string
-    title: string
-    colorClass: string
-    axisLabel: (value: number) => string
-    stats: SparklineMetric
-  }) => (
+function SparklineCard({
+  id,
+  title,
+  colorClass,
+  axisLabel,
+  stats,
+  isLoading,
+}: {
+  id: string
+  title: string
+  colorClass: string
+  axisLabel: (value: number) => string
+  stats: SparklineMetric
+  isLoading: boolean
+}) {
+  return (
     <article className={monitorClass} aria-label={id}>
       <div className={`flex items-center justify-between border-b border-hlpBorder ${panelBodyPad} ${panelHeaderPad}`}>
         <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted'>{title}</span>
         <AsciiBadge tone='neutral' variant='angle' className='text-[8px] tracking-[0.16em]'>
-          live sparkline
+          live
         </AsciiBadge>
       </div>
       <div className='px-3 pb-3 pt-2'>
@@ -306,7 +318,6 @@ export function PnlPanel({
                 )
               })}
 
-
               {stats.zeroY !== null ? (
                 <line
                   x1={stats.padX}
@@ -334,12 +345,30 @@ export function PnlPanel({
       </div>
     </article>
   )
+}
+
+export function PnlPanel({
+  snapshot,
+  trajectory = [],
+  accountValueTrajectory = [],
+  isLoading = false,
+  isCollapsed = false,
+  onToggle,
+  sectionId = 'pnl',
+}: PnlPanelProps) {
+  const pnlValues = trajectory.map((point) => point.pnlPct)
+  const pnlStats = useMemo(() => buildSparkline(pnlValues, snapshot.pnlPct), [pnlValues, snapshot.pnlPct])
+  const accountValueValues = accountValueTrajectory.map((point) => point.accountValueUsd)
+  const accountValueStats = useMemo(
+    () => buildSparkline(accountValueValues, snapshot.accountValueUsd),
+    [accountValueValues, snapshot.accountValueUsd],
+  )
 
   return (
     <section className={cardClass}>
       <button
         type='button'
-        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        className={collapsibleHeaderClass}
         aria-label='Toggle pnl trajectory panel'
         aria-expanded={!isCollapsed}
         aria-controls={`section-${sectionId}`}
@@ -348,7 +377,7 @@ export function PnlPanel({
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '−'}
+            {isCollapsed ? '+' : '\u2212'}
           </span>
           <AsciiBadge tone='inverse'>
             alpha stream
@@ -356,74 +385,70 @@ export function PnlPanel({
         </div>
       </button>
 
-      {!isCollapsed && <div className={`${panelBodyPad} grid gap-2`}>
-        <article className={`${monitorClass} overflow-hidden`}>
-          <div className={`flex min-h-[88px] flex-col gap-2 ${panelBodyPad}`}>
-            <div className='flex flex-wrap items-start justify-between gap-2'>
-              <div className='min-w-0'>
-                <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>MARKET PNL</div>
-                <div className={`text-2xl font-bold tracking-[0.14em] ${safePnlClass(snapshot.pnlPct)}`}>
-                  {toSigned(snapshot.pnlPct)}
-                </div>
-              </div>
-              <div className='min-w-0'>
-                <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>ACCOUNT VALUE</div>
-                <div className={`text-2xl font-bold tracking-[0.14em] ${snapshot.accountValueUsd === undefined ? 'text-hlpMuted' : 'text-hlpHealthy'}`}>
-                  {isLoading
-                    ? <span className={`inline-block h-7 w-40 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-                    : toUsd(snapshot.accountValueUsd)}
-                </div>
-              </div>
-              <div className='flex flex-wrap gap-1'>
-                {isLoading ? (
-                  <>
-                    <span className={`h-5 w-28 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-                    <span className={`h-5 w-36 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-                    <span className={`h-5 w-28 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-                  </>
-                ) : (
-                  <>
-                    <span className={`${inlineBadgeClass} ${safePnlClass(pnlStats.delta)}`}>delta {toSigned(pnlStats.delta)}</span>
-                    <span className={inlineBadgeClass}>delta%={toSigned(pnlStats.deltaPct)}</span>
-                    <span className={inlineBadgeClass}>samples={pnlStats.samples}</span>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-              <div className='rounded-sm border border-hlpBorder bg-hlpInverseBg px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>MODE</div>
-                <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
-              </div>
-              <div className='rounded-sm border border-hlpBorder bg-hlpInverseBg px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>Pnl current</div>
-                <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? '--' : toSigned(snapshot.pnlPct)}</div>
-              </div>
-              <div className='rounded-sm border border-hlpBorder bg-hlpInverseBg px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>VALUE now</div>
-                <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd)}</div>
-              </div>
-            </div>
+      {!isCollapsed && (
+        <div className={`${panelBodyPad} grid gap-3`}>
+          <div className='grid grid-cols-2 md:grid-cols-4 gap-2'>
+            <HeroStat
+              label='MARKET PNL'
+              value={toSigned(snapshot.pnlPct)}
+              colorClass={`text-hlpPanel ${safePnlClass(snapshot.pnlPct).replace('text-hlpMuted', 'text-hlpPanel/60')}`}
+              isLoading={isLoading}
+            />
+            <HeroStat
+              label='ACCOUNT VALUE'
+              value={toUsd(snapshot.accountValueUsd)}
+              colorClass={snapshot.accountValueUsd === undefined ? 'text-hlpPanel/60' : 'text-hlpPanel'}
+              isLoading={isLoading}
+            />
+            <HeroStat
+              label='MODE'
+              value={isLoading ? 'WARMUP' : snapshot.mode}
+              colorClass='text-hlpPanel'
+              isLoading={false}
+            />
+            <HeroStat
+              label='TRAJECTORY'
+              value={isLoading ? '\u2014' : `${pnlStats.samples} pts`}
+              colorClass='text-hlpPanel/70'
+              isLoading={false}
+            />
           </div>
-        </article>
 
-        <div className='grid gap-2 xl:grid-cols-2'>
-          <SparklineCard
-            id='market-pnl'
-            title='MARKET PNL OVER TIME'
-            colorClass='text-hlpHealthy'
-            axisLabel={toSigned}
-            stats={pnlStats}
-          />
-          <SparklineCard
-            id='account-value'
-            title='ACCOUNT VALUE OVER TIME'
-            colorClass='text-hlpNeutral'
-            axisLabel={toUsd}
-            stats={accountValueStats}
-          />
+          <div className='flex flex-wrap gap-1'>
+            {isLoading ? (
+              <>
+                <span className={`h-5 w-28 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
+                <span className={`h-5 w-36 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
+              </>
+            ) : (
+              <>
+                <span className={`${inlineBadgeClass} ${safePnlClass(pnlStats.delta)}`}>delta {toSigned(pnlStats.delta)}</span>
+                <span className={inlineBadgeClass}>delta%={toSigned(pnlStats.deltaPct)}</span>
+                <span className={inlineBadgeClass}>samples={pnlStats.samples}</span>
+              </>
+            )}
+          </div>
+
+          <div className='grid gap-2 xl:grid-cols-2'>
+            <SparklineCard
+              id='market-pnl'
+              title='MARKET PNL OVER TIME'
+              colorClass='text-hlpHealthy'
+              axisLabel={toSigned}
+              stats={pnlStats}
+              isLoading={isLoading}
+            />
+            <SparklineCard
+              id='account-value'
+              title='ACCOUNT VALUE OVER TIME'
+              colorClass='text-hlpNeutral'
+              axisLabel={toUsd}
+              stats={accountValueStats}
+              isLoading={isLoading}
+            />
+          </div>
         </div>
-      </div>}
+      )}
     </section>
   )
 }

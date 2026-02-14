@@ -1,4 +1,4 @@
-export const pageShellClass = 'mx-auto w-full max-w-[1300px] flex flex-col gap-2 px-2 py-3 sm:px-4 sm:py-4 lg:px-6 2xl:px-8'
+export const pageShellClass = 'relative z-10 mx-auto w-full max-w-[1300px] flex flex-col gap-3 px-2 py-4 sm:px-4 sm:py-6 lg:px-6 2xl:px-8'
 export const panelRadius = 'rounded-[6px]'
 export const panelRadiusSubtle = 'rounded-[3px]'
 export const panelGap = 'gap-2'
@@ -10,7 +10,7 @@ export const panelInlinePad = 'px-1 py-1'
 export const panelDividerClass = 'border-t border-hlpBorder/65'
 
 export const cardClass =
-  `relative overflow-hidden animate-hlp-fade-up ${panelRadius} border border-hlpBorder bg-hlpPanel text-hlpFg`
+  `relative overflow-hidden animate-hlp-fade-up ${panelRadius} border border-hlpBorder bg-hlpPanel text-hlpFg shadow-hlp-card`
 
 export const cardHeaderClass =
   `flex items-center justify-between border-b border-hlpBorder bg-hlpSurface ${panelHeaderPad} text-[9px] uppercase tracking-[0.24em] text-hlpMuted`
@@ -29,7 +29,7 @@ export const mutedTextClass = 'text-[9px] text-hlpMuted'
 export const inverseControlClass =
   'inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpInverseBg text-[10px] uppercase tracking-[0.14em] text-hlpPanel'
 export const mutedPanelClass = 'border-t border-hlpBorder bg-hlpSurface'
-export const terminalPanelClass = 'max-h-[380px] min-h-0 overflow-y-auto overflow-x-hidden py-1 px-2'
+export const terminalPanelClass = 'max-h-[420px] min-h-0 overflow-y-auto overflow-x-hidden py-1 px-2'
 
 export const statusCellClass =
   'flex items-center justify-between gap-2 border-b border-hlpBorder/45 bg-hlpPanel/95 px-3 py-2 min-h-[34px]'
@@ -38,3 +38,9 @@ export const monitorClass = 'overflow-hidden rounded-[4px] bg-hlpSurface'
 
 export const sectionStripClass =
   `flex flex-wrap ${panelGap} border-t border-hlpBorder/85 ${panelBodyPad}`
+
+export const heroCardClass =
+  `${panelRadius} border border-hlpBorder bg-hlpInverseBg p-3 sm:p-4`
+
+export const collapsibleHeaderClass =
+  `${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left transition-colors hover:bg-hlpPanel/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`

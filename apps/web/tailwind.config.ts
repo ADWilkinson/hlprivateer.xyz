@@ -16,6 +16,7 @@ const config: Config = {
         hlpPanel: '#F4EEE8',
         hlpSurface: '#F4EEE8',
         hlpInverseBg: '#2f3034',
+        hlpDeepBg: '#1c1c1f',
         hlpFg: '#27272A',
         hlpMuted: '#27272A',
         hlpDim: '#5B5B60',
@@ -33,20 +34,28 @@ const config: Config = {
       },
       boxShadow: {
         hlp: '0 0 0 1px rgba(0, 0, 0, 0.18)',
+        'hlp-glow': '0 0 20px rgba(0, 114, 181, 0.08)',
+        'hlp-card': '0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.08)',
       },
       fontFamily: {
         mono: ['var(--font-hlp-mono)', 'IBM Plex Mono', 'SFMono-Regular', 'ui-monospace', 'monospace'],
       },
       animation: {
         'hlp-fade-up': 'hlp-fade-up 420ms ease-out both',
+        'hlp-fade-up-delay-1': 'hlp-fade-up 420ms ease-out 80ms both',
+        'hlp-fade-up-delay-2': 'hlp-fade-up 420ms ease-out 160ms both',
+        'hlp-fade-up-delay-3': 'hlp-fade-up 420ms ease-out 240ms both',
         'hlp-hot': 'hlp-hot 500ms ease-out',
         'hlp-led': 'hlp-led 2.4s ease-in-out infinite',
         'hlp-cursor': 'hlp-cursor 1s step-end infinite',
         'hlp-strip': 'hlp-strip 1.2s linear infinite alternate',
+        'hlp-scan': 'hlp-scan 4s linear infinite',
+        'hlp-wave-scroll': 'hlp-wave-scroll 20s linear infinite',
+        'hlp-pulse-ring': 'hlp-pulse-ring 2s ease-out infinite',
       },
       keyframes: {
         'hlp-fade-up': {
-          from: { opacity: '0', transform: 'translateY(6px)' },
+          from: { opacity: '0', transform: 'translateY(8px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
         'hlp-hot': {
@@ -64,6 +73,18 @@ const config: Config = {
         'hlp-strip': {
           from: { filter: 'brightness(1)' },
           to: { filter: 'brightness(0.88)' },
+        },
+        'hlp-scan': {
+          from: { transform: 'translateY(-100%)' },
+          to: { transform: 'translateY(100%)' },
+        },
+        'hlp-wave-scroll': {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-50%)' },
+        },
+        'hlp-pulse-ring': {
+          '0%': { transform: 'scale(1)', opacity: '0.6' },
+          '100%': { transform: 'scale(1.8)', opacity: '0' },
         },
       },
     },

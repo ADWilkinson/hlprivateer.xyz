@@ -1,5 +1,5 @@
 import { AsciiBadge, AsciiTable } from './ascii-kit'
-import { cardClass, cardHeaderClass, inverseControlClass, panelBodyPad, sectionTitleClass } from './ascii-style'
+import { cardClass, collapsibleHeaderClass, inverseControlClass, panelBodyPad, sectionTitleClass } from './ascii-style'
 
 type AgentRouteRow = {
   id: string
@@ -130,7 +130,7 @@ export function X402AgentMaterialsPanel({
     <section id='x402-access' className={cardClass}>
       <button
         type='button'
-        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        className={collapsibleHeaderClass}
         aria-label='Toggle x402 panel'
         aria-expanded={!isCollapsed}
         aria-controls={`section-${sectionId}`}
@@ -139,45 +139,45 @@ export function X402AgentMaterialsPanel({
         <span className={sectionTitleClass}>[HL] PRIVATEER / X402 + AGENTS</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '−'}
+            {isCollapsed ? '+' : '\u2212'}
           </span>
           <AsciiBadge tone='inverse'>
-            external access surface
+            external access
           </AsciiBadge>
         </div>
       </button>
 
       {!isCollapsed && (
-        <div className={`${panelBodyPad} grid gap-3`}>
+        <div className={`${panelBodyPad} grid gap-4`}>
           <div>
-            <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>Access summary</div>
-            <div className='grid gap-2 text-[11px] md:grid-cols-2'>
-              <p>
+            <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Access summary</div>
+            <div className='grid gap-3 text-[11px] leading-relaxed md:grid-cols-2'>
+              <p className='text-hlpMuted'>
                 The external agent layer can access live floor materials via machine-gated endpoints. Routes are protected through
                 x402 payments and dynamic capability checks, then mapped to tiered entitlements.
               </p>
-              <p>
+              <p className='text-hlpMuted'>
                 Tiering and capability negotiation is resolved via
                 {' '}
-                <span className='font-mono'>POST /v1/agent/handshake</span> and entitlement refresh through
+                <span className='font-mono text-hlpAccent'>POST /v1/agent/handshake</span> and entitlement refresh through
                 {' '}
-                <span className='font-mono'>/v1/agent/unlock/:tier</span>.
+                <span className='font-mono text-hlpAccent'>/v1/agent/unlock/:tier</span>.
               </p>
             </div>
           </div>
 
           <div className='grid gap-2'>
-            <div className='text-[9px] uppercase tracking-[0.1em] text-hlpMuted'>Direct curl access</div>
-            <div className='rounded border border-hlpBorder'>
-              <div className='px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>llms / openspec / agents</div>
-              <div className='space-y-1 border-t border-hlpBorder px-2 py-2'>
+            <div className='text-[9px] uppercase tracking-[0.14em] text-hlpDim'>Direct curl access</div>
+            <div className='rounded-[4px] border border-hlpBorder overflow-hidden'>
+              <div className='px-3 py-1.5 text-[8px] uppercase tracking-[0.2em] text-hlpDim bg-hlpSurface border-b border-hlpBorder'>llms / openspec / agents</div>
+              <div className='space-y-0.5 px-2 py-2'>
                 {curlCommands.map((entry) => (
                   <a
                     key={entry.id}
                     href={entry.href}
                     target='_blank'
                     rel='noreferrer'
-                    className='block rounded px-2 py-1 font-mono text-[10px] break-all text-hlpAccent hover:bg-hlpPanel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
+                    className='block rounded-[3px] px-2 py-1.5 font-mono text-[10px] break-all text-hlpAccent transition-colors hover:bg-hlpSurface/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
                   >
                     {entry.command}
                   </a>

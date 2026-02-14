@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang='en' suppressHydrationWarning className={`${terminalFont.variable}`}>
       <body
-        className={`${terminalFont.className} min-h-screen bg-hlpBg text-hlpFg antialiased`}
+        className={`${terminalFont.className} min-h-screen bg-hlpBg text-hlpFg antialiased ascii-texture`}
       >
         {children}
       </body>
