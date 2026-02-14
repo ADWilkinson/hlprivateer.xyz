@@ -54,6 +54,10 @@ function Badge({ children, variant }: { children: string; variant: 'ok' | 'warn'
   return <span className={`badge ${variant}`}>{children}</span>
 }
 
+function Led({ variant }: { variant: 'ok' | 'warn' | 'danger' }) {
+  return <span className={`led ${variant}`} />
+}
+
 function crewLabel(role: CrewRole): string {
   if (role === 'scout') return 'SCOUT'
   if (role === 'research') return 'RESEARCH'
@@ -64,23 +68,35 @@ function crewLabel(role: CrewRole): string {
   return 'OPS'
 }
 
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-GB', { hour12: false })
+  } catch {
+    return '--:--:--'
+  }
+}
+
 function asciiLogo(): string {
   return [
-    'HL PRIVATEER // TRADING FLOOR',
-    '┌───────────────────────────────────────────────────────────────┐',
-    '│  "We do not predict. We hard-gate."                             │',
-    '│                                                                 │',
-    '│  CREW: scout | research | strategist | execution | risk | ops   │',
-    '│  EXCHANGE: Hyperliquid (HYPE vs basket)                         │',
-    '│  PAYMENTS: x402 (facilitator-backed)                            │',
-    '└───────────────────────────────────────────────────────────────┘'
+    '\u256B \u256B\u256B  \u250F\u2501\u2513\u250F\u2501\u2513\u256B\u256B \u256B\u250F\u2501\u2513\u257A\u2533\u2578\u250F\u2501\u2578\u250F\u2501\u2578\u250F\u2501\u2513',
+    '\u2523\u2501\u252B\u2503  \u2523\u2501\u251B\u2523\u2533\u251B\u2503\u2503\u250F\u251B\u2523\u2501\u252B \u2503 \u2523\u2578 \u2523\u2578 \u2523\u2533\u251B',
+    '\u2579 \u2579\u2517\u2501\u2578\u2579  \u2579\u2517\u2578\u2579\u2517\u251B \u2579 \u2579 \u2579 \u2517\u2501\u2578\u2517\u2501\u2578\u2579\u2517\u2578',
   ].join('\n')
 }
 
 function renderAsciiChart(values: number[], width: number, height: number): { chart: string; min: number; max: number } {
   const trimmed = values.filter((v) => Number.isFinite(v)).slice(-Math.max(width, 2))
   if (trimmed.length < 2) {
-    return { chart: '(warming up)', min: 0, max: 0 }
+    const pad = Math.floor((width - 12) / 2)
+    const empty = Array.from({ length: height }, () => '\u2502' + ' '.repeat(width) + '\u2502')
+    const mid = Math.floor(height / 2)
+    const msg = ' warming up '
+    empty[mid] = '\u2502' + ' '.repeat(pad) + msg + ' '.repeat(width - pad - msg.length) + '\u2502'
+    return {
+      chart: ['\u250C' + '\u2500'.repeat(width) + '\u2510', ...empty, '\u2514' + '\u2500'.repeat(width) + '\u2518'].join('\n'),
+      min: 0,
+      max: 0,
+    }
   }
 
   let min = Math.min(...trimmed)
@@ -96,20 +112,20 @@ function renderAsciiChart(values: number[], width: number, height: number): { ch
     const v = trimmed[idx] ?? 0
     const t = (v - min) / (max - min)
     const y = height - 1 - Math.round(t * (height - 1))
-    if (grid[y] && grid[y]![x]) {
-      grid[y]![x] = '*'
+    if (grid[y] && grid[y]![x] !== undefined) {
+      grid[y]![x] = '\u2588'
     }
   }
 
   const lines = grid.map((row) => row.join(''))
-  const top = `max ${max.toFixed(3)}%`
-  const bottom = `min ${min.toFixed(3)}%`
   return {
-    chart: [`+${'-'.repeat(width)}+`, ...lines.map((line) => `|${line}|`), `+${'-'.repeat(width)}+`, `${top}  ${bottom}`].join(
-      '\n'
-    ),
+    chart: [
+      `\u250C${'\u2500'.repeat(width)}\u2510 ${max.toFixed(3)}%`,
+      ...lines.map((line) => `\u2502${line}\u2502`),
+      `\u2514${'\u2500'.repeat(width)}\u2518 ${min.toFixed(3)}%`,
+    ].join('\n'),
     min,
-    max
+    max,
   }
 }
 
@@ -119,10 +135,10 @@ export default function DeckPage() {
     pnlPct: 0,
     healthCode: 'GREEN',
     driftState: 'IN_TOLERANCE',
-    lastUpdateAt: new Date().toISOString()
+    lastUpdateAt: new Date().toISOString(),
   }))
   const [tape, setTape] = useState<TapeEntry[]>([
-    { ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'booting floor' }
+    { ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'booting floor' },
   ])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
   const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
@@ -133,7 +149,7 @@ export default function DeckPage() {
     execution: null,
     risk: null,
     scribe: null,
-    ops: null
+    ops: null,
   }))
 
   const logo = useMemo(() => asciiLogo(), [])
@@ -148,7 +164,6 @@ export default function DeckPage() {
   }, [pnlSeries])
 
   useEffect(() => {
-    // keep "top" newest line visible on small viewports
     tapeRef.current?.scrollTo({ top: 0 })
   }, [tape])
 
@@ -167,15 +182,11 @@ export default function DeckPage() {
 
     const samplePnl = (payload: { pnlPct?: unknown; lastUpdateAt?: unknown }) => {
       const pnlPct = Number(payload.pnlPct)
-      if (!Number.isFinite(pnlPct)) {
-        return
-      }
+      if (!Number.isFinite(pnlPct)) return
 
       const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
       const now = Date.now()
-      if (now - lastPnlSampleAtRef.current < 8000) {
-        return
-      }
+      if (now - lastPnlSampleAtRef.current < 8000) return
       lastPnlSampleAtRef.current = now
 
       setPnlSeries((current) => [...current, { ts, pnlPct }].slice(-240))
@@ -190,14 +201,12 @@ export default function DeckPage() {
           samplePnl(next)
         }
       } catch {
-        // ignore
+        // network unavailable on initial load
       }
     }
 
     const connect = () => {
-      if (!running) {
-        return
-      }
+      if (!running) return
 
       try {
         setWsState('CONNECTING')
@@ -210,15 +219,11 @@ export default function DeckPage() {
         }
 
         socket.onmessage = (event) => {
-          if (!running) {
-            return
-          }
+          if (!running) return
 
           try {
             const parsed = JSON.parse(event.data as string) as { type: string; payload: any; channel?: string }
-            if (parsed.type !== 'event' || parsed.channel !== 'public') {
-              return
-            }
+            if (parsed.type !== 'event' || parsed.channel !== 'public') return
 
             const payload = parsed.payload ?? {}
             const payloadType = payload?.type
@@ -238,22 +243,23 @@ export default function DeckPage() {
               const role = typeof payload.role === 'string' ? payload.role : undefined
               const level = payload.level === 'WARN' || payload.level === 'ERROR' ? payload.level : ('INFO' as const)
               const line = typeof payload.line === 'string' ? payload.line : ''
-              if (!line) {
-                return
-              }
+              if (!line) return
 
               pushTape({ ts, role, level, line })
               return
             }
           } catch (error) {
-            pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: `ws parse error: ${String(error).slice(0, 120)}` })
+            pushTape({
+              ts: new Date().toISOString(),
+              role: 'ops',
+              level: 'WARN',
+              line: `ws parse error: ${String(error).slice(0, 120)}`,
+            })
           }
         }
 
         socket.onclose = () => {
-          if (!running) {
-            return
-          }
+          if (!running) return
           setWsState('CLOSED')
           pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: 'ws disconnected, reconnecting' })
           reconnectTimer = setTimeout(connect, 1500)
@@ -264,7 +270,12 @@ export default function DeckPage() {
         }
       } catch (error) {
         setWsState('CLOSED')
-        pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: `ws connect failed: ${String(error).slice(0, 120)}` })
+        pushTape({
+          ts: new Date().toISOString(),
+          role: 'ops',
+          level: 'WARN',
+          line: `ws connect failed: ${String(error).slice(0, 120)}`,
+        })
         reconnectTimer = setTimeout(connect, 1500)
       }
     }
@@ -274,125 +285,137 @@ export default function DeckPage() {
 
     return () => {
       running = false
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
-      }
-      if (socket && socket.readyState < 2) {
-        socket.close()
-      }
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (socket && socket.readyState < 2) socket.close()
     }
   }, [])
 
   const crewNow = Date.now()
+  const modeClass = `mode-${snapshot.mode.toLowerCase().replace(/_/g, '-')}`
 
   return (
-    <main className='deck'>
-      <header className='hero'>
-        <div className='heroTop'>
-          <pre className='logo' aria-label='HL Privateer logo'>
+    <main className="floor">
+      <header className="floor-header">
+        <div className="header-left">
+          <pre className="ascii-logo" aria-label="HL Privateer">
             {logo}
           </pre>
-          <div className='heroAside'>
-            <div className='subline'>Public-only floor. Strategy execution is autonomous and hard-gated.</div>
-            <div className='subline'>{`api=${apiUrl('')} ws=${wsUrl()}`}</div>
+          <div className="header-title-mobile">HL PRIVATEER</div>
+        </div>
+        <div className="header-right">
+          <div className="header-live">
+            <Led variant={badgeVariantForWs(wsState)} />
+            <span className="header-live-text">{wsState === 'OPEN' ? 'LIVE' : wsState}</span>
           </div>
+          <div className="header-subtitle">TRADING FLOOR</div>
+          <div className="header-tagline">&quot;We do not predict. We hard-gate.&quot;</div>
+          <div className="header-endpoints">{apiUrl('')}</div>
         </div>
       </header>
 
-      <section className='panel'>
-        <div className='panelHeader'>
-          <div className='panelTitle'>Bridge</div>
-          <div className='panelBadges'>
-            <Badge variant={badgeVariantForHealth(snapshot.healthCode)}>{`health:${snapshot.healthCode}`}</Badge>
-            <Badge variant={badgeVariantForDrift(snapshot.driftState)}>{`drift:${snapshot.driftState}`}</Badge>
-            <Badge variant={badgeVariantForWs(wsState)}>{`ws:${wsState}`}</Badge>
+      <div className="strip">
+        <div className="strip-item">
+          <span className="strip-label">MODE</span>
+          <span className={`strip-value ${modeClass}`}>{snapshot.mode}</span>
+        </div>
+        <span className="strip-sep">{'\u2502'}</span>
+        <div className="strip-item">
+          <span className="strip-label">HEALTH</span>
+          <Led variant={badgeVariantForHealth(snapshot.healthCode)} />
+          <span className="strip-value">{snapshot.healthCode}</span>
+        </div>
+        <span className="strip-sep">{'\u2502'}</span>
+        <div className="strip-item">
+          <span className="strip-label">DRIFT</span>
+          <Led variant={badgeVariantForDrift(snapshot.driftState)} />
+          <span className="strip-value">{snapshot.driftState}</span>
+        </div>
+        <span className="strip-sep">{'\u2502'}</span>
+        <div className="strip-item">
+          <span className="strip-label">EXCHANGE</span>
+          <span className="strip-value">HYPERLIQUID</span>
+        </div>
+      </div>
+
+      <section className="pnl-row">
+        <div className="pnl-hero">
+          <div className="pnl-label">PROFIT / LOSS</div>
+          <div className={`pnl-value ${pnl < 0 ? 'negative' : ''}`}>
+            {pnl >= 0 ? '+' : ''}
+            {pnl.toFixed(3)}%
+          </div>
+          <div className="pnl-meta">
+            <span>HYPE vs basket</span>
+            <span className="pnl-dot">{'\u00B7'}</span>
+            <span>{formatTime(snapshot.lastUpdateAt)}</span>
           </div>
         </div>
-        <div className='panelBody'>
-          <div className='bridgeGrid'>
-            <div className='kv'>
-              <div className='kvLabel'>mode</div>
-              <div className='kvValue'>{snapshot.mode}</div>
-              <div className='kvLabel'>pnl</div>
-              <div className='kvValue hlp-pnl'>{pnl.toFixed(3)}%</div>
-              <div className='kvLabel'>updated</div>
-              <div className='kvValue'>{snapshot.lastUpdateAt}</div>
-              <div className='kvLabel'>exchange</div>
-              <div className='kvValue'>hyperliquid</div>
-            </div>
-
-            <div className='monoBox'>
-              <div className='muted'>pnl chart (since page load)</div>
-              <pre className='chart'>{chart}</pre>
-            </div>
-          </div>
+        <div className="pnl-chart-panel">
+          <div className="section-label">PNL TRAJECTORY</div>
+          <pre className="chart">{chart}</pre>
         </div>
       </section>
 
-      <div className='grid3'>
-        <section className='panel panelAlt'>
-          <div className='panelHeader'>
-            <div className='panelTitle'>Crew</div>
-            <div className='panelBadges'>
-              <Badge variant='ok'>agentic</Badge>
-            </div>
-          </div>
-          <div className='panelBody'>
-            <div className='crew'>
-              {CREW.map((role) => {
-                const last = crewLast[role]
-                const lastMs = last?.ts ? Date.parse(last.ts) : 0
-                const active = lastMs > 0 && crewNow - lastMs < 90_000
-                const variant = active ? 'ok' : 'warn'
-                const line = last?.line ? last.line : '...'
-                const level = last?.level ?? 'INFO'
-                return (
-                  <div className='crewRow' key={role}>
-                    <div className='crewLeft'>
-                      <Badge variant={variant}>{crewLabel(role)}</Badge>
-                      <span className={`crewLevel ${String(level).toLowerCase()}`}>{level}</span>
-                    </div>
-                    <div className='crewRight'>
-                      <div className='crewLine'>{line}</div>
-                      <div className='crewMeta'>{last?.ts ?? ''}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-
-        <section className='panel'>
-          <div className='panelHeader'>
-            <div className='panelTitle'>Tape</div>
-            <div className='panelBadges'>
-              <Badge variant='ok'>live</Badge>
-            </div>
-          </div>
-          <div className='panelBody'>
-            <div className='tape' ref={tapeRef} aria-label='event tape'>
-              {tape.map((entry, index) => {
-                const role = entry.role ? `[${entry.role}] ` : ''
-                const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
-                const rendered = `${entry.ts} ${role}${entry.line}`.trim()
-                return (
-                  <span className={`tapeLine ${index === 0 ? 'hot' : ''} ${levelClass}`} key={`${index}-${rendered.slice(0, 32)}`}>
-                    {rendered}
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <footer className='footer'>
-        <div className='muted'>
-          External agents can purchase paid routes via x402: <span className='mono'>{apiUrl('/v1/agent/analysis/latest')}</span>
+      <section className="crew-section">
+        <div className="section-bar">
+          <div className="section-label">CREW STATIONS</div>
+          <Badge variant="ok">7 agents</Badge>
         </div>
+        <div className="crew-grid">
+          {CREW.map((role) => {
+            const last = crewLast[role]
+            const lastMs = last?.ts ? Date.parse(last.ts) : 0
+            const active = lastMs > 0 && crewNow - lastMs < 90_000
+            const line = last?.line || '\u2026'
+            const level = last?.level ?? 'INFO'
+            return (
+              <div className={`agent-term ${active ? 'active' : ''}`} key={role}>
+                <div className="agent-bar">
+                  <span className="agent-name">{crewLabel(role)}</span>
+                  <span className={`agent-led ${active ? 'on' : 'off'}`} />
+                </div>
+                <div className="agent-body">
+                  <span className={`agent-level ${level.toLowerCase()}`}>{level}</span>
+                  <div className="agent-msg">{line}</div>
+                </div>
+                <div className="agent-ts">{last?.ts ? formatTime(last.ts) : '\u2014'}</div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="tape-section">
+        <div className="section-bar">
+          <div className="section-label">FLOOR TAPE</div>
+          <Badge variant="ok">live</Badge>
+        </div>
+        <div className="tape-scroll" ref={tapeRef} aria-label="event tape">
+          {tape.map((entry, i) => {
+            const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
+            return (
+              <div className={`tape-line ${i === 0 ? 'hot' : ''} ${levelClass}`} key={`${i}-${entry.ts}`}>
+                <span className="tape-marker">{i === 0 ? '\u25B8' : '\u00A0'}</span>
+                <span className="tape-ts">{formatTime(entry.ts)}</span>
+                {entry.role && (
+                  <span className="tape-role">[{entry.role.slice(0, 3).toUpperCase()}]</span>
+                )}
+                <span className="tape-msg">{entry.line}</span>
+                {i === 0 && <span className="tape-cursor">{'\u2588'}</span>}
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <footer className="floor-footer">
+        <div className="footer-line">
+          <span className="footer-sep">{'\u2500'.repeat(3)}</span>
+          <span className="footer-text">x402 agent access</span>
+          <span className="footer-sep">{'\u2500'.repeat(3)}</span>
+        </div>
+        <div className="footer-url">{apiUrl('/v1/agent/analysis/latest')}</div>
       </footer>
     </main>
   )
 }
-
