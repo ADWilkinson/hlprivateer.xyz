@@ -41,7 +41,7 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span className={sectionTitleClass}>CREW STATIONS</span>
-        <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
+        <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
           7 AGENTS
         </AsciiBadge>
       </div>

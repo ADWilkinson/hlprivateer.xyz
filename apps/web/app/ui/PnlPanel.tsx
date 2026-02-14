@@ -1,4 +1,4 @@
-import { AsciiBadge } from 'react-ascii-ui'
+import { AsciiBadge } from './ascii-kit'
 import { formatTime, type Snapshot } from './floor-dashboard'
 import { cardClass, cardHeaderClass, sectionTitleClass } from './ascii-style'
 
@@ -32,7 +32,10 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
             <span>{formatTime(snapshot.lastUpdateAt)}</span>
           </div>
           <div className='mt-2'>
-            <AsciiBadge color={isHealthy ? 'success' : 'error'} className={isHealthy ? 'text-hlpPositive dark:text-hlpPositiveDark' : 'text-hlpNegative dark:text-hlpNegativeDark'}>
+            <AsciiBadge
+              tone={isHealthy ? 'positive' : 'error'}
+              className={isHealthy ? 'text-hlpPositive dark:text-hlpPositiveDark' : 'text-hlpNegative dark:text-hlpNegativeDark'}
+            >
               {isHealthy ? 'TRADING READY' : 'RISK MODE'}
             </AsciiBadge>
           </div>

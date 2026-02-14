@@ -1,6 +1,6 @@
-import { AsciiBadge, AsciiNetworkVisualizer, AsciiTable } from 'react-ascii-ui'
-import { ASCII_NETWORK_THEMES } from 'react-ascii-ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AsciiBadge, AsciiTable } from './ascii-kit'
+import { AsciiTopology, type AsciiTopologyNode } from './ascii-topology'
 import {
   CREW,
   HEARTBEAT_WINDOW_MS,
@@ -9,7 +9,7 @@ import {
   type CrewHeartbeat,
   type CrewRole,
 } from './floor-dashboard'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionTitleClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, sectionTitleClass } from './ascii-style'
 
 type CrewNode = {
   id: string
@@ -30,56 +30,22 @@ type FloorPlanPanelProps = {
   theme: 'light' | 'dark'
 }
 
-type NetworkColor = {
-  background: string
-  grid: string
-  text: string
-  border: string
-  nodeOnline: string
-  nodeOffline: string
-  nodeWarning: string
-  nodeError: string
-  edgeActive: string
-  edgeInactive: string
-  edgeCongested: string
-  edgeError: string
-  selection: string
-  hover: string
+type TopologyEdge = {
+  id: string
+  source: string
+  target: string
+  status: 'active' | 'warning' | 'error' | 'inactive' | 'congested'
+  label?: string
 }
 
-const networkThemes: Record<'light' | 'dark', NetworkColor> = {
-  light: {
-    background: '#f4f1ec',
-    grid: 'rgba(42, 58, 74, 0.13)',
-    text: '#2f3a4c',
-    border: '#b9b0a2',
-    nodeOnline: '#2f8b67',
-    nodeOffline: '#94a8bf',
-    nodeWarning: '#b48844',
-    nodeError: '#b95d69',
-    edgeActive: '#2f8b67',
-    edgeInactive: '#8a97a6',
-    edgeCongested: '#b48844',
-    edgeError: '#b95d69',
-    selection: '#2f3a4c',
-    hover: '#2f3a4c',
-  },
-  dark: {
-    background: '#172437',
-    grid: 'rgba(220, 230, 245, 0.08)',
-    text: '#dbe5f3',
-    border: '#435774',
-    nodeOnline: '#56cfad',
-    nodeOffline: '#94a8bf',
-    nodeWarning: '#dfbe70',
-    nodeError: '#e18d98',
-    edgeActive: '#56cfad',
-    edgeInactive: '#7d8aa1',
-    edgeCongested: '#dfbe70',
-    edgeError: '#e18d98',
-    selection: '#dbe5f3',
-    hover: '#dbe5f3',
-  },
+const roleRoute: Record<CrewRole, string> = {
+  scout: 'SCOUT -> RESEARCH',
+  research: 'RESEARCH -> STRATEGIST',
+  strategist: 'STRATEGIST -> EXECUTION',
+  execution: 'EXECUTION -> SCRIBE',
+  risk: 'RISK -> EXECUTION',
+  scribe: 'SCRIBE -> OPS',
+  ops: 'OPS -> BROADCAST',
 }
 
 function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 'stale' | 'silent'; pulse: string; label: string } {
@@ -94,20 +60,11 @@ function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 's
 }
 
 function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number): CrewNode[] {
-  const roleRoute: Record<CrewRole, string> = {
-    scout: 'SCOUT -> RESEARCH',
-    research: 'RESEARCH -> STRATEGIST',
-    strategist: 'STRATEGIST -> EXECUTION',
-    execution: 'EXECUTION -> SCRIBE',
-    risk: 'RISK -> EXECUTION',
-    scribe: 'SCRIBE -> OPS',
-    ops: 'OPS -> BROADCAST',
-  }
-
   return CREW.map((role) => {
     const lastPing = crewHeartbeat[role]
     const heartbeatMs = lastPing > 0 ? Math.max(0, nowMs - lastPing) : Number.POSITIVE_INFINITY
     const status = heartbeatStatus(lastPing, nowMs)
+
     return {
       id: role,
       label: crewLabel(role),
@@ -156,10 +113,9 @@ export function FloorPlanPanel({
   }, [])
 
   const topology = useMemo(() => {
-    const nodes = stationRows.map((row) => ({
+    const nodes: AsciiTopologyNode[] = stationRows.map((row) => ({
       id: row.id,
       label: row.label,
-      type: row.role === 'ops' ? 'router' : 'workstation',
       status: row.status === 'active' ? 'online' : row.status === 'stale' ? 'warning' : 'offline',
       metadata: {
         role: row.role,
@@ -168,32 +124,23 @@ export function FloorPlanPanel({
       },
     }))
 
-    const edges = stationRows
+    const edges: TopologyEdge[] = stationRows
       .filter((row) => row.role !== 'ops')
       .map((row) => ({
         id: `ops-${row.role}`,
         source: 'ops',
         target: row.id,
-        type: 'api',
         status:
-          crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.45 ? 'active' : 'congested',
-        bidirectional: true,
+          crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.45
+            ? 'active'
+            : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.8
+              ? 'warning'
+              : 'error',
         label: `link:${row.label}`,
       }))
 
-    return { nodes, edges, metadata: { name: 'HL Trading Floor', description: 'Crew heartbeat topology' } }
+    return { nodes, edges }
   }, [crewHeartbeat, stationRows, nowMs])
-
-  const floorNetworkTheme = useMemo(
-    () => ({
-      ...ASCII_NETWORK_THEMES.green,
-      colors: {
-        ...ASCII_NETWORK_THEMES.green.colors,
-        ...networkThemes[theme],
-      },
-    }),
-    [theme],
-  )
 
   return (
     <section className={cardClass}>
@@ -202,7 +149,7 @@ export function FloorPlanPanel({
           <div className={sectionTitleClass}>FLOOR PLAN MAP</div>
           <div className='text-[11px] text-hlpMuted dark:text-hlpMutedDark'>LIVE CONNECTIVITY GRAPH</div>
         </div>
-        <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
+        <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
           topology mode
         </AsciiBadge>
       </div>
@@ -230,24 +177,15 @@ export function FloorPlanPanel({
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
           <div ref={mapRef} className='h-[258px] w-full max-w-full overflow-auto px-1 pb-1'>
-            <AsciiNetworkVisualizer
-              topology={topology}
-              options={{
-                theme: floorNetworkTheme,
-                width: networkWidth,
-                height: 230,
-                showLabels: true,
-                showStatus: true,
-                interactive: false,
-                layout: 'circular',
-                animation: true,
-                zoom: false,
-                pan: false,
-                soundEffects: false,
-              }}
+            <AsciiTopology
+              nodes={topology.nodes}
+              edges={topology.edges}
+              width={networkWidth}
+              theme={theme}
+              className='text-[9px] text-hlpMuted dark:text-hlpMutedDark'
             />
           </div>
-          <div className='flex flex-wrap gap-1 border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-2 bg-hlpSurface dark:bg-hlpSurfaceDark'>
+          <div className={sectionStripClass}>
             <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
             <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>
             <span className={inlineBadgeClass}>missing={deckMissing}</span>
