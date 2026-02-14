@@ -23,7 +23,7 @@ export default {
     requiredTier: 'tier0',
     capabilities: ['signal.volatility'],
     permissions: ['market.read'],
-    cooldownMs: 30000
+    cooldownMs: 600000
   },
   initialize: async (context: PluginContext) => {
     ctx = context

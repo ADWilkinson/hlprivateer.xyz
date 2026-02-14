@@ -14,7 +14,7 @@ export default {
     requiredTier: 'tier0',
     capabilities: ['signal.funding'],
     permissions: ['market.read'],
-    cooldownMs: 60000
+    cooldownMs: 1800000
   },
   initialize: async (context: PluginContext) => {
     ctx = context
