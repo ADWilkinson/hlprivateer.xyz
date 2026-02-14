@@ -542,10 +542,22 @@ export default function DeckPage() {
               return
             }
             const payload = parsed.payload as SnapshotPayload
-            const payloadType = payload?.type
-            logInfo(`ws payloadType=${payloadType ?? 'unknown'}`)
+            const payloadType =
+              payload && typeof payload === 'object' && 'type' in payload && typeof payload.type === 'string'
+                ? payload.type.trim().toLowerCase()
+                : ''
+            logInfo(`ws payloadType=${payloadType || 'unknown'}`)
 
-            if (payloadType === 'STATE_UPDATE') {
+            if (!payloadType && payload && typeof payload === 'object' && 'ts' in payload && 'mode' in payload) {
+              logWarn('ws payload missing type; falling back to state update inference', payload)
+              setSnapshot((current) => normalizeSnapshot(payload as SnapshotPayload, current))
+              setDeckHeartbeatMs(Date.now())
+              samplePnl(payload as SnapshotPayload)
+              sampleAccountValue(payload as SnapshotPayload)
+              return
+            }
+
+            if (payloadType === 'state_update') {
               setSnapshot((current) => normalizeSnapshot(payload, current))
               setDeckHeartbeatMs(Date.now())
               samplePnl(payload)
@@ -574,13 +586,35 @@ export default function DeckPage() {
               return
             }
 
-            if (payloadType === 'FLOOR_TAPE') {
+            if (payloadType === 'floor_tape') {
               const entry = normalizeTapeEntry(payload)
               if (!entry) return
               if (shouldRenderTapeLine(entry)) {
                 setTape((current) => [entry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
               }
               return
+            }
+
+            if (typeof payload === 'object' && payload !== null) {
+              const candidate = payload as SnapshotPayload
+              if ('healthCode' in candidate || 'driftState' in candidate || 'accountValueUsd' in candidate) {
+                setSnapshot((current) => normalizeSnapshot(candidate, current))
+                setDeckHeartbeatMs(Date.now())
+                samplePnl(candidate)
+                sampleAccountValue(candidate)
+                if (typeof candidate.message === 'string' && candidate.message) {
+                  const parsedMessage = normalizeTapeEntry({
+                    ts: typeof candidate.ts === 'string' ? candidate.ts : new Date().toISOString(),
+                    role: 'ops',
+                    level: 'INFO',
+                    line: candidate.message,
+                  })
+                  if (parsedMessage && shouldRenderTapeLine(parsedMessage)) {
+                    setTape((current) => [parsedMessage, ...current].slice(0, TAPE_DISPLAY_LIMIT))
+                  }
+                }
+                return
+              }
             }
 
             logWarn('unhandled websocket payload type', payload)

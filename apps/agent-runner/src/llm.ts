@@ -4,9 +4,22 @@ import os from 'node:os'
 import path from 'node:path'
 import { ulid } from 'ulid'
 
-async function runCommand(cmd: string, args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+async function runCommand(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+  env?: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const processEnv = {
+      ...process.env,
+      ...(env ?? {})
+    }
+
+    const child = spawn(cmd, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: processEnv
+    })
     let stdout = ''
     let stderr = ''
 
@@ -36,6 +49,260 @@ async function runCommand(cmd: string, args: string[], timeoutMs: number): Promi
       resolve({ stdout, stderr })
     })
   })
+}
+
+function looksLikeCodexDependencyFailure(error: unknown): boolean {
+  const message = String(error)
+  return (
+    message.includes('Missing optional dependency @openai/codex-linux-x64') ||
+    message.includes('Cannot use import statement outside a module') ||
+    message.includes('To load an ES module')
+  )
+}
+
+async function runCliCommand(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+  kind: 'claude' | 'codex'
+): Promise<{ stdout: string; stderr: string }> {
+  const bunInstall = process.env.BUN_INSTALL?.trim() || path.join(process.env.HOME || '', '.bun')
+  const codexNodePath = path.join(bunInstall, 'install', 'global', 'node_modules')
+
+  if (kind === 'claude') {
+    return runCommand('bun', [command, ...args], timeoutMs)
+  }
+
+  try {
+    return await runCommand('bun', [command, ...args], timeoutMs, {
+      NODE_PATH: codexNodePath
+    })
+  } catch (error) {
+    if (looksLikeCodexDependencyFailure(error)) {
+      return runCommand('bunx', ['--bun', 'codex', ...args], timeoutMs, {
+        NODE_PATH: codexNodePath
+      })
+    }
+    throw error
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Object.prototype.toString.call(value) === '[object Object]'
+}
+
+function safeJsonParse(value: string): unknown | null {
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return null
+  }
+}
+
+function safeTruncate(value: string, max = 220): string {
+  const cleaned = value.replace(/\s+/g, ' ').trim()
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned
+}
+
+function summarizeClaudeFailurePayload(payload: unknown): string {
+  if (!isRecord(payload)) {
+    return safeTruncate(String(payload))
+  }
+
+  const message = payload.message
+  if (typeof message === 'string' && message.trim()) {
+    return safeTruncate(message)
+  }
+
+  const type = payload.type
+  if (type === 'result') {
+    const errors = Array.isArray(payload.errors) ? payload.errors : null
+    if (errors) {
+      const rendered = errors
+        .map((entry) => {
+          if (typeof entry === 'string') {
+            return entry
+          }
+          if (isRecord(entry) && typeof entry.error === 'string') {
+            return entry.error
+          }
+          return typeof entry === 'object' ? JSON.stringify(entry) : String(entry)
+        })
+        .filter(Boolean)
+      if (rendered.length > 0) {
+        return rendered.join(' | ').slice(0, 220)
+      }
+    }
+
+    if (payload.stop_reason) {
+      return `claude result stop_reason=${payload.stop_reason}`
+    }
+  }
+
+  return 'claude execution failure'
+}
+
+function removeAnsiCodes(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '')
+}
+
+function parseJsonFromText(raw: string): unknown | null {
+  const text = removeAnsiCodes(raw).trim()
+  if (!text) {
+    return null
+  }
+
+  const seen = new Set<string>()
+  const candidates: string[] = []
+  const add = (candidate: string): void => {
+    const trimmed = candidate.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      return
+    }
+    seen.add(trimmed)
+    candidates.push(trimmed)
+  }
+
+  const pushBalancedFrom = (start: number): void => {
+    const open = text[start]
+    const close = open === '{' ? '}' : ']'
+    let depth = 0
+    let inString = false
+    let escaped = false
+
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index]
+
+      if (inString) {
+        if (escaped) {
+          escaped = false
+          continue
+        }
+        if (char === '\\') {
+          escaped = true
+          continue
+        }
+        if (char === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (char === '"') {
+        inString = true
+        continue
+      }
+
+      if (char === open) {
+        depth += 1
+        continue
+      }
+
+      if (char === close) {
+        depth -= 1
+        if (depth <= 0) {
+          add(text.slice(start, index + 1))
+          return
+        }
+      }
+    }
+  }
+
+  add(text)
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '{' || text[index] === '[') {
+      pushBalancedFrom(index)
+    }
+  }
+
+  const fenceRegex = /```(?:json)?\n([\s\S]*?)```/g
+  for (let match = fenceRegex.exec(text); match !== null; match = fenceRegex.exec(text)) {
+    const extracted = match[1]?.trim()
+    if (extracted) {
+      add(extracted)
+    }
+  }
+
+  for (const line of text.split('\n').reverse()) {
+    add(line)
+  }
+
+  for (const candidate of candidates) {
+    const parsed = safeJsonParse(candidate)
+    if (parsed !== null) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function extractClaudePayload(payload: unknown): unknown | null {
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  if ('structured_output' in payload) {
+    return payload.structured_output
+  }
+
+  if ('result' in payload) {
+    const result = payload.result
+    if (typeof result === 'string') {
+      const parsed = parseJsonFromText(result)
+      if (parsed !== null) {
+        return parsed
+      }
+    } else if (isRecord(result) || Array.isArray(result)) {
+      return result
+    }
+  }
+
+  if (payload.type === 'result' && payload.is_error === true) {
+    return null
+  }
+
+  return payload
+}
+
+async function writeSafeClaudeSettings(): Promise<string | null> {
+  const home = process.env.HOME
+  if (!home) {
+    return null
+  }
+
+  const sourcePath = path.join(home, '.claude', 'settings.json')
+  try {
+    const raw = await fs.readFile(sourcePath, 'utf8')
+    const parsed = safeJsonParse(raw)
+    if (!isRecord(parsed)) {
+      return null
+    }
+
+    const cleaned = {
+      ...parsed,
+      hooks: undefined,
+      statusLine: undefined,
+      statusline: undefined
+    }
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hlp-claude-settings-'))
+    const target = path.join(tempDir, 'settings.json')
+    await fs.writeFile(target, JSON.stringify(cleaned), 'utf8')
+    return target
+  } catch {
+    return null
+  }
+}
+
+async function cleanupTempPath(target?: string | null): Promise<void> {
+  if (!target) {
+    return
+  }
+
+  const normalized = target.replace(/[/\\]settings\.json$/, '')
+  await fs.rm(normalized, { recursive: true, force: true }).catch(() => undefined)
 }
 
 const commandPathCache = new Map<string, string | null>()
@@ -145,10 +412,11 @@ export async function runClaudeStructured<T>(params: {
     throw new Error('Executable not found in $PATH: "claude". Set CLAUDE_CLI_PATH or install CLI for this container.')
   }
 
+  const settingsPath = await writeSafeClaudeSettings()
+
   const timeoutMs = params.timeoutMs ?? 90_000
-  const { stdout } = await runCommand(
-    command,
-    [
+  try {
+    const args = [
       '-p',
       '--no-session-persistence',
       '--tools',
@@ -158,18 +426,37 @@ export async function runClaudeStructured<T>(params: {
       '--json-schema',
       JSON.stringify(params.jsonSchema),
       '--model',
-      params.model,
-      params.prompt
-    ],
-    timeoutMs
-  )
+      params.model
+    ] as string[]
 
-  const parsed = JSON.parse(stdout) as { structured_output?: unknown }
-  if (!parsed.structured_output) {
-    throw new Error('claude did not return structured_output')
+    if (settingsPath) {
+      args.push('--settings', settingsPath)
+    }
+
+    args.push(params.prompt)
+
+    const { stdout, stderr } = await runCliCommand(command, args, timeoutMs, 'claude')
+    const parsed = parseJsonFromText(`${stdout}\n${stderr}`)
+    if (!parsed) {
+      throw new Error(
+        `claude did not return structured output (output=${safeTruncate(stdout)}${stderr ? ` | ${safeTruncate(stderr)}` : ''})`,
+      )
+    }
+
+    const failure = summarizeClaudeFailurePayload(parsed)
+    if (isRecord(parsed) && parsed.type === 'result' && parsed.is_error === true) {
+      throw new Error(failure)
+    }
+
+    const extracted = extractClaudePayload(parsed)
+    if (!extracted) {
+      throw new Error(failure)
+    }
+
+    return extracted as T
+  } finally {
+    await cleanupTempPath(settingsPath)
   }
-
-  return parsed.structured_output as T
 }
 
 export async function runCodexStructured<T>(params: {
@@ -195,8 +482,8 @@ export async function runCodexStructured<T>(params: {
     const reasoningConfigArg = params.reasoningEffort
       ? [`model_reasoning_effort="${params.reasoningEffort}"`]
       : []
-    await runCommand(
-    command,
+    await runCliCommand(
+      command,
       [
         'exec',
         '--ephemeral',
@@ -212,11 +499,16 @@ export async function runCodexStructured<T>(params: {
         outPath,
         params.prompt
       ],
-      timeoutMs
+      timeoutMs,
+      'codex'
     )
 
     const raw = await fs.readFile(outPath, 'utf8')
-    return JSON.parse(raw) as T
+    const parsed = parseJsonFromText(raw)
+    if (!parsed) {
+      throw new Error(`codex did not return JSON (output=${safeTruncate(raw)})`)
+    }
+    return parsed as T
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined)
   }

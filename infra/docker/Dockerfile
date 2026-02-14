@@ -33,11 +33,20 @@ ENV PATH="/home/bun/.bun/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 COPY --from=builder /app /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends nodejs \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    nodejs \
   && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /home/bun/.bun
 RUN bun install -g @anthropic-ai/claude-code @openai/codex
+RUN mkdir -p /home/bun/.bun/bin \
+  && cp -f /usr/local/bin/bun /home/bun/.bun/bin/bun \
+  && cp -f /usr/local/bin/claude /home/bun/.bun/bin/claude || true \
+  && cp -f /usr/local/bin/codex /home/bun/.bun/bin/codex || true \
+  && ln -sf /home/bun/.bun/bin/bun /usr/local/bin/bun \
+  && ln -sf /home/bun/.bun/bin/claude /usr/local/bin/claude \
+  && ln -sf /home/bun/.bun/bin/codex /usr/local/bin/codex
 RUN chown -R bun:bun /home/bun/.bun
 
 USER bun
