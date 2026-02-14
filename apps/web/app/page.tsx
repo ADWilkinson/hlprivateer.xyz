@@ -37,6 +37,36 @@ const RISK_DENIAL_SUPPRESS_MS = 180_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
 const LOG_PREFIX = '[DeckPage]'
+const PNL_SERIES_STORAGE_KEY = 'hlp-privateer:pnl-series-v1'
+const ACCOUNT_SERIES_STORAGE_KEY = 'hlp-privateer:account-series-v1'
+
+function readStoredSeries<T>(
+  storageKey: string,
+  pickPoint: (raw: unknown) => T | undefined,
+): Array<T> {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((entry) => pickPoint(entry))
+      .filter((entry): entry is T => entry !== undefined)
+      .slice(-MAX_TRAJECTORY_POINTS)
+  } catch {
+    return []
+  }
+}
+
+function writeStoredSeries<T>(storageKey: string, items: T[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(items))
+  } catch {
+    return
+  }
+}
 
 function truncate(value: unknown, max = 180): string {
   let next: string
@@ -323,8 +353,37 @@ export default function DeckPage() {
   ])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
   const [nowTick, setNowTick] = useState<number>(Date.now())
-  const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
-  const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>([])
+  const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>(() =>
+    readStoredSeries<{ ts: string; pnlPct: number }>(PNL_SERIES_STORAGE_KEY, (raw) => {
+      if (
+        !raw ||
+        typeof raw !== 'object' ||
+        typeof (raw as { ts?: unknown }).ts !== 'string' ||
+        typeof (raw as { pnlPct?: unknown }).pnlPct !== 'number' ||
+        !Number.isFinite((raw as { pnlPct: number }).pnlPct
+      ) {
+        return undefined
+      }
+      return { ts: raw.ts, pnlPct: raw.pnlPct }
+    }),
+  )
+  const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>(() =>
+    readStoredSeries<{ ts: string; accountValueUsd: number }>(
+      ACCOUNT_SERIES_STORAGE_KEY,
+      (raw) => {
+        if (
+          !raw ||
+          typeof raw !== 'object' ||
+          typeof (raw as { ts?: unknown }).ts !== 'string' ||
+          typeof (raw as { accountValueUsd?: unknown }).accountValueUsd !== 'number' ||
+          !Number.isFinite((raw as { accountValueUsd: number }).accountValueUsd)
+        ) {
+          return undefined
+        }
+        return { ts: raw.ts, accountValueUsd: raw.accountValueUsd }
+      },
+    ),
+  )
   const [crewLast, setCrewLast] = useState<CrewLast>(() => ({
     scout: null,
     research: null,
@@ -362,6 +421,14 @@ export default function DeckPage() {
     const tick = setInterval(() => setNowTick(Date.now()), UI_TICK_MS)
     return () => clearInterval(tick)
   }, [])
+
+  useEffect(() => {
+    writeStoredSeries(PNL_SERIES_STORAGE_KEY, pnlSeries)
+  }, [pnlSeries])
+
+  useEffect(() => {
+    writeStoredSeries(ACCOUNT_SERIES_STORAGE_KEY, accountValueSeries)
+  }, [accountValueSeries])
 
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
@@ -760,7 +827,7 @@ export default function DeckPage() {
             sectionId='status'
           />
 
-          <AsciiDivider variant='dots' />
+          <AsciiDivider variant='wave' />
 
           <PnlPanel
             snapshot={snapshot}
@@ -785,7 +852,7 @@ export default function DeckPage() {
             sectionId='crew'
           />
 
-          <AsciiDivider variant='compass' />
+          <AsciiDivider variant='wave' />
 
           <TapeSection
             tape={tape}
@@ -796,7 +863,7 @@ export default function DeckPage() {
             sectionId='tape'
           />
 
-          <AsciiDivider variant='line' />
+          <AsciiDivider variant='wave' />
 
           <X402AgentMaterialsPanel
             isCollapsed={collapsedSections.x402}
@@ -810,7 +877,7 @@ export default function DeckPage() {
             {`~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~`}
           </div>
           <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim/50'>
-            {`[HL] PRIVATEER \u00B7 hlprivateer.xyz`}
+            {`[HL] PRIVATEER | hlprivateer.xyz`}
           </div>
         </footer>
       </main>

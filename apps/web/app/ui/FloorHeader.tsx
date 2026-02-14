@@ -46,7 +46,7 @@ export function FloorHeader({ onX402Access }: FloorHeaderProps) {
               [HL] PRIVATEER
             </h1>
             <div className='text-[10px] sm:text-[11px] tracking-[0.1em] text-hlpPanel/35 max-w-md'>
-              Agentic Autonomous HYPE Long/Short Fund \u00B7 x402 Integration Access
+              Agentic Autonomous HYPE Long/Short Fund / x402 Integration Access
             </div>
           </div>
 
