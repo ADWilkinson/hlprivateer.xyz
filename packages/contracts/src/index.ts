@@ -161,6 +161,20 @@ export const RiskDecisionComputedSchema = z.object({
 })
 export type RiskDecisionComputed = z.infer<typeof RiskDecisionComputedSchema>
 
+export const PublicOpenPositionSchema = z.object({
+  symbol: z.string(),
+  side: z.string().optional(),
+  size: z.number().optional(),
+  entryPrice: z.number().optional(),
+  markPrice: z.number().optional(),
+  pnlUsd: z.number().optional(),
+  pnlPct: z.number().optional(),
+  notionalUsd: z.number().optional(),
+  id: z.string().optional()
+})
+
+export type PublicOpenPosition = z.infer<typeof PublicOpenPositionSchema>
+
 export const RiskDecisionResultSchema = z.object({
   decision: RiskDecisionSchema,
   reasons: z.array(RiskReasonSchema).default([]),
@@ -183,6 +197,9 @@ export const PublicSnapshotSchema = z.object({
   pnlPct: z.number(),
   healthCode: z.enum(['GREEN', 'YELLOW', 'RED']),
   driftState: z.enum(['IN_TOLERANCE', 'POTENTIAL_DRIFT', 'BREACH']),
+  openPositions: z.array(PublicOpenPositionSchema).optional().default([]),
+  openPositionCount: z.number().optional(),
+  openPositionNotionalUsd: z.number().optional(),
   recentTape: z.array(FloorTapeLineSchema).default([]),
   lastUpdateAt: z.string().datetime()
 })
@@ -222,7 +239,16 @@ export const OperatorPositionSchema = z.object({
 })
 export type OperatorPosition = z.infer<typeof OperatorPositionSchema>
 
-export const OperatorCommandNameSchema = z.enum(['/status', '/positions', '/simulate', '/halt', '/resume', '/flatten', '/explain'])
+export const OperatorCommandNameSchema = z.enum([
+  '/status',
+  '/positions',
+  '/simulate',
+  '/halt',
+  '/resume',
+  '/flatten',
+  '/risk-policy',
+  '/explain'
+])
 export type OperatorCommandName = z.infer<typeof OperatorCommandNameSchema>
 
 export const OperatorCommandSchema = z
@@ -349,6 +375,12 @@ export const COMMAND_POLICIES: Record<OperatorCommandName, CommandPolicy> = {
   },
   '/flatten': {
     command: '/flatten',
+    allowedActorTypes: ['human', 'internal_agent'],
+    requiredRoles: [OPERATOR_ADMIN_ROLE],
+    requiredCapabilities: ['command.execute']
+  },
+  '/risk-policy': {
+    command: '/risk-policy',
     allowedActorTypes: ['human', 'internal_agent'],
     requiredRoles: [OPERATOR_ADMIN_ROLE],
     requiredCapabilities: ['command.execute']

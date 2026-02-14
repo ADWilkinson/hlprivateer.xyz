@@ -52,8 +52,34 @@ function normalizePositionRecord(raw: unknown): OpenPosition | null {
   const trimmedSymbol = symbol.trim()
   if (!trimmedSymbol) return null
 
-  const entryPrice = toFiniteNumber(input.entryPrice ?? input.entry_price ?? input.entry)
-  const markPrice = toFiniteNumber(input.markPrice ?? input.mark_price ?? input.mark)
+  const entryPrice = toFiniteNumber(
+    input.entryPrice ??
+      input.entry_price ??
+      input.entry ??
+      input.avgEntryPx ??
+      input.avg_entry_px ??
+      input.avgEntry ??
+      input.avg_entry ??
+      input.avgEntryPrice ??
+      input.avg_entry_price ??
+      input.entryPx ??
+      input.entry_px ??
+      input.avgPx ??
+      input.avg_px
+  )
+  const markPrice = toFiniteNumber(
+    input.markPrice ??
+      input.mark_price ??
+      input.mark ??
+      input.avgMarkPx ??
+      input.avg_mark_px ??
+      input.avgMark ??
+      input.avg_mark ??
+      input.lastPx ??
+      input.last_px ??
+      input.markPx ??
+      input.mark_px
+  )
   const pnlUsd = toFiniteNumber(input.pnlUsd ?? input.pnl_usd ?? input.pnl ?? input.unrealizedPnl ?? input.unrealized)
   const pnlPct = toFiniteNumber(input.pnlPct ?? input.pnl_pct ?? input.pnlPercent ?? input.pnl_percent)
   const notionalUsd = toFiniteNumber(input.notionalUsd ?? input.notional_usd ?? input.notional)

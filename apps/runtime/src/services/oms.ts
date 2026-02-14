@@ -7,7 +7,14 @@ import { PrivateKeySigner } from '@nktkas/hyperliquid/signing'
 import { SymbolConverter, formatPrice, formatSize } from '@nktkas/hyperliquid/utils'
 import type { RuntimeEnv } from '../config'
 
+type SlippageBpsProvider = number | (() => number)
+
 const DEFAULT_HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
+
+function resolveSlippageBps(provider: SlippageBpsProvider): number {
+  const raw = typeof provider === 'function' ? provider() : provider
+  return Number.isFinite(raw) ? raw : 0
+}
 
 export type OrderState = 'NEW' | 'WORKING' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELLED' | 'FAILED'
 
@@ -79,7 +86,7 @@ function clampFilled(qty: number, targetQty: number): number {
   return Math.max(0, Math.min(qty, targetQty))
 }
 
-export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAdapter {
+export function createSimAdapter(slippageBps: SlippageBpsProvider = 5, latencyMs = 100): ExecutionAdapter {
   const orders = new Map<string, InternalOrder>()
   const idempotencyMap = new Map<string, string>()
   const positions = new Map<string, InternalPosition>()
@@ -92,7 +99,7 @@ export function createSimAdapter(slippageBps = 5, latencyMs = 100): ExecutionAda
     }
 
     const id = input.idempotencyKey
-    const slip = 1 + (Math.random() * slippageBps) / 10000
+    const slip = 1 + (Math.random() * resolveSlippageBps(slippageBps)) / 10000
     const fillPx = input.side === 'BUY' ? input.tick.ask * slip : input.tick.bid * (2 - slip)
     const grossQty = Math.abs(input.notionalUsd / fillPx)
 
@@ -267,7 +274,7 @@ interface InternalPosition {
   updatedAt: string
 }
 
-export function createLiveAdapter(env: RuntimeEnv): ExecutionAdapter {
+export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number = () => 0): ExecutionAdapter {
   const privateKey = env.HL_PRIVATE_KEY?.trim()
   if (!privateKey) {
     throw new Error('HL_PRIVATE_KEY is required for live OMS (set ENABLE_LIVE_OMS=false for SIM)')
@@ -355,7 +362,7 @@ export function createLiveAdapter(env: RuntimeEnv): ExecutionAdapter {
       throw new Error(`unknown symbol for live OMS: ${input.symbol}`)
     }
 
-    const slippageBps = Number.isFinite(env.RISK_MAX_SLIPPAGE_BPS) ? env.RISK_MAX_SLIPPAGE_BPS : 0
+    const slippageBps = resolveSlippageBps(getSlippageBps)
     const slip = Math.min(0.5, Math.max(0, slippageBps) / 10000)
 
     const pxRaw = input.side === 'BUY'

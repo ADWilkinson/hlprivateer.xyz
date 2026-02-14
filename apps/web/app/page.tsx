@@ -51,9 +51,14 @@ type SnapshotPayload = {
   openPositions?: unknown
   openPositionCount?: unknown
   openPositionNotionalUsd?: unknown
-  open_position_count?: unknown
+  positions?: unknown
+  open_positions?: unknown
   openPositionNotional?: unknown
+  open_position_count?: unknown
   open_position_notional?: unknown
+  position_count?: unknown
+  position_notional?: unknown
+  positionNotional?: unknown
   [key: string]: unknown
 }
 
@@ -77,11 +82,18 @@ function toFiniteNumber(value: unknown): number | undefined {
 }
 
 function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapshot {
-  const rawOpenPositions = payload.openPositions
+  const rawOpenPositions = payload.openPositions ?? payload.open_positions ?? payload.positions
   const nextPnl = toFiniteNumber(payload.pnlPct)
   const nextOpenPositionCount = toFiniteNumber(payload.openPositionCount ?? payload.open_position_count)
+    ?? toFiniteNumber(payload.position_count)
+    ?? toFiniteNumber(payload.positionCount)
+    ?? (Array.isArray(rawOpenPositions) ? rawOpenPositions.length : undefined)
   const nextOpenPositionNotionalUsd = toFiniteNumber(
-    payload.openPositionNotionalUsd ?? payload.openPositionNotional ?? payload.open_position_notional,
+    payload.openPositionNotionalUsd ??
+      payload.openPositionNotional ??
+      payload.positionNotional ??
+      payload.position_notional ??
+      payload.open_position_notional,
   )
 
   return {
@@ -95,11 +107,16 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
         : fallback.lastUpdateAt,
     message: typeof payload.message === 'string' ? payload.message : undefined,
     pnlPct: nextPnl !== undefined ? nextPnl : fallback.pnlPct,
-    openPositions: 'openPositions' in payload ? normalizeOpenPositions(rawOpenPositions) : fallback.openPositions,
+    openPositions:
+      'openPositions' in payload || 'positions' in payload || 'open_positions' in payload
+        ? normalizeOpenPositions(rawOpenPositions)
+        : fallback.openPositions,
     openPositionCount:
-      'openPositionCount' in payload ? (nextOpenPositionCount ?? fallback.openPositionCount) : fallback.openPositionCount,
+      'openPositionCount' in payload || 'open_position_count' in payload || 'position_count' in payload
+        ? (nextOpenPositionCount ?? fallback.openPositionCount)
+        : fallback.openPositionCount,
     openPositionNotionalUsd:
-      'openPositionNotionalUsd' in payload
+      'openPositionNotionalUsd' in payload || 'openPositionNotional' in payload || 'positionNotional' in payload || 'open_position_notional' in payload || 'position_notional' in payload
         ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
         : fallback.openPositionNotionalUsd,
   }

@@ -407,6 +407,51 @@ function sendSafe(ws: any, message: WsServerMessage) {
   send(ws, message)
 }
 
+function sanitizeFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+
+  return undefined
+}
+
+function sanitizePositionRows(raw: unknown, maxRows = 200): Array<Record<string, unknown>> {
+  if (!Array.isArray(raw)) return []
+
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const position = entry as Record<string, unknown>
+      const symbol = typeof position.symbol === 'string' ? sanitizeText(position.symbol, 24) : undefined
+      if (!symbol) return null
+
+      const side = typeof position.side === 'string' ? sanitizeText(position.side, 12) : undefined
+      const size = sanitizeFiniteNumber(position.size ?? position.qty ?? position.amount ?? position.quantity)
+      const entryPrice = sanitizeFiniteNumber(position.entryPrice ?? position.entry_price ?? position.entry ?? position.avgEntryPx ?? position.avg_entry_px)
+      const markPrice = sanitizeFiniteNumber(position.markPrice ?? position.mark_price ?? position.mark ?? position.avgMarkPx ?? position.avg_mark_px)
+      const pnlUsd = sanitizeFiniteNumber(position.pnlUsd ?? position.pnl ?? position.pnl_usd ?? position.unrealizedPnl ?? position.unrealized)
+      const pnlPct = sanitizeFiniteNumber(position.pnlPct ?? position.pnl_pct ?? position.pnlPercent ?? position.pnl_percent)
+      const notionalUsd = sanitizeFiniteNumber(position.notionalUsd ?? position.notional_usd ?? position.notional)
+      const id = typeof position.id === 'string' ? sanitizeText(position.id, 32) : undefined
+
+      return {
+        symbol,
+        ...(side ? { side } : {}),
+        ...(size !== undefined ? { size } : {}),
+        ...(entryPrice !== undefined ? { entryPrice } : {}),
+        ...(markPrice !== undefined ? { markPrice } : {}),
+        ...(pnlUsd !== undefined ? { pnlUsd } : {}),
+        ...(pnlPct !== undefined ? { pnlPct } : {}),
+        ...(notionalUsd !== undefined ? { notionalUsd } : {}),
+        ...(id ? { id } : {}),
+      }
+    })
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    .slice(0, maxRows)
+}
+
 function sanitizeForPublic(type: string, rawPayload: unknown): Record<string, unknown> {
   if (type === 'STATE_UPDATE') {
     if (!rawPayload || typeof rawPayload !== 'object') {
@@ -415,6 +460,16 @@ function sanitizeForPublic(type: string, rawPayload: unknown): Record<string, un
 
     const payload = rawPayload as Record<string, unknown>
     const message = typeof payload.message === 'string' ? payload.message : undefined
+    const openPositions = sanitizePositionRows(payload.openPositions ?? payload.positions)
+    const openPositionCount = sanitizeFiniteNumber(payload.openPositionCount ?? payload.open_position_count ?? payload.positionCount ?? payload.positionsCount)
+    const openPositionNotionalUsd = sanitizeFiniteNumber(
+      payload.openPositionNotionalUsd ?? payload.openPositionNotional ?? payload.open_position_notional,
+    )
+    const computedOpenPositionNotionalUsd = Number.isFinite(openPositionNotionalUsd ?? Number.NaN)
+      ? openPositionNotionalUsd
+      : openPositions.length > 0
+        ? openPositions.reduce((seed, entry) => seed + Math.abs(sanitizeFiniteNumber(entry.notionalUsd) ?? 0), 0)
+        : undefined
     return {
       // Keep public payload shape compatible with the web UI client which expects `type`.
       type: 'STATE_UPDATE',
@@ -423,6 +478,9 @@ function sanitizeForPublic(type: string, rawPayload: unknown): Record<string, un
       healthCode: payload.healthCode,
       pnlPct: payload.pnlPct,
       lastUpdateAt: payload.lastUpdateAt,
+      ...(openPositions.length > 0 ? { openPositions } : {}),
+      ...(openPositionCount !== undefined ? { openPositionCount } : {}),
+      ...(computedOpenPositionNotionalUsd !== undefined ? { openPositionNotionalUsd: computedOpenPositionNotionalUsd } : {}),
       ...(message ? { message: sanitizeText(message, 180) } : {}),
       ts: new Date().toISOString()
     }

@@ -211,8 +211,11 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
 
   // Heuristic: scale expected slippage with volatility; cap at 12 bps expected.
   const expected = clamp(Math.round(2 + volPct * 0.25), 2, 12)
-  // Keep max within risk default (20 bps).
-  const max = clamp(Math.round(expected * 2), expected, 20)
+  const policy = resolveRiskLimitsForContext()
+  const policyCap = Math.max(1, Math.round(policy.maxSlippageBps))
+
+  // Keep max within policy.
+  const max = clamp(Math.round(expected * 2), expected, policyCap)
 
   return { expectedSlippageBps: expected, maxSlippageBps: max }
 }
@@ -234,11 +237,11 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- All non-EXIT proposals must state expected gross/notional outcome and never exceed recovery constraints.',
   '- Treat SAFE_MODE and DEPENDENCY_FAILURE as hard-reduce states: request only flat/close actions until state is cleared.',
   '- Budget caps are explicit in floor context: max leverage/exposure/drawdown/slippage are hard constraints; do not propose beyond them.',
-  '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and only risk mitigation command is /flatten.',
+  '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and available recovery command is /flatten.',
   '- Read the floor context memory every cycle: active directive, target risk caps, allocation multipliers, and latest risk/posture tape before sizing any basket leg.',
   '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.',
   '- Proposals must reference current positions summary (gross/net/mode), target basket notional, and estimated leverage before proposing any new growth leg.',
-  '- Execution interactions are limited to runtime channels: only /flatten is an immediate risk intervention command available to the agent cycle.'
+  '- Execution interactions are limited to runtime channels: /flatten and /risk-policy are available for safety interventions when caps should be tightened or growth blocked.'
 ]
 
 const FLOOR_TAPE_CONTEXT_LINES = 12
@@ -273,6 +276,7 @@ const RISK_RECOVERY_FORCE_EXIT_CODES = new Set([
   'SLIPPAGE_BREACH'
 ])
 const RISK_RECOVERY_TTL_MS = 120_000
+const RISK_POLICY_TUNING_COOLDOWN_MS = 120_000
 
 type RuntimeRiskReason = {
   code: string
@@ -508,6 +512,31 @@ function ageBucket(ms: number | null): 'fresh' | 'aging' | 'stale' | 'absent' {
   return 'stale'
 }
 
+function resolveRiskLimitsForContext(): {
+  maxLeverage: number
+  maxDrawdownPct: number
+  maxExposureUsd: number
+  maxSlippageBps: number
+  staleDataMs: number
+  liquidityBufferPct: number
+  notionalParityTolerance: number
+} {
+  const policy = lastStateUpdate?.riskPolicy
+  return {
+    maxLeverage: Number.isFinite(policy?.maxLeverage as number | undefined) ? (policy?.maxLeverage as number) : env.RISK_MAX_LEVERAGE,
+    maxDrawdownPct: Number.isFinite(policy?.maxDrawdownPct as number | undefined) ? (policy?.maxDrawdownPct as number) : env.RISK_MAX_DRAWDOWN_PCT,
+    maxExposureUsd: Number.isFinite(policy?.maxExposureUsd as number | undefined) ? (policy?.maxExposureUsd as number) : env.RISK_MAX_NOTIONAL_USD,
+    maxSlippageBps: Number.isFinite(policy?.maxSlippageBps as number | undefined) ? (policy?.maxSlippageBps as number) : env.RISK_MAX_SLIPPAGE_BPS,
+    staleDataMs: Number.isFinite(policy?.staleDataMs as number | undefined) ? (policy?.staleDataMs as number) : env.RISK_STALE_DATA_MS,
+    liquidityBufferPct: Number.isFinite(policy?.liquidityBufferPct as number | undefined)
+      ? (policy?.liquidityBufferPct as number)
+      : env.RISK_LIQUIDITY_BUFFER_PCT,
+    notionalParityTolerance: Number.isFinite(policy?.notionalParityTolerance as number | undefined)
+      ? (policy?.notionalParityTolerance as number)
+      : env.RISK_NOTIONAL_PARITY_TOLERANCE
+  }
+}
+
 function summarizeActiveBasketContext(context: BasketSelection['context'] | undefined): Record<string, unknown> | null {
   if (!context) {
     return null
@@ -643,13 +672,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
         max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
       },
       riskLimits: {
-        maxLeverage: env.RISK_MAX_LEVERAGE,
-        maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
-        maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
-        maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
-        staleDataMs: env.RISK_STALE_DATA_MS,
-        liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-        notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+        ...resolveRiskLimitsForContext()
       },
       runtimeRecovery: {
         automaticExitSignal: 'AUTO_EXIT when risk decisions block with DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE/LIQUIDITY/STALE_DATA/SYSTEM_GATED',
@@ -669,6 +692,74 @@ function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
   return decision.reasons
     .map((entry) => String(entry?.code ?? '').trim().toUpperCase())
     .filter((code) => code.length > 0)
+}
+
+function buildRiskPolicyTuningArgs(): { args: string[]; reason: string; signature: string } | null {
+  if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
+    return null
+  }
+
+  const reasonCodes = parseRiskReasonCodes(lastRiskDecision)
+  if (reasonCodes.length === 0) {
+    return null
+  }
+
+  const signature = reasonCodes.slice().sort().join('|')
+  if (signature === lastRiskPolicyTuneSignature) {
+    return null
+  }
+
+  if (Date.now() - lastRiskPolicyTuneAt < RISK_POLICY_TUNING_COOLDOWN_MS) {
+    return null
+  }
+
+  const policy = resolveRiskLimitsForContext()
+  const args: string[] = []
+
+  if (reasonCodes.includes('DRAWDOWN')) {
+    const tuned = Math.max(0.5, policy.maxDrawdownPct * 0.75)
+    if (tuned < policy.maxDrawdownPct) {
+      args.push(`maxDrawdownPct=${tuned.toFixed(2)}`)
+    }
+  }
+
+  if (reasonCodes.includes('EXPOSURE')) {
+    const tuned = Math.max(25, policy.maxExposureUsd * 0.8)
+    if (tuned < policy.maxExposureUsd) {
+      args.push(`maxExposureUsd=${Math.round(tuned)}`)
+    }
+  }
+
+  if (reasonCodes.includes('LEVERAGE')) {
+    const tuned = Math.max(0.25, policy.maxLeverage * 0.8)
+    if (tuned < policy.maxLeverage) {
+      args.push(`maxLeverage=${tuned.toFixed(3)}`)
+    }
+  }
+
+  if (reasonCodes.includes('SLIPPAGE_BREACH')) {
+    const tuned = Math.max(1, policy.maxSlippageBps * 0.8)
+    if (tuned < policy.maxSlippageBps) {
+      args.push(`maxSlippageBps=${Math.round(tuned)}`)
+    }
+  }
+
+  if (reasonCodes.includes('STALE_DATA')) {
+    const tuned = Math.max(300, policy.staleDataMs * 0.8)
+    if (tuned < policy.staleDataMs) {
+      args.push(`staleDataMs=${Math.round(tuned)}`)
+    }
+  }
+
+  if (args.length === 0) {
+    return null
+  }
+
+  return {
+    args,
+    reason: `risk policy auto-tighten for ${signature}`,
+    signature
+  }
 }
 
 function shouldForceRiskRecovery(nowMs: number, positions: OperatorPosition[]): {
@@ -1742,6 +1833,8 @@ let lastProposalPublishedAt = 0
 let lastRiskDecision: RuntimeRiskDecision | null = null
 let lastRiskRecoverySignature = ''
 let lastRiskRecoveryNoticeAt = 0
+let lastRiskPolicyTuneSignature = ''
+let lastRiskPolicyTuneAt = 0
 let lastStrategistNoActionSignature = ''
 let lastStrategistNoActionAtMs = 0
 let lastStateUpdate:
@@ -1762,7 +1855,17 @@ let lastStateUpdate:
       notionalParityTolerance?: number
     }
   }
-  | null = null
+  | null = {
+    riskPolicy: {
+      maxLeverage: env.RISK_MAX_LEVERAGE,
+      maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
+      maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
+      maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
+      staleDataMs: env.RISK_STALE_DATA_MS,
+      liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+      notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+    }
+  }
 let lastResearchReport: { headline: string; regime: string; recommendation: string; confidence: number; computedAt: string } | null = null
 let lastRiskReport: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number; computedAt: string } | null = null
 let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
@@ -1869,8 +1972,9 @@ async function maybePublishWatchlist(params: { symbols: string[]; reason: string
 }
 
 async function publishAgentCommand(params: {
-  command: '/halt' | '/resume' | '/flatten'
+  command: '/halt' | '/resume' | '/flatten' | '/risk-policy'
   reason: string
+  args?: string[]
 }): Promise<void> {
   await bus.publish('hlp.commands', {
     type: 'agent.command',
@@ -1881,7 +1985,7 @@ async function publishAgentCommand(params: {
     actorId: roleActorId('ops'),
     payload: {
       command: params.command,
-      args: [],
+      args: params.args ?? [],
       reason: sanitizeLine(params.reason, 160),
       actorRole: 'operator_admin',
       capabilities: ['command.execute']
@@ -2195,6 +2299,24 @@ async function runRiskAgent(): Promise<void> {
       input
     }
   })
+
+  const policyTune = buildRiskPolicyTuningArgs()
+  if (policyTune) {
+    lastRiskPolicyTuneAt = Date.now()
+    lastRiskPolicyTuneSignature = policyTune.signature
+    await publishAgentCommand({
+      command: '/risk-policy',
+      args: policyTune.args,
+      reason: policyTune.reason
+    })
+
+    await publishTape({
+      correlationId: ulid(),
+      role: 'risk',
+      level: 'WARN',
+      line: `requested risk policy auto-tighten: ${policyTune.args.join(', ')}`
+    })
+  }
 }
 
 async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]; targetNotionalUsd: number; positions: OperatorPosition[] }): Promise<void> {
