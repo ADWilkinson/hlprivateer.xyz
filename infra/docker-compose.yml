@@ -54,6 +54,7 @@ services:
       <<: *hlp-base-env
       APP: api
       NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL_FILE: ""
       PORT: 4000
       API_PORT: 4000
       REDIS_URL: redis://redis:6379
@@ -118,6 +119,8 @@ services:
       APP: runtime
       NODE_ENV: ${NODE_ENV:-development}
       REDIS_URL: redis://redis:6379
+      DATABASE_URL_FILE: ""
+      HL_PRIVATE_KEY_FILE: ""
       DATABASE_URL: ${DATABASE_URL:-postgres://privateer:${POSTGRES_PASSWORD:-local_postgres_password_change_me}@postgres:5432/privateer}
       RUNTIME_METRICS_PORT: 9400
       DRY_RUN: ${DRY_RUN:-true}
