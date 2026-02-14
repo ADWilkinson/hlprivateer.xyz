@@ -4,6 +4,8 @@ After=network-online.target
 Wants=network-online.target
 Requires=hlprivateer-api.service hlprivateer-runtime.service hlprivateer-ws.service
 After=hlprivateer-api.service hlprivateer-runtime.service hlprivateer-ws.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -36,8 +38,6 @@ SystemCallArchitectures=native
 UMask=0077
 RestartSteps=3
 RestartMaxDelaySec=30
-StartLimitBurst=5
-StartLimitIntervalSec=60
 
 [Install]
 WantedBy=multi-user.target

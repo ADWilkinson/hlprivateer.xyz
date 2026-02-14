@@ -95,7 +95,10 @@ function buildSparkline(values: number[]): SparklineMetric {
     height: 32,
   }
 
-  if (numeric.length < 2) return fallback
+  if (numeric.length < 1) return fallback
+
+  const chartValues = numeric.length === 1 ? [numeric[0], numeric[0]] : numeric
+  const pointCount = chartValues.length
 
   const width = 100
   const height = 32
@@ -103,13 +106,13 @@ function buildSparkline(values: number[]): SparklineMetric {
   const padY = 4
   const chartHeight = height - padY * 2
   const chartWidth = width - padX * 2
-  const min = Math.min(...numeric)
-  const max = Math.max(...numeric)
+  const min = Math.min(...chartValues)
+  const max = Math.max(...chartValues)
   const range = max - min || 1
-  const getX = (index: number) => padX + (index / (numeric.length - 1)) * chartWidth
+  const getX = (index: number) => padX + (index / Math.max(1, pointCount - 1)) * chartWidth
   const getY = (value: number) => padY + (1 - (value - min) / range) * chartHeight
 
-  const points = numeric.map((value, index) => ({ x: getX(index), y: getY(value) }))
+  const points = chartValues.map((value, index) => ({ x: getX(index), y: getY(value) }))
   const squareWave = buildSquareWavePath(points)
   const areaPath = squareWave.path
     ? `${squareWave.path} L ${points.at(-1)?.x.toFixed(3)} ${squareWave.minY.toFixed(3)} L ${points[0]?.x.toFixed(3)} ${squareWave.minY.toFixed(3)} Z`
@@ -193,7 +196,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
             </AsciiBadge>
           </div>
           <div className='px-3 pb-3 pt-2'>
-            {isLoading || pnlStats.samples < 2 ? (
+            {isLoading || pnlStats.samples < 1 ? (
               <div className='grid min-h-[190px] items-center gap-3 rounded-sm border border-hlpBorder/70 dark:border-hlpBorderDark/70 bg-hlpSurface/80 dark:bg-hlpSurfaceDark/75 p-3 text-[11px] text-hlpMuted dark:text-hlpMutedDark'>
                 <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
                 <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />

@@ -54,8 +54,8 @@ cd /home/dappnode/projects/hlprivateer.xyz
 rg -n \"^(HL_PRIVATE_KEY|DATABASE_URL)_FILE=\" -S config/.env || true
 
 # Example values (adjust paths if your deploy dir differs):
-# HL_PRIVATE_KEY_FILE=/home/dappnode/projects/hlprivateer.xyz/secrets/hl_trading_private_key
-# DATABASE_URL_FILE=/home/dappnode/projects/hlprivateer.xyz/secrets/hl_postgres_database_url
+# HL_PRIVATE_KEY_FILE=/opt/hlprivateer.xyz/secrets/hl_trading_private_key
+# DATABASE_URL_FILE=/opt/hlprivateer.xyz/secrets/hl_postgres_database_url
 #
 # DRY_RUN=false
 # ENABLE_LIVE_OMS=true

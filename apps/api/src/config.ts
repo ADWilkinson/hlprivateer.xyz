@@ -36,6 +36,7 @@ const booleanFromEnv = z.preprocess((value) => {
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
+  API_PORT: z.coerce.number().default(4000),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   PUBLIC_BASE_URL: z.string().url().default('http://127.0.0.1:3000'),
   API_BASE_URL: z.string().url().default('http://127.0.0.1:4000'),

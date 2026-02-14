@@ -261,12 +261,6 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
 
 export function createMarketAdapter(config: RuntimeEnv, eventBus: EventBus): MarketDataAdapter {
   const basketSymbols = config.BASKET_SYMBOLS.split(',').map((symbol) => symbol.trim()).filter(Boolean)
-  const symbols = Array.from(new Set(['HYPE', ...basketSymbols]))
-
-  if (symbols.length < 2) {
-    throw new Error('Runtime requires at least one non-HYPE symbol in BASKET_SYMBOLS for market-neutral execution.')
-  }
-
   if (!config.HL_WS_URL) {
     throw new Error('HL_WS_URL is required when runtime market adapter is enabled.')
   }
@@ -274,6 +268,13 @@ export function createMarketAdapter(config: RuntimeEnv, eventBus: EventBus): Mar
   if (!config.HL_WS_URL.startsWith('ws://') && !config.HL_WS_URL.startsWith('wss://')) {
     throw new Error('HL_WS_URL must begin with ws:// or wss://')
   }
+
+  if (basketSymbols.length === 0) {
+    console.warn('BASKET_SYMBOLS empty; running HYPE-only market adapter until basket is selected by agents.')
+    return new HyperliquidWebSocketAdapter(['HYPE'], config.HL_WS_URL, eventBus)
+  }
+
+  const symbols = Array.from(new Set(['HYPE', ...basketSymbols]))
 
   return new HyperliquidWebSocketAdapter(symbols, config.HL_WS_URL, eventBus)
 }
