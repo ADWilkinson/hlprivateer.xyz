@@ -39,7 +39,7 @@ export function StatusStrip({
   const isFeedStale = snapshotAgeMs > 12_000
 
   return (
-    <AsciiCard title='FLOOR STATUS' className='panel-card' style={{ padding: 0, backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)' }}>
+    <AsciiCard title='FLOOR STATUS' className='panel-shell'>
       <div className='strip'>
         <div className='strip-item'>
           <span className='strip-label'>MODE</span>
@@ -73,7 +73,7 @@ export function StatusStrip({
           <span className='strip-value'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
         </div>
       </div>
-      <div className='plan-meta' style={{ padding: '6px 12px 10px' }}>
+      <div className='plan-meta plan-meta-inline'>
         <span className='plan-meta-item'>exchange=HYPERLIQUID</span>
         <span className='plan-meta-item'>quietSignals={suppressedNoAction}</span>
         <span className='plan-meta-item'>riskDenied={riskDeniedCount}</span>

@@ -17,7 +17,7 @@ export function FloorPlanPanel({
   deckHeartbeatMs,
 }: FloorPlanPanelProps) {
   return (
-    <AsciiCard title='FLOOR PLAN' className='panel-card' style={{ padding: 0, backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)' }}>
+    <AsciiCard title='FLOOR PLAN' className='panel-shell'>
       <div className='section-bar'>
         <div className='section-label'>FLOOR PLAN</div>
         <AsciiBadge color='success'>live telemetry</AsciiBadge>

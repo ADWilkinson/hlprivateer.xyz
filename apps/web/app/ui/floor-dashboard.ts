@@ -49,19 +49,6 @@ export const EMPTY_STATS: CrewStats = CREW.reduce(
   {} as CrewStats
 )
 
-export const floorCardStyle = {
-  backgroundColor: 'var(--bg-raised)' as const,
-  borderColor: 'var(--border)' as const,
-  color: 'var(--fg)' as const,
-  padding: 0 as const,
-}
-
-export const floorButtonStyle = {
-  backgroundColor: 'transparent' as const,
-  borderColor: 'var(--border)' as const,
-  color: 'var(--fg-muted)' as const,
-}
-
 export function badgeVariantForHealth(code: string): 'ok' | 'warn' | 'danger' {
   if (code === 'GREEN') return 'ok'
   if (code === 'YELLOW') return 'warn'
