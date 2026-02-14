@@ -34,6 +34,40 @@ const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
+const LOG_PREFIX = '[DeckPage]'
+
+function truncate(value: unknown, max = 180): string {
+  let next: string
+  if (typeof value === 'string') {
+    next = value
+  } else if (typeof value === 'object' && value !== null) {
+    try {
+      next = JSON.stringify(value)
+    } catch {
+      next = String(value)
+    }
+  } else {
+    next = String(value)
+  }
+  if (next.length <= max) return next
+  return `${next.slice(0, max)}…`
+}
+
+function logInfo(message: string, details?: unknown): void {
+  if (process.env.NODE_ENV === 'production') return
+  // eslint-disable-next-line no-console
+  console.info(`${LOG_PREFIX} ${message}`, details ? truncate(details) : '')
+}
+
+function logWarn(message: string, details?: unknown): void {
+  // eslint-disable-next-line no-console
+  console.warn(`${LOG_PREFIX} ${message}`, details ? truncate(details) : '')
+}
+
+function logError(message: string, details: unknown): void {
+  // eslint-disable-next-line no-console
+  console.error(`${LOG_PREFIX} ${message}`, details ? truncate(details) : '')
+}
 
 type SnapshotPayload = {
   type?: string
@@ -439,6 +473,12 @@ export default function DeckPage() {
           setDeckHeartbeatMs(Date.now())
           samplePnl(rawSnapshot)
           sampleAccountValue(rawSnapshot)
+        } else {
+          logWarn('snapshot fetch failed', {
+            status: snapshotResponse.status,
+            statusText: snapshotResponse.statusText,
+            url: snapshotResponse.url,
+          })
         }
 
         if (tapeResponse.ok) {
@@ -456,9 +496,15 @@ export default function DeckPage() {
           if (initialTape.length > 0) {
             setTape(initialTape.slice(0, TAPE_DISPLAY_LIMIT))
           }
+        } else {
+          logWarn('tape fetch failed', {
+            status: tapeResponse.status,
+            statusText: tapeResponse.statusText,
+            url: tapeResponse.url,
+          })
         }
-      } catch {
-        // initial load network issues are non-fatal
+      } catch (error) {
+        logError('initial load failed', error)
       } finally {
         if (running) {
           setIsBootstrapping(false)
@@ -473,6 +519,7 @@ export default function DeckPage() {
         socket = new WebSocket(wsUrl())
 
         socket.onopen = () => {
+          logInfo('websocket connected', wsUrl())
           socket?.send(JSON.stringify({ type: 'sub.add', channel: 'public' }))
           setWsState('OPEN')
           const connectedEntry = normalizeTapeEntry({
@@ -490,9 +537,13 @@ export default function DeckPage() {
           if (!running) return
           try {
             const parsed = JSON.parse(event.data as string) as { type: string; payload: unknown; channel?: string }
-            if (parsed.type !== 'event' || parsed.channel !== 'public') return
+            if (parsed.type !== 'event' || parsed.channel !== 'public') {
+              logInfo('websocket envelope ignored', { type: parsed.type, channel: parsed.channel })
+              return
+            }
             const payload = parsed.payload as SnapshotPayload
             const payloadType = payload?.type
+            logInfo(`ws payloadType=${payloadType ?? 'unknown'}`)
 
             if (payloadType === 'STATE_UPDATE') {
               setSnapshot((current) => normalizeSnapshot(payload, current))
@@ -522,7 +573,11 @@ export default function DeckPage() {
               }
               return
             }
+
+            logWarn('unhandled websocket payload type', payload)
           } catch (error) {
+            logError('failed to parse websocket message', { raw: truncate(event.data) })
+            logError('websocket message parse error', error)
             const parseError = normalizeTapeEntry({
               ts: new Date().toISOString(),
               role: 'ops',
@@ -537,9 +592,10 @@ export default function DeckPage() {
           }
         }
 
-        socket.onclose = () => {
+        socket.onclose = (event) => {
           if (!running) return
           setWsState('CLOSED')
+          logWarn('websocket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean })
           const disconnectedEntry = normalizeTapeEntry({
             ts: new Date().toISOString(),
             role: 'ops',
@@ -552,11 +608,13 @@ export default function DeckPage() {
           reconnectTimer = setTimeout(connect, 1500)
         }
 
-        socket.onerror = () => {
+        socket.onerror = (event) => {
+          logError('websocket error', event)
           socket?.close()
         }
       } catch (error) {
         setWsState('CLOSED')
+        logError('websocket connect exception', error)
         const connectErrorEntry = normalizeTapeEntry({
           ts: new Date().toISOString(),
           role: 'ops',
