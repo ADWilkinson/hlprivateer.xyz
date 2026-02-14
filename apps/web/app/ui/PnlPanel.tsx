@@ -11,19 +11,7 @@ import {
   sectionStripClass,
   skeletonPulseClass,
 } from './ascii-style'
-import { type OpenPosition, type Snapshot } from './floor-dashboard'
-
-const numberFormatter = new Intl.NumberFormat('en-US', {
-  maximumFractionDigits: 2,
-  minimumFractionDigits: 2,
-})
-
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  maximumFractionDigits: 0,
-  minimumFractionDigits: 0,
-  style: 'currency',
-  currency: 'USD',
-})
+import { type Snapshot } from './floor-dashboard'
 
 const SMALL_PNL_FORMAT = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 3,
@@ -59,29 +47,35 @@ function toSigned(value: number): string {
   return `${sign}${SMALL_PNL_FORMAT.format(value)}%`
 }
 
-function toSignedUsd(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${currencyFormatter.format(value)}`
-}
-
-function toSafe(value: number | undefined): string {
-  if (!Number.isFinite(value)) return '—'
-  return numberFormatter.format(value ?? 0)
-}
-
 function safePnlClass(value: number): string {
   if (value > 0) return 'text-hlpPositive dark:text-hlpPositiveDark'
   if (value < 0) return 'text-hlpNegative dark:text-hlpNegativeDark'
   return 'text-hlpMuted dark:text-hlpMutedDark'
 }
 
-function toSideClass(side?: string): string {
-  if (!side) return 'text-hlpMuted dark:text-hlpMutedDark'
-  const canonical = side.toUpperCase()
-  if (canonical === 'LONG') return 'text-hlpPositive dark:text-hlpPositiveDark'
-  if (canonical === 'SHORT') return 'text-hlpNegative dark:text-hlpNegativeDark'
-  return 'text-hlpMuted dark:text-hlpMutedDark'
+function buildSquareWavePath(points: Array<{ x: number; y: number }>): { path: string; areaPath: string; minY: number } {
+  if (points.length < 2) {
+    return { path: '', areaPath: '', minY: 0 }
+  }
+
+  const baselineY = points.reduce((maxY, point) => Math.max(maxY, point.y), points[0]!.y)
+  const segments = [`M ${points[0]!.x.toFixed(3)} ${points[0]!.y.toFixed(3)}`]
+
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]
+    const current = points[index]
+    if (!previous || !current) continue
+
+    const midX = (previous.x + current.x) / 2
+    segments.push(`L ${midX.toFixed(3)} ${previous.y.toFixed(3)}`)
+    segments.push(`L ${midX.toFixed(3)} ${current.y.toFixed(3)}`)
+    segments.push(`L ${current.x.toFixed(3)} ${current.y.toFixed(3)}`)
+  }
+
+  const path = segments.join(' ')
+  const areaPath = `${path} L ${points.at(-1)?.x.toFixed(3)} ${baselineY.toFixed(3)} L ${points[0]?.x.toFixed(3)} ${baselineY.toFixed(3)} Z`
+
+  return { path, areaPath, minY: baselineY }
 }
 
 function buildSparkline(values: number[]): SparklineMetric {
@@ -112,15 +106,14 @@ function buildSparkline(values: number[]): SparklineMetric {
   const min = Math.min(...numeric)
   const max = Math.max(...numeric)
   const range = max - min || 1
-  const minY = padY + chartHeight
   const getX = (index: number) => padX + (index / (numeric.length - 1)) * chartWidth
   const getY = (value: number) => padY + (1 - (value - min) / range) * chartHeight
 
   const points = numeric.map((value, index) => ({ x: getX(index), y: getY(value) }))
-  const linePath = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(3)} ${point.y.toFixed(3)}`)
-    .join(' ')
-  const areaPath = `${linePath} L ${points.at(-1)?.x.toFixed(3)} ${minY.toFixed(3)} L ${points[0]?.x.toFixed(3)} ${minY.toFixed(3)} Z`
+  const squareWave = buildSquareWavePath(points)
+  const areaPath = squareWave.path
+    ? `${squareWave.path} L ${points.at(-1)?.x.toFixed(3)} ${squareWave.minY.toFixed(3)} L ${points[0]?.x.toFixed(3)} ${squareWave.minY.toFixed(3)} Z`
+    : ''
 
   const first = numeric[0] ?? 0
   const last = numeric[numeric.length - 1] ?? 0
@@ -137,7 +130,7 @@ function buildSparkline(values: number[]): SparklineMetric {
     delta,
     deltaPct,
     samples: numeric.length,
-    path: linePath,
+    path: squareWave.path,
     areaPath,
     zeroY,
     width,
@@ -145,38 +138,8 @@ function buildSparkline(values: number[]): SparklineMetric {
   }
 }
 
-function normalizePositions(raw: OpenPosition[] | undefined): OpenPosition[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((position) => position && position.symbol).slice(0, 500)
-}
-
-function positionSummary(position: OpenPosition) {
-  const { symbol, size, side, entryPrice, markPrice, pnlUsd, pnlPct, notionalUsd } = position
-  return {
-    symbol,
-    size: Number.isFinite(size as number) ? numberFormatter.format(size as number) : '—',
-    side: typeof side === 'string' ? side.toUpperCase() : '—',
-    entry: Number.isFinite(entryPrice as number) ? numberFormatter.format(entryPrice as number) : '—',
-    mark: Number.isFinite(markPrice as number) ? numberFormatter.format(markPrice as number) : '—',
-    pnlUsd: typeof pnlUsd === 'number' && Number.isFinite(pnlUsd) ? toSignedUsd(pnlUsd) : '—',
-    pnlPct: typeof pnlPct === 'number' && Number.isFinite(pnlPct) ? toSigned(pnlPct) : '—',
-    notionalUsd: typeof notionalUsd === 'number' && Number.isFinite(notionalUsd) ? currencyFormatter.format(notionalUsd) : '—',
-    pnlPctNum: typeof pnlPct === 'number' && Number.isFinite(pnlPct) ? pnlPct : 0,
-    sideRaw: side,
-  }
-}
-
 export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPanelProps) {
-  const positions = normalizePositions(snapshot.openPositions)
   const pnlStats = useMemo(() => buildSparkline(trajectory.map((point) => point.pnlPct)), [trajectory])
-  const openPositionCount =
-    Number.isFinite(snapshot.openPositionCount as number) && snapshot.openPositionCount !== undefined
-      ? snapshot.openPositionCount
-      : positions.length
-  const openPositionNotionalUsd =
-    Number.isFinite(snapshot.openPositionNotionalUsd as number) && snapshot.openPositionNotionalUsd !== undefined
-      ? snapshot.openPositionNotionalUsd
-      : positions.reduce((sum, position) => sum + (typeof position.notionalUsd === 'number' && Number.isFinite(position.notionalUsd) ? Math.abs(position.notionalUsd) : 0), 0)
 
   const normalizedTrajectory = trajectory.filter((entry) => Number.isFinite(entry.pnlPct))
 
@@ -217,14 +180,6 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
               <div className='rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/65 dark:bg-hlpSurfaceDark/60 px-2 py-1'>
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</div>
                 <div className='text-[11px] font-semibold'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
-              </div>
-              <div className='rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/65 dark:bg-hlpSurfaceDark/60 px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>OPEN POS</div>
-                <div className='text-[11px] font-semibold'>{isLoading ? '—' : String(openPositionCount)}</div>
-              </div>
-              <div className='rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/65 dark:bg-hlpSurfaceDark/60 px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>NOTIONAL</div>
-                <div className='text-[11px] font-semibold'>{isLoading ? '—' : toSignedUsd(openPositionNotionalUsd)}</div>
               </div>
             </div>
           </div>
@@ -309,8 +264,8 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                     fill='none'
                     className='stroke-hlpPositive dark:stroke-hlpPositiveDark'
                     strokeWidth='1'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
+                    strokeLinecap='square'
+                    strokeLinejoin='miter'
                   />
                   {normalizedTrajectory.length > 1
                     ? normalizedTrajectory.map((entry, index, values) => {
@@ -344,83 +299,6 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
           </div>
         </article>
 
-        <article className={monitorClass}>
-          <div className={`flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark ${panelBodyPad} ${panelHeaderPad}`}>
-            <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted dark:text-hlpMutedDark'>OPEN POSITIONS</span>
-            <AsciiBadge tone='neutral' variant='angle' className='text-[8px] tracking-[0.16em]'>
-              book
-            </AsciiBadge>
-          </div>
-
-          {isLoading ? (
-            <div className='space-y-2 p-3'>
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div className='grid gap-2 sm:grid-cols-6' key={`p-loading-${index}`}>
-                  <span className={`h-5 w-full rounded-sm ${skeletonPulseClass}`} />
-                  <span className={`h-5 w-full rounded-sm ${skeletonPulseClass}`} />
-                  <span className={`h-5 w-full rounded-sm ${skeletonPulseClass}`} />
-                  <span className={`h-5 w-full rounded-sm ${skeletonPulseClass}`} />
-                  <span className={`h-5 w-full rounded-sm ${skeletonPulseClass}`} />
-                  <span className={`h-5 w-full rounded-sm ${skeletonPulseClass}`} />
-                </div>
-              ))}
-            </div>
-          ) : positions.length === 0 ? (
-            <div className='py-8 text-center text-[11px] uppercase tracking-[0.18em] text-hlpMuted dark:text-hlpMutedDark'>
-              No open positions currently
-            </div>
-          ) : (
-            <div className='overflow-x-hidden'>
-              <div className='grid grid-cols-1 gap-0 border-t border-hlpBorder dark:border-hlpBorderDark'>
-                {positions.map((position, index) => {
-                  const normalized = positionSummary(position)
-                  return (
-                    <div
-                      className='grid border-b border-hlpBorder/85 dark:border-hlpBorderDark/85 p-3 text-[10px] sm:grid-cols-[2.3fr_0.9fr_0.9fr_1.2fr_1.2fr_1fr_0.9fr] sm:gap-2'
-                      key={position.id ?? `${normalized.symbol}-${normalized.sideRaw ?? 'na'}-${index}`}
-                    >
-                      <div className='sm:truncate' title={normalized.symbol}>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>symbol</div>
-                        <div className='break-words font-semibold'>{normalized.symbol}</div>
-                      </div>
-                      <div>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>side</div>
-                        <div className={`${toSideClass(position.side)} font-semibold`}>{normalized.side}</div>
-                      </div>
-                      <div>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>size</div>
-                        <div className='break-words'>{normalized.size}</div>
-                      </div>
-                      <div>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>entry</div>
-                        <div className='break-words'>{normalized.entry}</div>
-                      </div>
-                      <div>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>mark</div>
-                        <div className='break-words'>{normalized.mark}</div>
-                      </div>
-                      <div>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>pnl%</div>
-                        <div className={`font-semibold ${safePnlClass(normalized.pnlPctNum)}`}>{normalized.pnlPct}</div>
-                      </div>
-                      <div>
-                        <div className='mb-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>notional</div>
-                        <div className='break-words'>{normalized.notionalUsd}</div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className={sectionStripClass}>
-            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>book</span>
-            <span className={inlineBadgeClass}>rows={positions.length}</span>
-            <span className={inlineBadgeClass}>exposure={toSafe(openPositionNotionalUsd)}</span>
-            <span className={inlineBadgeClass}>mode={snapshot.mode}</span>
-          </div>
-        </article>
       </div>
     </section>
   )
