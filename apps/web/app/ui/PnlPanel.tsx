@@ -338,15 +338,15 @@ export function PnlPanel({
               </div>
             </div>
             <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-              <div className='rounded-sm border border-hlpBorder bg-black px-2 py-1'>
+              <div className='rounded-sm border border-hlpBorder bg-hlpInverseBg px-2 py-1'>
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>MODE</div>
                 <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
               </div>
-              <div className='rounded-sm border border-hlpBorder bg-black px-2 py-1'>
+              <div className='rounded-sm border border-hlpBorder bg-hlpInverseBg px-2 py-1'>
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>Pnl current</div>
                 <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? '--' : toSigned(snapshot.pnlPct)}</div>
               </div>
-              <div className='rounded-sm border border-hlpBorder bg-black px-2 py-1'>
+              <div className='rounded-sm border border-hlpBorder bg-hlpInverseBg px-2 py-1'>
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/85'>VALUE now</div>
                 <div className='text-[11px] font-semibold text-hlpPanel'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd)}</div>
               </div>

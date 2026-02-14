@@ -29,7 +29,7 @@ const badgeToneClass: Record<BadgeTone, string> = {
   warning: 'border-hlpBorder text-hlpWarning',
   error: 'border-hlpBorder text-hlpNegative',
   info: 'border-hlpMuted/80 text-hlpMuted',
-  inverse: 'border-hlpBorder bg-black text-hlpPanel',
+  inverse: 'border-hlpBorder bg-hlpInverseBg text-hlpPanel',
 }
 
 const badgeGlyphs: Record<BadgeVariant, [string, string]> = {

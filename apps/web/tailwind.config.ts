@@ -15,6 +15,7 @@ const config: Config = {
         hlpBg: '#F4EEE8',
         hlpPanel: '#F4EEE8',
         hlpSurface: '#F4EEE8',
+        hlpInverseBg: '#2f3034',
         hlpFg: '#27272A',
         hlpMuted: '#27272A',
         hlpDim: '#5B5B60',
