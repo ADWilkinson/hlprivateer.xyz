@@ -118,12 +118,14 @@ services:
       <<: *hlp-base-env
       APP: runtime
       NODE_ENV: ${NODE_ENV:-development}
+      DRY_RUN: ${DRY_RUN:-true}
+      ENABLE_LIVE_OMS: false
+      LIVE_MODE_APPROVED: false
+      HL_PRIVATE_KEY_FILE: ""
       REDIS_URL: redis://redis:6379
       DATABASE_URL_FILE: ""
-      HL_PRIVATE_KEY_FILE: ""
       DATABASE_URL: ${DATABASE_URL:-postgres://privateer:${POSTGRES_PASSWORD:-local_postgres_password_change_me}@postgres:5432/privateer}
       RUNTIME_METRICS_PORT: 9400
-      DRY_RUN: ${DRY_RUN:-true}
     depends_on:
       redis:
         condition: service_healthy
