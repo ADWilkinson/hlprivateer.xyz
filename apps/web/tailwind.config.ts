@@ -26,10 +26,10 @@ const config: Config = {
         hlpNeutral: '#27272A',
       },
       borderRadius: {
-        hlp: '12px',
+        hlp: '8px',
       },
       boxShadow: {
-        hlp: '0 8px 30px rgba(39, 39, 42, 0.13)',
+        hlp: '0 0 0 1px rgba(0, 0, 0, 0.18)',
       },
       fontFamily: {
         mono: ['var(--font-hlp-mono)', 'IBM Plex Mono', 'SFMono-Regular', 'ui-monospace', 'monospace'],

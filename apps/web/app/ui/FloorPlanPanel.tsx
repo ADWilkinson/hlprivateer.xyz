@@ -57,6 +57,20 @@ const roleRoute: Record<CrewRole, string> = {
   ops: 'OPS -> BROADCAST',
 }
 
+const NODE_LEGEND = [
+  { key: 'online', label: 'ONLINE', dotClass: 'bg-hlpPositive', detail: 'steady' },
+  { key: 'warning', label: 'WEAK', dotClass: 'bg-hlpWarning', detail: 'aging' },
+  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-hlpNegative', detail: 'silent' },
+] as const
+
+const EDGE_LEGEND = [
+  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-hlpPositive', detail: 'full health' },
+  { key: 'congested', label: 'CONGESTED', dotClass: 'stroke-hlpWarning', detail: 'slow lane' },
+  { key: 'warning', label: 'WARN LINK', dotClass: 'stroke-hlpWarning', detail: 'unstable' },
+  { key: 'error', label: 'ERROR', dotClass: 'stroke-hlpNegative', detail: 'broken' },
+  { key: 'inactive', label: 'IDLE', dotClass: 'stroke-hlpMuted', detail: 'waiting' },
+] as const
+
 function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 'stale' | 'silent'; pulse: string; label: string } {
   if (!lastMs) {
     return { status: 'silent', pulse: '◌◌◌◌◌', label: 'silent' }
@@ -220,8 +234,11 @@ export function FloorPlanPanel({
 
       <div className={`flex flex-col ${panelBodyPad}`}>
         <div className={`min-h-[360px] ${monitorClass} flex flex-col`}>
-          <div className={cardHeaderClass}>
+          <div className={`flex items-center justify-between ${panelBodyPad} border-b border-hlpBorder/65 text-[9px] uppercase tracking-[0.14em] text-hlpMuted`}>
             <span className={sectionTitleClass}>LIVE MAP</span>
+            <AsciiBadge tone='neutral' variant='angle' className='text-hlpMuted'>
+              route topology
+            </AsciiBadge>
           </div>
           <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
             <LiveConnectivityGraph
@@ -249,6 +266,31 @@ export function FloorPlanPanel({
                 <span className={inlineBadgeClass}>missing={deckMissing}</span>
               </>
             )}
+          </div>
+          <div className={sectionStripClass}>
+            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>legend</span>
+            <span className='text-[9px] font-semibold tracking-[0.16em]'>nodes:</span>
+            {NODE_LEGEND.map((entry) => (
+              <span
+                className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
+                key={`node-${entry.key}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${entry.dotClass}`} />
+                <span>{entry.label}</span>
+                <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
+              </span>
+            ))}
+            <span className='text-[9px] font-semibold tracking-[0.16em]'>links:</span>
+            {EDGE_LEGEND.map((entry) => (
+              <span
+                className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
+                key={`edge-${entry.key}`}
+              >
+                <span className={`h-1.5 w-2 rounded-sm border ${entry.dotClass.replace('stroke-', 'border-')}`} />
+                <span>{entry.label}</span>
+                <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
+              </span>
+            ))}
           </div>
         </div>
       </div>
