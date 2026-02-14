@@ -160,6 +160,10 @@ export class ApiStore {
 
   public setSnapshot(snapshot: ApiSnapshotUpdate) {
     const hasOwn = (key: keyof ApiSnapshotUpdate) => Object.prototype.hasOwnProperty.call(snapshot, key)
+    const nextAccountValueUsd =
+      hasOwn('accountValueUsd') && typeof snapshot.accountValueUsd === 'number' && Number.isFinite(snapshot.accountValueUsd)
+        ? snapshot.accountValueUsd
+        : undefined
 
     this.snapshot = {
       ...this.snapshot,
@@ -169,8 +173,7 @@ export class ApiStore {
         : [],
       openPositionCount: hasOwn('openPositionCount') ? snapshot.openPositionCount : undefined,
       openPositionNotionalUsd: hasOwn('openPositionNotionalUsd') ? snapshot.openPositionNotionalUsd : undefined,
-      accountValueUsd: hasOwn('accountValueUsd') ? snapshot.accountValueUsd : undefined,
-      message: hasOwn('message') ? snapshot.message : undefined,
+      accountValueUsd: nextAccountValueUsd,
       riskPolicy: hasOwn('riskPolicy') ? snapshot.riskPolicy : undefined,
       lastUpdateAt: snapshot.lastUpdateAt ?? new Date().toISOString()
     }
