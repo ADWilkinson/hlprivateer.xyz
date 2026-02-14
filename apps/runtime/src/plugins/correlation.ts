@@ -73,7 +73,11 @@ export default {
 
     const infoUrl = ctx.getConfig('HL_INFO_URL')
     const baseSymbol = (ctx.getConfig('HLP_CORR_BASE') ?? 'HYPE').trim() || 'HYPE'
-    const basketCsv = ctx.getConfig('BASKET_SYMBOLS') ?? 'BTC,ETH'
+    const basketCsv = ctx.getConfig('BASKET_SYMBOLS')
+    if (!basketCsv) {
+      return []
+    }
+
     const basketSymbols = basketCsv
       .split(',')
       .map((s) => s.trim())

@@ -47,71 +47,6 @@ export interface MarketDataAdapter {
   latest(symbol: string): Promise<NormalizedTick | undefined>
 }
 
-class SyntheticAdapter implements MarketDataAdapter {
-  private timer?: ReturnType<typeof setInterval>
-  private ticks = new Map<string, NormalizedTick>()
-
-  constructor(
-    private symbols: string[],
-    private base: Record<string, number>,
-    private jitter: number,
-    private eventBus: EventBus
-  ) {}
-
-  async start(): Promise<void> {
-    this.timer = setInterval(async () => {
-      for (const symbol of this.symbols) {
-        const base = this.base[symbol] ?? 100
-        const drift = 1 + (Math.random() - 0.5) * this.jitter
-        const px = Math.max(0.01, base * drift)
-        const tick: NormalizedTick = NormalizedTickSchema.parse({
-          symbol,
-          px,
-          bid: px * 0.999,
-          ask: px * 1.001,
-          bidSize: 1000,
-          askSize: 1000,
-          volume24hUsd: base * 100,
-          updatedAt: new Date().toISOString(),
-          source: 'synthetic'
-        })
-
-        this.ticks.set(symbol, tick)
-        await this.eventBus.publish('hlp.market.normalized', {
-          type: 'MARKET_TICK',
-          stream: 'hlp.market.normalized',
-          source: 'runtime.market',
-          correlationId: ulid(),
-          actorType: 'system',
-          actorId: 'market-adapter',
-          payload: {
-            symbol: tick.symbol,
-            px: tick.px,
-            bid: tick.bid,
-            ask: tick.ask,
-            bidSize: tick.bidSize,
-            askSize: tick.askSize,
-            updatedAt: tick.updatedAt
-          }
-        })
-
-        const ageMs = Date.now() - Date.parse(tick.updatedAt)
-        marketDataAgeMs.labels({ symbol, source: 'synthetic' }).set(Math.max(0, ageMs))
-      }
-    }, 1000)
-  }
-
-  async stop(): Promise<void> {
-    if (this.timer) {
-      clearInterval(this.timer)
-    }
-  }
-
-  async latest(symbol: string): Promise<NormalizedTick | undefined> {
-    return this.ticks.get(symbol)
-  }
-}
-
 class HyperliquidWebSocketAdapter implements MarketDataAdapter {
   private socket?: WebSocket
   private ageTimer?: ReturnType<typeof setInterval>
@@ -325,24 +260,19 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
 }
 
 export function createMarketAdapter(config: RuntimeEnv, eventBus: EventBus): MarketDataAdapter {
-  const symbols = ['HYPE', ...config.BASKET_SYMBOLS.split(',').map((symbol) => symbol.trim()).filter(Boolean)]
+  const basketSymbols = config.BASKET_SYMBOLS.split(',').map((symbol) => symbol.trim()).filter(Boolean)
+  const symbols = Array.from(new Set(['HYPE', ...basketSymbols]))
+
+  if (symbols.length < 2) {
+    throw new Error('Runtime requires at least one non-HYPE symbol in BASKET_SYMBOLS for market-neutral execution.')
+  }
 
   if (!config.HL_WS_URL) {
-    return new SyntheticAdapter(
-      symbols,
-      { HYPE: 22, BTC: 65000, ETH: 2800, SOL: 120 },
-      0.004,
-      eventBus
-    )
+    throw new Error('HL_WS_URL is required when runtime market adapter is enabled.')
   }
 
   if (!config.HL_WS_URL.startsWith('ws://') && !config.HL_WS_URL.startsWith('wss://')) {
-    return new SyntheticAdapter(
-      symbols,
-      { HYPE: 22, BTC: 65000, ETH: 2800, SOL: 120 },
-      0.004,
-      eventBus
-    )
+    throw new Error('HL_WS_URL must begin with ws:// or wss://')
   }
 
   return new HyperliquidWebSocketAdapter(symbols, config.HL_WS_URL, eventBus)
