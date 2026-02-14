@@ -207,12 +207,12 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                 <svg
                   viewBox={`0 0 ${pnlStats.width} ${pnlStats.height}`}
                   preserveAspectRatio='none'
-                  className='h-full w-full'
+                  className='h-full w-full text-hlpPositive dark:text-hlpPositiveDark'
                 >
                   <defs>
                     <linearGradient id='pnl-spark-gradient' x1='0' y1='0' x2='0' y2='1'>
-                      <stop offset='0%' stopColor='rgb(75,154,135)' stopOpacity='0.35' />
-                      <stop offset='100%' stopColor='rgb(75,154,135)' stopOpacity='0.03' />
+                      <stop offset='0%' stopColor='currentColor' stopOpacity='0.35' />
+                      <stop offset='100%' stopColor='currentColor' stopOpacity='0.03' />
                     </linearGradient>
                   </defs>
 
