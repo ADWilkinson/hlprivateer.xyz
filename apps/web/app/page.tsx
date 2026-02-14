@@ -409,7 +409,7 @@ export default function DeckPage() {
   return (
     <main className={pageShellClass}>
       <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
-      <div className='grid gap-3 xl:grid-cols-12'>
+      <div className='grid gap-2 sm:gap-2 xl:gap-2 xl:grid-cols-12'>
         <div className='xl:col-span-8'>
           <StatusStrip
             isLoading={isBootstrapping}
@@ -428,8 +428,6 @@ export default function DeckPage() {
         <div className='xl:col-span-4'>
           <PnlPanel snapshot={snapshot} chart={chart} isLoading={isBootstrapping} />
         </div>
-      </div>
-      <div className='grid gap-3 xl:grid-cols-12'>
         <div className='xl:col-span-8'>
           <FloorPlanPanel
             isLoading={isBootstrapping}
@@ -450,9 +448,13 @@ export default function DeckPage() {
             isLoading={isBootstrapping}
           />
         </div>
+        <div className='xl:col-span-12'>
+          <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
+        </div>
+        <div className='xl:col-span-12'>
+          <FloorFooter apiEndpoint={apiUrl('/v1/agent/analysis/latest')} />
+        </div>
       </div>
-      <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
-      <FloorFooter apiEndpoint={apiUrl('/v1/agent/analysis/latest')} />
     </main>
   )
 }

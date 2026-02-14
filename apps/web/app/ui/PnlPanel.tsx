@@ -16,8 +16,8 @@ export function PnlPanel({ snapshot, chart, isLoading = false }: PnlPanelProps) 
     <section className={cardClass}>
       <div className={cardHeaderClass}>PROFIT / LOSS</div>
 
-      <section className='grid grid-cols-1 gap-2 xl:grid-cols-[minmax(220px,420px)_1fr] min-h-[330px]'>
-        <div className='flex min-h-[164px] flex-col justify-center gap-2 border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark rounded-hlp p-6'>
+      <section className='grid grid-cols-1 gap-2 xl:grid-cols-[minmax(220px,420px)_1fr] min-h-[300px]'>
+        <div className='flex min-h-[150px] flex-col justify-center gap-2 border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark rounded-hlp p-5'>
           <div className={sectionTitleClass}>PORTFOLIO P&L</div>
           {isLoading ? (
             <>
@@ -58,7 +58,7 @@ export function PnlPanel({ snapshot, chart, isLoading = false }: PnlPanelProps) 
           )}
         </div>
 
-        <div className='flex min-h-[168px] flex-col rounded-hlp border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark p-3'>
+        <div className='flex min-h-[150px] flex-col rounded-hlp border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel dark:bg-hlpPanelDark p-3'>
           <div className={sectionTitleClass}>PNL TRAJECTORY</div>
           {isLoading ? (
             <div className={`mt-2 min-h-0 flex-1 rounded-sm ${skeletonPulseClass}`} />

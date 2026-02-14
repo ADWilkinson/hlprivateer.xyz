@@ -2405,6 +2405,27 @@ async function runStrategistCycle(): Promise<void> {
         })
       }
       lastExitProposalSignature = 'FLAT'
+      if (
+        activeDirective.decision === 'EXIT' &&
+        !riskRecovery.active &&
+        lastMode !== 'SAFE_MODE' &&
+        lastMode !== 'HALT'
+      ) {
+        activeDirective = {
+          decision: 'MAINTAIN',
+          targetNotionalMultiplier: clamp(activeDirective.targetNotionalMultiplier, env.AGENT_NOTIONAL_MULTIPLIER_MIN, env.AGENT_NOTIONAL_MULTIPLIER_MAX),
+          rationale: 'recovered to flat: resume autonomous maintenance',
+          confidence: 0.8,
+          decidedAt: new Date().toISOString()
+        }
+        lastDirectiveAt = now
+        lastExitProposalSignature = null
+        await publishTape({
+          correlationId: ulid(),
+          role: 'strategist',
+          line: `directive: MAINTAIN (recovery complete, resume trading)`
+        })
+      }
       return
     }
     if (lastExitProposalSignature === exitSignature) {
