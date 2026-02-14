@@ -2,6 +2,8 @@
 Description=Cloudflare Tunnel for HL Privateer
 After=network-online.target hlprivateer-web.service hlprivateer-api.service hlprivateer-ws.service
 Wants=network-online.target hlprivateer-web.service hlprivateer-api.service hlprivateer-ws.service
+ConditionPathExists=/run/credentials/%N/cloudflared-tunnel
+ConditionPathExists=/etc/cloudflared/config.yml
 StartLimitBurst=5
 StartLimitIntervalSec=60
 
@@ -34,8 +36,6 @@ RestartSteps=3
 RestartMaxDelaySec=30
 LoadCredential=cloudflared-tunnel:/etc/cloudflared/hlprivateer.json
 EnvironmentFile=-/run/credentials/%N/cloudflared-tunnel
-ConditionPathExists=/run/credentials/%N/cloudflared-tunnel
-ConditionPathExists=/etc/cloudflared/config.yml
 
 [Install]
 WantedBy=multi-user.target
