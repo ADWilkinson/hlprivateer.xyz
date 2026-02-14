@@ -95,13 +95,14 @@ function buildSquareWavePath(points: Array<{ x: number; y: number }>): string {
 
 function buildSparkline(values: number[], fallback: number | undefined): SparklineMetric {
   const numeric = values.filter((value) => Number.isFinite(value))
+  const safeFallback = typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : undefined
   const ordered =
     numeric.length >= 2
       ? numeric
       : numeric.length === 1 && numeric[0] !== undefined
         ? [numeric[0], numeric[0]]
-        : Number.isFinite(fallback)
-          ? [fallback, fallback]
+        : safeFallback !== undefined
+          ? [safeFallback, safeFallback]
           : [0, 0]
   const pointCount = ordered.length
   const baseline = {
@@ -118,7 +119,7 @@ function buildSparkline(values: number[], fallback: number | undefined): Sparkli
     height: 32,
   }
 
-  if (numeric.length === 0 && !Number.isFinite(fallback)) {
+  if (numeric.length === 0 && safeFallback === undefined) {
     return baseline
   }
 
