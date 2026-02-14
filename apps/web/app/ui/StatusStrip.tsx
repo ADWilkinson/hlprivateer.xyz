@@ -1,5 +1,5 @@
 import { AsciiBadge } from './ascii-kit'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, statusCellClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inverseControlClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, statusCellClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -69,7 +69,7 @@ export function StatusStrip({
       >
         <span>FLOOR STATUS</span>
         <div className='flex items-center gap-2'>
-          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+          <span className={inverseControlClass}>
             {isCollapsed ? '+' : '−'}
           </span>
           <AsciiBadge tone='info' variant='angle'>

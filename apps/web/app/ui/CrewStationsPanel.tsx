@@ -12,6 +12,7 @@ import {
 import {
   cardClass,
   cardHeaderClass,
+  inverseControlClass,
   monitorClass,
   panelBodyPad,
   panelInsetPad,
@@ -79,10 +80,10 @@ export function CrewStationsPanel({
       >
         <span className={sectionTitleClass}>CREW STATIONS</span>
         <div className='flex items-center gap-2'>
-          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+          <span className={inverseControlClass}>
             {isCollapsed ? '+' : '−'}
           </span>
-          <AsciiBadge tone='neutral'>{isLoading ? 'BOOTING' : '7 AGENTS'}</AsciiBadge>
+          <AsciiBadge tone='inverse'>{isLoading ? 'BOOTING' : '7 AGENTS'}</AsciiBadge>
         </div>
       </button>
 
