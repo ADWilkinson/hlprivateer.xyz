@@ -480,6 +480,8 @@ function sanitizeForPublic(type: string, rawPayload: unknown): Record<string, un
       healthCode: payload.healthCode,
       pnlPct: payload.pnlPct,
       lastUpdateAt: payload.lastUpdateAt,
+      ...(payload.accountValueUsd !== undefined ? { accountValueUsd: payload.accountValueUsd } : {}),
+      ...(payload.realizedPnlUsd !== undefined ? { realizedPnlUsd: payload.realizedPnlUsd } : {}),
       ...(openPositions.length > 0 ? { openPositions } : {}),
       ...(openPositionCount !== undefined ? { openPositionCount } : {}),
       ...(computedOpenPositionNotionalUsd !== undefined ? { openPositionNotionalUsd: computedOpenPositionNotionalUsd } : {}),
