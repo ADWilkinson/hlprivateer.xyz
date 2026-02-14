@@ -11,13 +11,17 @@ type CrewStationsPanelProps = {
 }
 
 export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs }: CrewStationsPanelProps) {
+  const getActivityWidth = (beatScore: number) => `${Math.max(0, Math.min(100, Math.round(beatScore / 10) * 10))}%`
   return (
-    <AsciiCard title='CREW STATIONS' className='panel-shell'>
-      <div className='section-bar'>
-        <div className='section-label'>CREW STATIONS</div>
+    <AsciiCard
+      title='CREW STATIONS'
+      className='border border-[var(--border)] bg-[var(--bg-raised)] rounded-[var(--r)] shadow-[var(--panel-shadow)] text-[var(--fg)]'
+    >
+      <div className='flex items-center justify-between border-b border-[var(--border)] px-3 py-2'>
+        <div className='text-[9px] uppercase tracking-[0.25em] text-[var(--fg-muted)]'>CREW STATIONS</div>
         <AsciiBadge color='success'>7 AGENTS</AsciiBadge>
       </div>
-      <div className='crew-grid'>
+      <div className='grid grid-cols-1 gap-1 p-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
         {(Object.keys(crewHeartbeat) as CrewRole[]).map((role) => {
           const last = crewLast[role]
           const lastMs = last?.ts ? Date.parse(last.ts) : 0
@@ -30,31 +34,52 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
           const heartbeatBeat = Math.max(0, Math.round((beatScore / 20)))
           const pulse = `${'◉'.repeat(Math.min(heartbeatBeat, 5)).padEnd(5, '◌')}`
 
+          const normalizedLevel = level.toLowerCase()
           return (
-            <div className={`agent-term ${active ? 'active' : ''}`} key={role}>
-              <div className='agent-bar'>
-                <span className='agent-name'>{crewLabel(role)}</span>
-                <span className={`agent-led ${active ? 'on' : 'off'}`} />
+            <div
+              className={`overflow-hidden border border-[var(--border)] rounded-[var(--r)] bg-[var(--bg-surface)] transition-colors transition-shadow ${active ? 'border-[var(--border-active)] shadow-[0_0_10px_color-mix(in_srgb,_var(--positive)_12%,_transparent)]' : ''}`}
+              key={role}
+            >
+              <div className='flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5'>
+                <span className='text-[10px] font-bold tracking-[0.22em] text-[var(--fg)]'>{crewLabel(role)}</span>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[var(--positive)] shadow-[0_0_3px_color-mix(in_srgb,_var(--positive)_35%,_transparent)] animate-[led-pulse_2.5s_ease-in-out_infinite]' : 'bg-[var(--fg-dim)]'}`}
+                />
               </div>
-              <div className='agent-body'>
-                <span className={`agent-level ${level.toLowerCase()}`}>{level}</span>
-                <div className='agent-activity'>
-                  <span className='agent-activity-bar' aria-hidden='true'>
-                    <span className={`agent-activity-fill agent-fill-${Math.round(beatScore / 10) * 10}`} />
+              <div className='px-2 py-1.5'>
+                <span
+                  className={`text-[8px] uppercase tracking-[0.12em] ${
+                    normalizedLevel === 'warn'
+                      ? 'text-[var(--amber)]'
+                      : normalizedLevel === 'error'
+                        ? 'text-[var(--negative)]'
+                        : 'text-[var(--fg-muted)]'
+                  }`}
+                >
+                  {level}
+                </span>
+                <div className='mt-1 flex items-center gap-1.5'>
+                  <span className='relative h-1 w-full min-w-0 border border-[var(--border)] rounded-sm overflow-hidden' aria-hidden='true'>
+                    <span
+                      className='absolute inset-0 bg-gradient-to-r from-[color-mix(in_srgb,_var(--positive)_55%,_transparent)] to-[color-mix(in_srgb,_var(--amber)_50%,_transparent)]'
+                      style={{ width: getActivityWidth(beatScore) }}
+                    />
                   </span>
-                  <span className='agent-activity-age'>{heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
+                  <span className='text-[9px] w-12 text-right text-[var(--fg-muted)] flex-shrink-0'>
+                    {heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}
+                  </span>
                 </div>
-                <div className='agent-msg'>{heartbeatGlyph} {line}</div>
-                <div className='crew-body-pulse'>
-                  <span className='agent-heat'>
-                    <span className='agent-heat-bulb'>{active ? '◉' : '◌'}</span>
-                    heartbeat {pulse}
-                  </span>
+                <div className='mt-1 text-[11px] overflow-hidden whitespace-nowrap text-ellipsis text-[var(--fg)]'>
+                  {heartbeatGlyph} {line}
+                </div>
+                <div className='mt-1 overflow-hidden whitespace-nowrap text-ellipsis text-[9px] tracking-[0.15em] text-[var(--fg-muted)] flex items-center gap-1'>
+                  <span className='text-[10px]'>{active ? '◉' : '◌'}</span>
+                  heartbeat {pulse}
                 </div>
               </div>
-              <div className='agent-ts'>
+              <div className='flex items-center justify-between border-t border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)]'>
                 <span>{last?.ts ? formatTime(last.ts) : '—'}</span>
-                <span className='agent-heartbeat-text'>events {crewSignals[role]}</span>
+                <span className='whitespace-nowrap'>events {crewSignals[role]}</span>
               </div>
             </div>
           )

@@ -114,13 +114,6 @@ export function parseDeckStatus(line: string): { feedAgeMs: number | undefined; 
   }
 }
 
-export function asciiLogo(): string {
-  return [
-    '\u2588 \u2588 \u2588      \u2588\u2580\u2588 \u2588\u2580\u2588  \u2588  \u2588 \u2588 \u2584\u2580\u2584 \u2580\u2588\u2580 \u2588\u2580\u2580 \u2588\u2580\u2588',
-    '\u2588\u2580\u2588 \u2588\u2584\u2584    \u2588\u2580\u2580 \u2588\u2584\u2580  \u2588  \u2580\u2584\u2580 \u2588\u2580\u2588  \u2588  \u2588\u2584\u2584 \u2588\u2584\u2584 \u2588\u2580\u2584',
-  ].join('\n')
-}
-
 export function asciiCrewMap(activeByRole: CrewHeartbeat, nowMs: number): string {
   const INNER_WIDTH = 54
 
