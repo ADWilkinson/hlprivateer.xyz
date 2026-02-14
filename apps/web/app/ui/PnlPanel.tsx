@@ -64,7 +64,7 @@ function toSignedUsd(value: number | undefined): string {
 }
 
 function toUsd(value: number | undefined): string {
-  if (!Number.isFinite(value)) return '—'
+  if (value === undefined || !Number.isFinite(value)) return '—'
   return ACCOUNT_VALUE_FORMAT.format(value)
 }
 
