@@ -242,9 +242,8 @@ export function PnlPanel({
                 const y = stats.padY + ratio * stats.chartHeight
                 const value = stats.max - ratio * (stats.max - stats.min)
                 return (
-                  <>
+                  <g key={`y-axis-${id}-${index}`}>
                     <line
-                      key={`y-grid-${id}-${index}`}
                       x1={stats.padX}
                       x2={stats.width - stats.padX}
                       y1={y}
@@ -253,7 +252,6 @@ export function PnlPanel({
                       strokeWidth='0.18'
                     />
                     <text
-                      key={`y-label-${id}-${index}`}
                       x={stats.padX - 1}
                       y={y + 0.2}
                       textAnchor='end'
@@ -262,7 +260,7 @@ export function PnlPanel({
                     >
                       {axisLabel(value)}
                     </text>
-                  </>
+                  </g>
                 )
               })}
 
@@ -319,6 +317,7 @@ export function PnlPanel({
               <path
                 d={stats.path}
                 fill='none'
+                stroke='currentColor'
                 className={colorClass}
                 strokeWidth='0.6'
                 strokeLinecap='square'

@@ -228,7 +228,7 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
     lastUpdateAt:
       typeof payload.lastUpdateAt === 'string' && payload.lastUpdateAt
         ? payload.lastUpdateAt
-        : fallback.lastUpdateAt,
+        : new Date().toISOString(),
     message: typeof payload.message === 'string' ? payload.message : undefined,
     pnlPct: nextPnl !== undefined ? nextPnl : fallback.pnlPct,
     openPositions:

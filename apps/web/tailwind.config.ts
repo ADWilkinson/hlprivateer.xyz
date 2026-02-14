@@ -26,6 +26,7 @@ const config: Config = {
         hlpBorder: '#000000',
         hlpBorderStrong: '#000000',
         hlpNeutral: '#27272A',
+        hlpAccent: '#0072B5',
       },
       borderRadius: {
         hlp: '8px',
