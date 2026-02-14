@@ -87,6 +87,15 @@ function roleActorId(role: FloorRole): string {
   return `${env.AGENT_ID}:${role}`
 }
 
+const PROPOSAL_NOTIONAL_PRECISION = 6
+
+function normalizeProposalNotional(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Number(Math.abs(value).toFixed(PROPOSAL_NOTIONAL_PRECISION))
+}
+
 let codexDisabledUntilMs = 0
 
 function parseCodexUsageLimit(message: string): { summary: string; tryAgainAtMs: number | null } | null {
@@ -1634,7 +1643,7 @@ function buildTargetProposal(params: {
   }
 
   const currentBySymbol = signedNotionalBySymbol(params.positions)
-  const minLegUsd = Math.max(25, params.targetNotionalUsd * 0.01)
+  const minLegUsd = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
   const deltas = [...desiredBySymbol.entries()]
     .map(([symbol, desiredNotional]) => {
       const current = currentBySymbol.get(symbol) ?? 0
@@ -1643,7 +1652,10 @@ function buildTargetProposal(params: {
         return null
       }
       const side: 'BUY' | 'SELL' = delta > 0 ? 'BUY' : 'SELL'
-      const notionalUsd = Number(Math.abs(delta).toFixed(2))
+      const notionalUsd = normalizeProposalNotional(delta)
+      if (!Number.isFinite(notionalUsd) || notionalUsd <= 0) {
+        return null
+      }
       const reduces =
         (current > 0 && side === 'SELL') ||
         (current < 0 && side === 'BUY')
@@ -1691,7 +1703,7 @@ function buildTargetProposal(params: {
       {
         type: actionType,
         rationale,
-        notionalUsd: Number(actionNotionalUsd.toFixed(2)),
+        notionalUsd: normalizeProposalNotional(actionNotionalUsd),
         expectedSlippageBps: params.executionTactics.expectedSlippageBps,
         maxSlippageBps: params.executionTactics.maxSlippageBps,
         legs
@@ -1723,7 +1735,7 @@ function buildExitProposal(params: {
         return null
       }
       const side: 'BUY' | 'SELL' = current > 0 ? 'SELL' : 'BUY'
-      return { symbol, side, notionalUsd: Number(Math.abs(current).toFixed(2)) }
+      return { symbol, side, notionalUsd: normalizeProposalNotional(current) }
     })
     .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number } => Boolean(leg))
 
@@ -1756,7 +1768,7 @@ function buildExitProposal(params: {
       {
         type: 'EXIT',
         rationale,
-        notionalUsd: Number(actionNotionalUsd.toFixed(2)),
+        notionalUsd: normalizeProposalNotional(actionNotionalUsd),
         expectedSlippageBps: params.executionTactics.expectedSlippageBps,
         maxSlippageBps: params.executionTactics.maxSlippageBps,
         legs

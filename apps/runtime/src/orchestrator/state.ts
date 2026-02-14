@@ -1683,6 +1683,15 @@ function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal
   return Number(Math.max(100, baseTargetNotional * scale).toFixed(2))
 }
 
+const PROPOSAL_NOTIONAL_PRECISION = 6
+
+function normalizeProposalNotional(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Number(Math.abs(value).toFixed(PROPOSAL_NOTIONAL_PRECISION))
+}
+
 function buildProposal(
   state: RuntimeState,
   targetNotional: number,
@@ -1721,7 +1730,7 @@ function buildProposal(
     currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
   }
 
-  const minLegUsd = Math.max(25, targetNotional * 0.01)
+  const minLegUsd = Math.max(0, minimumMeaningfulNotionalUsd)
   const legs = [...desiredBySymbol.entries()]
     .map(([symbol, desiredNotional]) => {
       const current = currentBySymbol.get(symbol) ?? 0
@@ -1730,10 +1739,15 @@ function buildProposal(
         return null
       }
 
+      const notionalUsd = normalizeProposalNotional(delta)
+      if (!Number.isFinite(notionalUsd) || notionalUsd <= 0) {
+        return null
+      }
+
       return {
         symbol,
         side: delta > 0 ? ('BUY' as const) : ('SELL' as const),
-        notionalUsd: Number(Math.abs(delta).toFixed(2))
+        notionalUsd
       }
     })
     .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number } => Boolean(leg))
@@ -1759,7 +1773,7 @@ function buildProposal(
       {
         type: actionType,
         rationale: 'delta-to-target exposure (HYPE vs basket)',
-        notionalUsd: Number(actionNotionalUsd.toFixed(2)),
+        notionalUsd: normalizeProposalNotional(actionNotionalUsd),
         expectedSlippageBps: 3,
         legs
       }
