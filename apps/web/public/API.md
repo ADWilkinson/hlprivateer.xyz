@@ -81,14 +81,19 @@ Command request example:
 - `GET /healthz`
 - `GET /metrics`
 
-Required x402 capability (minimum tier) examples:
-- `stream.read.public`: `/v1/agent/stream/snapshot`
-- `analysis.read`: `/v1/agent/analysis/latest`, `/v1/agent/analysis`
-- `market.data.read`: `/v1/agent/data/overview`
-- `agent.insights.read`: `/v1/agent/insights`
-- `copy.signals.read`: `/v1/agent/copy-trade/signals`
-- `copy.positions.read`: `/v1/agent/copy-trade/positions`
-- `command.positions`: `/v1/agent/positions`, `/v1/agent/orders`
+Pay-gated agent routes (capability + pricing):
+
+| METHOD | ROUTE | CAPABILITY | PURPOSE | PRICE | ENV |
+| --- | --- | --- | --- | --- | --- |
+| GET | /v1/agent/data/overview | market.data.read | Live dashboard payload + topology + risk snapshot summary | $0.02 | X402_PRICE_MARKET_DATA |
+| GET | /v1/agent/insights | agent.insights.read | AI-level floor summary, risk posture, and recent event signals | $0.02 | X402_PRICE_AGENT_INSIGHTS |
+| GET | /v1/agent/copy-trade/signals | copy.signals.read | Public/decision signals suitable for copy-trade clients | $0.03 | X402_PRICE_COPY_TRADE_SIGNALS |
+| GET | /v1/agent/copy-trade/positions | copy.positions.read | Target and basket-level position summaries with risk policy | $0.03 | X402_PRICE_COPY_TRADE_POSITIONS |
+| GET | /v1/agent/analysis/latest | analysis.read | Most recent analysis log and thesis | $0.005 | X402_PRICE_ANALYSIS_LATEST |
+| GET | /v1/agent/analysis | analysis.read | Historical analysis messages (paged by server default) | $0.01 | X402_PRICE_ANALYSIS_HISTORY |
+| GET | /v1/agent/stream/snapshot | stream.read.public | Public feed snapshot for lightweight bots/observers | $0.001 | X402_PRICE_STREAM_SNAPSHOT |
+| GET | /v1/agent/positions | command.positions | Current positions used by external agents (redacted) | $0.01 | X402_PRICE_POSITIONS |
+| GET | /v1/agent/orders | command.positions | Order history and open/closed lifecycle signals | $0.01 | X402_PRICE_ORDERS |
 
 ## x402 behavior
 - This repo supports two x402 modes (configured via `X402_PROVIDER`):
@@ -104,16 +109,16 @@ Required x402 capability (minimum tier) examples:
   - `402` returns `PAYMENT-REQUIRED` (PaymentRequired payload) and paid retries use `PAYMENT-SIGNATURE`.
   - Successful responses include `PAYMENT-RESPONSE` (settlement response).
   - Demo client: `bun scripts/x402/facilitator-demo.ts`
-- Route price configuration (override via env):
-  - `X402_PRICE_STREAM_SNAPSHOT` (default `$0.001`)
-  - `X402_PRICE_ANALYSIS_LATEST` (default `$0.005`)
-  - `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`)
-  - `X402_PRICE_POSITIONS` (default `$0.01`)
-  - `X402_PRICE_ORDERS` (default `$0.01`)
-  - `X402_PRICE_MARKET_DATA` (default `$0.02`)
-  - `X402_PRICE_AGENT_INSIGHTS` (default `$0.02`)
-  - `X402_PRICE_COPY_TRADE_SIGNALS` (default `$0.03`)
-  - `X402_PRICE_COPY_TRADE_POSITIONS` (default `$0.03`)
+Route price configuration (override via env):
+- `X402_PRICE_STREAM_SNAPSHOT` (default `$0.001`)
+- `X402_PRICE_ANALYSIS_LATEST` (default `$0.005`)
+- `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`)
+- `X402_PRICE_POSITIONS` (default `$0.01`)
+- `X402_PRICE_ORDERS` (default `$0.01`)
+- `X402_PRICE_MARKET_DATA` (default `$0.02`)
+- `X402_PRICE_AGENT_INSIGHTS` (default `$0.02`)
+- `X402_PRICE_COPY_TRADE_SIGNALS` (default `$0.03`)
+- `X402_PRICE_COPY_TRADE_POSITIONS` (default `$0.03`)
 - Notes + seller quickstart reference: `docs/X402_SELLER_QUICKSTART.md`.
 
 ## Websocket protocol
