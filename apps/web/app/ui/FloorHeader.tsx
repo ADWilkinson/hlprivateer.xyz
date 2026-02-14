@@ -15,7 +15,6 @@ export function FloorHeader({ onX402Access }: FloorHeaderProps) {
     const target = document.getElementById('x402-access')
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      window.history.replaceState(null, '', '#x402-access')
     }
   }
 

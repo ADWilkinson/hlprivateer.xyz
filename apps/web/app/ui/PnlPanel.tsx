@@ -9,7 +9,6 @@ import {
   panelBodyPad,
   panelHeaderPad,
   panelRadiusSubtle,
-  sectionStripClass,
   skeletonPulseClass,
 } from './ascii-style'
 import { type Snapshot } from './floor-dashboard'
@@ -56,12 +55,6 @@ function toSigned(value: number): string {
   if (!Number.isFinite(value)) return '—'
   const sign = value > 0 ? '+' : ''
   return `${sign}${SMALL_PNL_FORMAT.format(value)}%`
-}
-
-function toSignedUsd(value: number | undefined): string {
-  if (value === undefined || !Number.isFinite(value)) return '—'
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${ACCOUNT_VALUE_FORMAT.format(value)}`
 }
 
 function toUsd(value: number | undefined): string {
@@ -181,17 +174,11 @@ export function PnlPanel({
     id,
     title,
     colorClass,
-    fallbackValue,
-    metricSuffix,
-    renderLabelValue,
     stats,
   }: {
     id: string
     title: string
     colorClass: string
-    fallbackValue: number | undefined
-    metricSuffix: (value: number | undefined) => string
-    renderLabelValue: (value: number | undefined) => string
     stats: SparklineMetric
   }) => (
     <article className={monitorClass} aria-label={id}>
@@ -269,15 +256,6 @@ export function PnlPanel({
             </svg>
           </div>
         )}
-      </div>
-      <div className={sectionStripClass}>
-        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>range</span>
-        <span className={inlineBadgeClass}>min={metricSuffix(stats.min)}</span>
-        <span className={inlineBadgeClass}>max={metricSuffix(stats.max)}</span>
-        <span className={inlineBadgeClass}>first={metricSuffix(stats.first)}</span>
-        <span className={inlineBadgeClass}>last={metricSuffix(stats.last)}</span>
-        <span className={inlineBadgeClass}>samples={stats.samples}</span>
-        <span className={inlineBadgeClass}>latest={renderLabelValue(fallbackValue)}</span>
       </div>
     </article>
   )
@@ -359,18 +337,12 @@ export function PnlPanel({
             id='market-pnl'
             title='MARKET PNL OVER TIME'
             colorClass='text-hlpHealthy'
-            fallbackValue={snapshot.pnlPct}
-            metricSuffix={(value) => toSigned(value ?? 0)}
-            renderLabelValue={(value) => toSigned(value ?? 0)}
             stats={pnlStats}
           />
           <SparklineCard
             id='account-value'
             title='ACCOUNT VALUE OVER TIME'
             colorClass='text-hlpNeutral'
-            fallbackValue={snapshot.accountValueUsd}
-            metricSuffix={toSignedUsd}
-            renderLabelValue={(value) => toSignedUsd(value)}
             stats={accountValueStats}
           />
         </div>
