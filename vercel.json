@@ -1,0 +1,5 @@
+{
+  "installCommand": "bun install",
+  "buildCommand": "cd apps/web && HLP_STATIC_EXPORT=1 bunx next build",
+  "outputDirectory": "apps/web/out"
+}
