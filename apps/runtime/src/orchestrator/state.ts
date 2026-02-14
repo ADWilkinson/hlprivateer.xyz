@@ -180,6 +180,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let lastSafeModeHoldNoticeAtMs = 0
   let lastRiskDeniedSignature = ''
   let lastRiskDeniedNoticeAtMs = 0
+  let lastRiskDeniedGlobalNoticeAtMs = 0
 
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
@@ -677,10 +678,13 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           : 'no risk reasons provided'
         const denialSignature = (risk.reasons.length ? risk.reasons.map((entry) => entry.code).join('|') : 'no_reason')
         const shouldPublishDenialNotice =
-          nowMs - lastRiskDeniedNoticeAtMs >= 60_000 || lastRiskDeniedSignature !== denialSignature
+          nowMs - lastRiskDeniedNoticeAtMs >= 60_000 ||
+          nowMs - lastRiskDeniedGlobalNoticeAtMs >= 30_000 ||
+          lastRiskDeniedSignature !== denialSignature
         if (shouldPublishDenialNotice) {
           lastRiskDeniedSignature = denialSignature
           lastRiskDeniedNoticeAtMs = nowMs
+          lastRiskDeniedGlobalNoticeAtMs = nowMs
           await publishStateUpdate(proposal.proposalId, `risk denied (${reasonMessage})`)
         }
         runtimeProposalCounter.inc({ status: 'risk_denied' })

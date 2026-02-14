@@ -1,4 +1,5 @@
 import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
+import { cardClass, cardStyle, inlineBadgeClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -46,9 +47,10 @@ export function StatusStrip({
 
   return (
     <AsciiCard
-      title='FLOOR STATUS'
-      className='border border-[var(--border)] bg-[var(--bg-raised)] rounded-[var(--r)] shadow-[var(--panel-shadow)] text-[var(--fg)]'
+      className={cardClass}
+      style={cardStyle}
     >
+      <div className='px-3 py-2 border-b border-[var(--border)] text-[9px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>FLOOR STATUS</div>
       <div className='grid grid-cols-1 gap-px border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
         <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
           <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>MODE</span>
@@ -78,16 +80,21 @@ export function StatusStrip({
         </div>
       </div>
       <div className='flex flex-wrap gap-1.5 border-t border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2'>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>exchange=HYPERLIQUID</span>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>quietSignals={suppressedNoAction}</span>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>riskDenied={riskDeniedCount}</span>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>missing={deckMissing}</span>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>status=LIVE</span>
-        <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>
-          <AsciiBadge color={isFeedStale ? 'warning' : 'success'}>{isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}</AsciiBadge>
+        <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
+        <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
+        <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
+        <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
+        <span className={inlineBadgeClass}>missing={deckMissing}</span>
+        <span className={inlineBadgeClass}>status=LIVE</span>
+        <span className={inlineBadgeClass}>
+          <AsciiBadge
+            color={isFeedStale ? 'warning' : 'success'}
+            style={{ color: isFeedStale ? 'var(--amber)' : 'var(--positive)' }}
+          >
+            {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
+          </AsciiBadge>
         </span>
-        {riskDeniedReason ? <span className='border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--fg-muted)] whitespace-nowrap'>last risk denial: {riskDeniedReason}</span> : null}
+        {riskDeniedReason ? <span className={inlineBadgeClass}>last risk denial: {riskDeniedReason}</span> : null}
       </div>
     </AsciiCard>
   )
