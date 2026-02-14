@@ -256,6 +256,55 @@ function defaultBasketFromEnv(): string[] {
     .filter((s) => s && s.toUpperCase() !== BASE_LONG_SYMBOL)
 }
 
+function basketFromPositions(positions: OperatorPosition[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+
+  for (const position of positions) {
+    const symbol = String(position.symbol ?? '').trim()
+    if (!symbol) continue
+    if (symbol.toUpperCase() === BASE_LONG_SYMBOL) continue
+
+    const key = symbol.toUpperCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(symbol)
+  }
+
+  // Stable ordering keeps audits/tape consistent across cycles.
+  out.sort((a, b) => a.localeCompare(b))
+  return out
+}
+
+function sameBasket(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i].toUpperCase() !== right[i].toUpperCase()) return false
+  }
+  return true
+}
+
+function syncActiveBasketFromPositions(positions: OperatorPosition[]): void {
+  if (positions.length === 0) {
+    return
+  }
+
+  const heldBasket = basketFromPositions(positions)
+  if (heldBasket.length === 0) {
+    return
+  }
+
+  if (sameBasket(activeBasket.basketSymbols, heldBasket)) {
+    return
+  }
+
+  activeBasket = {
+    basketSymbols: heldBasket,
+    rationale: 'synced from live positions',
+    selectedAt: new Date().toISOString()
+  }
+}
+
 let activeBasket: BasketSelection = {
   basketSymbols: defaultBasketFromEnv(),
   rationale: 'seeded from env',
@@ -1314,11 +1363,13 @@ async function runStrategistCycle(): Promise<void> {
   const targetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
   const tactics = computeExecutionTactics({ signals })
 
+  syncActiveBasketFromPositions(lastPositions)
   await maybeSelectBasket({ targetNotionalUsd, signals, positions: lastPositions })
 
+  const effectiveBasket = lastPositions.length > 0 ? basketFromPositions(lastPositions) : activeBasket.basketSymbols
   const proposal = buildDeltaProposal({
     createdBy: roleActorId('strategist'),
-    basketSymbolsCsv: activeBasket.basketSymbols.join(','),
+    basketSymbolsCsv: effectiveBasket.join(','),
     targetNotionalUsd,
     positions: lastPositions,
     signals,
@@ -1499,6 +1550,7 @@ const start = async (): Promise<void> => {
       const payload = envelope.payload as any
       if (Array.isArray(payload)) {
         lastPositions = payload as OperatorPosition[]
+        syncActiveBasketFromPositions(lastPositions)
       }
     }
   })
