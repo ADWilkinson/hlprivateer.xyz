@@ -24,11 +24,11 @@ const ACCOUNT_VALUE_FORMAT = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
   minimumFractionDigits: 2,
 })
-const SPARKLINE_WIDTH = 560
-const SPARKLINE_HEIGHT = 240
-const SPARKLINE_PAD_X = 26
-const SPARKLINE_PAD_Y = 14
-const SPARKLINE_X_AXIS_Y = 214
+const SPARKLINE_WIDTH = 640
+const SPARKLINE_HEIGHT = 260
+const SPARKLINE_PAD_X = 30
+const SPARKLINE_PAD_Y = 16
+const SPARKLINE_X_AXIS_Y = 228
 
 type TrajectoryPoint = { ts: string; pnlPct: number }
 type AccountValuePoint = { ts: string; accountValueUsd: number }
@@ -301,7 +301,7 @@ function HeroStat({
 }) {
   return (
     <div className={heroCardClass}>
-      <div className='text-[8px] uppercase tracking-[0.2em] text-hlpPanel/50 mb-1.5'>{label}</div>
+          <div className='text-[9px] sm:text-[8px] uppercase tracking-[0.2em] text-hlpPanel/50 mb-1.5'>{label}</div>
       {isLoading ? (
         <span className={`inline-block h-7 w-24 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
       ) : (
@@ -328,37 +328,42 @@ function SparklineCard({
   stats: SparklineMetric
   isLoading: boolean
 }) {
-  const isRightAlignedLabel = stats.currentPointX > stats.width - 84
-  const currentLabelX = isRightAlignedLabel ? stats.currentPointX - 4 : stats.currentPointX + 4
-  const currentLabelAnchor = isRightAlignedLabel ? 'end' : 'start'
-  const currentLabelY =
-    stats.currentPointY > stats.padY + 13
-      ? stats.currentPointY - 6
-      : stats.currentPointY + 8
+  const currentLabel = `now ${stats.currentPointLabel}`
+  const currentLabelWidth = Math.max(88, Math.round(currentLabel.length * 6.8))
+  const isRightAlignedLabel = stats.currentPointX > stats.width - (currentLabelWidth + 24)
+  const currentLabelBoxX =
+    isRightAlignedLabel
+      ? Math.max(stats.padX, stats.currentPointX - currentLabelWidth - 8)
+      : Math.min(stats.width - stats.padX - currentLabelWidth, stats.currentPointX + 8)
+  const currentLabelSafeY =
+    stats.currentPointY > stats.padY + 24
+      ? stats.currentPointY - 10
+      : stats.currentPointY + 10
+  const currentLabelY = Math.max(stats.padY + 13, Math.min(currentLabelSafeY, stats.xAxisY - 13))
 
   return (
     <article className={monitorClass} aria-label={id}>
       <div className={`flex flex-wrap items-start justify-between border-b border-hlpBorder ${panelBodyPad} ${panelHeaderPad}`}>
         <div className='space-y-0.5'>
-          <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted'>{title}</span>
-          <span className='text-[8px] uppercase tracking-[0.14em] text-hlpMuted/75'>{stats.timeRangeLabel}</span>
+          <span className='text-[10px] sm:text-[9px] uppercase tracking-[0.24em] text-hlpMuted'>{title}</span>
+          <span className='text-[10px] sm:text-[9px] uppercase tracking-[0.14em] text-hlpMuted/75'>{stats.timeRangeLabel}</span>
         </div>
         <div className='flex items-center gap-2'>
-          <AsciiBadge tone='neutral' variant='angle' className='text-[8px] tracking-[0.16em]'>
+          <AsciiBadge tone='neutral' variant='angle' className='text-[10px] sm:text-[9px] tracking-[0.16em]'>
             live
           </AsciiBadge>
-          <span className='text-[7px] uppercase tracking-[0.14em] text-hlpMuted'>{`start ${stats.timeStartLabel}`}</span>
+          <span className='text-[9px] sm:text-[8px] uppercase tracking-[0.14em] text-hlpMuted'>{`start ${stats.timeStartLabel}`}</span>
         </div>
       </div>
       <div className='px-3 pb-3 pt-2'>
         {isLoading ? (
-          <div className='grid min-h-[190px] items-center gap-3 rounded-sm bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
+          <div className='grid min-h-[204px] items-center gap-3 rounded-sm bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
             <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
             <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
             <span className='inline-block h-32 w-full rounded-sm bg-hlpPanel/85 animate-pulse' />
           </div>
         ) : (
-          <div className='relative h-[240px] w-full overflow-hidden rounded-sm border border-hlpPanel bg-hlpPanel/95'>
+          <div className='relative h-[262px] w-full overflow-hidden rounded-sm border border-hlpPanel bg-hlpPanel/95'>
             <svg viewBox={`0 0 ${stats.width} ${stats.height}`} preserveAspectRatio='none' className='h-full w-full'>
               <line
                 x1={stats.padX}
@@ -366,7 +371,7 @@ function SparklineCard({
                 y1={stats.padY}
                 y2={stats.xAxisY}
                 className='stroke-hlpPanel/70'
-                strokeWidth='0.28'
+                strokeWidth='0.32'
               />
               <line
                 x1={stats.padX}
@@ -374,7 +379,7 @@ function SparklineCard({
                 y1={stats.xAxisY}
                 y2={stats.xAxisY}
                 className='stroke-hlpPanel/70'
-                strokeWidth='0.28'
+                strokeWidth='0.32'
               />
 
               {Array.from({ length: 5 }).map((_, index) => {
@@ -389,14 +394,14 @@ function SparklineCard({
                       y1={y}
                       y2={y}
                       className='stroke-hlpBorder/28'
-                      strokeWidth='0.18'
+                      strokeWidth='0.22'
                     />
                     <text
                       x={stats.padX - 1}
                       y={y + 0.2}
                       textAnchor='end'
                       dominantBaseline='middle'
-                      className='text-[7px] fill-hlpMuted'
+                      className='text-[9px] sm:text-[8px] fill-hlpMuted'
                     >
                       {axisLabel(value)}
                     </text>
@@ -417,7 +422,7 @@ function SparklineCard({
                       y1={stats.padY}
                       y2={stats.xAxisY}
                       className='stroke-hlpBorder/28'
-                      strokeWidth='0.16'
+                      strokeWidth='0.2'
                     />
                     <line
                       x1={x}
@@ -432,7 +437,7 @@ function SparklineCard({
                         x={x}
                         y={stats.xAxisY + 4}
                         textAnchor={index === 0 ? 'start' : 'end'}
-                        className='text-[7px] fill-hlpMuted'
+                        className='text-[9px] sm:text-[8px] fill-hlpMuted'
                       >
                         {label}
                       </text>
@@ -469,7 +474,7 @@ function SparklineCard({
                 y1={stats.padY}
                 y2={stats.xAxisY}
                 className='stroke-hlpPanel/45'
-                strokeWidth='0.2'
+                strokeWidth='0.22'
               />
               <circle
                 cx={stats.currentPointX}
@@ -479,15 +484,25 @@ function SparklineCard({
                 fill='currentColor'
                 stroke='none'
               />
+              <rect
+                x={currentLabelBoxX}
+                y={currentLabelY - 7}
+                width={currentLabelWidth}
+                height='14'
+                rx='3'
+                fill='rgba(244, 238, 232, 0.95)'
+                stroke='rgba(39, 39, 42, 0.2)'
+                strokeWidth='0.35'
+              />
               <text
-                x={currentLabelX}
+                x={isRightAlignedLabel ? currentLabelBoxX + 6 : currentLabelBoxX + 6}
                 y={currentLabelY}
-                textAnchor={currentLabelAnchor}
+                textAnchor='start'
                 dominantBaseline='middle'
-                className='text-[7px] font-semibold'
+                className='text-[10px] sm:text-[9px] font-semibold'
                 fill='currentColor'
               >
-                {`now ${stats.currentPointLabel}`}
+                {currentLabel}
               </text>
             </svg>
           </div>
@@ -602,7 +617,7 @@ export function PnlPanel({
                     onClick={() => setTimeframe(entry.value)}
                     aria-pressed={activeTimeframe === entry.value}
                     aria-label={`Set chart timeframe to ${entry.label}`}
-                    className={`inline-flex h-5 items-center gap-1 rounded-[3px] px-2 py-1 text-[8px] uppercase tracking-[0.14em] ${entry.available ? 'border border-hlpBorder' : 'border border-hlpBorder/35'} ${entry.available ? 'hover:border-hlpBorderStrong hover:text-hlpPanel' : 'cursor-not-allowed text-hlpMuted/35'} ${activeTimeframe === entry.value ? 'bg-hlpPanel/25 text-hlpPanel' : 'bg-hlpPanel/8 text-hlpMuted'} ${entry.available ? 'hover:bg-hlpPanel/15' : ''}`}
+                    className={`inline-flex h-5 items-center gap-1 rounded-[3px] px-2 py-1 text-[9px] sm:text-[8px] uppercase tracking-[0.14em] ${entry.available ? 'border border-hlpBorder' : 'border border-hlpBorder/35'} ${entry.available ? 'hover:border-hlpBorderStrong hover:text-hlpPanel' : 'cursor-not-allowed text-hlpMuted/35'} ${activeTimeframe === entry.value ? 'bg-hlpPanel/25 text-hlpPanel' : 'bg-hlpPanel/8 text-hlpMuted'} ${entry.available ? 'hover:bg-hlpPanel/15' : ''}`}
                     title={entry.available ? `View ${entry.label}` : 'Not enough history for this range'}
                   >
                     {entry.label}

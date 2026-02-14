@@ -11,10 +11,12 @@ const terminalFont = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: '[HL] PRIVATEER — Live Trading Floor',
-  description: 'Agentic Hyperliquid trading floor with deterministic risk gates, live telemetry, and x402 agent access.',
+  description:
+    'Agentic autonomous HYPE long/short fund with deterministic controls, live telemetry, and x402 integration access.',
   openGraph: {
     title: '[HL] PRIVATEER — Live Trading Floor',
-    description: 'Agentic Hyperliquid trading floor with deterministic risk gates and x402 agent marketplace.',
+    description:
+      'Agentic autonomous HYPE long/short fund with deterministic risk controls, live telemetry, and x402 integration access.',
     url: 'https://hlprivateer.xyz',
     siteName: '[HL] PRIVATEER',
     type: 'website',

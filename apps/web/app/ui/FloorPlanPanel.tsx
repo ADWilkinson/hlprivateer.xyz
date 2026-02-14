@@ -62,17 +62,17 @@ const roleRoute: Record<CrewRole, string> = {
 }
 
 const NODE_LEGEND = [
-  { key: 'online', label: 'ONLINE', dotClass: 'bg-[#1f6f52]', detail: 'steady node' },
-  { key: 'warning', label: 'WEAK', dotClass: 'bg-[#c87a34]', detail: 'aging signal' },
-  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-[#9a4a4b]', detail: 'no pulse' },
+  { key: 'online', label: 'ONLINE', dotClass: 'bg-[#1bc89f]', detail: 'steady node' },
+  { key: 'warning', label: 'WEAK', dotClass: 'bg-[#e0a63b]', detail: 'aging signal' },
+  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-[#a2555d]', detail: 'no pulse' },
 ] as const
 
 const EDGE_LEGEND = [
-  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-[#1f6f52]', detail: 'full health' },
-  { key: 'congested', label: 'CONGESTED', dotClass: 'stroke-[#b06a2d]', detail: 'slow lane' },
-  { key: 'warning', label: 'WARN LINK', dotClass: 'stroke-[#c87a34]', detail: 'unstable' },
-  { key: 'error', label: 'ERROR', dotClass: 'stroke-[#9a4a4b]', detail: 'broken' },
-  { key: 'inactive', label: 'IDLE', dotClass: 'stroke-[#7a7a83]', detail: 'waiting' },
+  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-[#1bc89f]', detail: 'full health' },
+  { key: 'congested', label: 'CONGESTED', dotClass: 'stroke-[#e77d3e]', detail: 'slow lane' },
+  { key: 'warning', label: 'WARN LINK', dotClass: 'stroke-[#e0a63b]', detail: 'unstable' },
+  { key: 'error', label: 'ERROR', dotClass: 'stroke-[#bf555a]', detail: 'broken' },
+  { key: 'inactive', label: 'IDLE', dotClass: 'stroke-[#7f7f88]', detail: 'waiting' },
 ] as const
 
 const NODE_ONLINE_MS = 5_000
@@ -166,15 +166,15 @@ export function FloorPlanPanel({
   const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs, isLoading), [crewHeartbeat, nowMs, isLoading])
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
   const mapRef = useRef<HTMLDivElement | null>(null)
-  const [networkWidth, setNetworkWidth] = useState(640)
-  const [networkHeight, setNetworkHeight] = useState(430)
+  const [networkWidth, setNetworkWidth] = useState(680)
+  const [networkHeight, setNetworkHeight] = useState(450)
 
   useEffect(() => {
     const updateWidth = () => {
       const fallback = typeof window === 'undefined' ? 640 : Math.max(240, window.innerWidth - 58)
       const measured = mapRef.current?.clientWidth ?? fallback
       const usable = Math.max(360, measured - 10)
-      const height = Math.max(320, Math.round(usable * 0.58))
+      const height = Math.max(360, Math.round(usable * 0.72))
       setNetworkWidth(usable)
       setNetworkHeight(height)
     }
@@ -269,7 +269,7 @@ export function FloorPlanPanel({
             <div
               ref={mapRef}
               className='w-full flex-1 overflow-hidden px-1 py-1'
-              style={{ minHeight: `${networkHeight}px` }}
+              style={{ minHeight: `${networkHeight}px`, width: '100%' }}
             >
               <LiveConnectivityGraph
                 nodes={topology.nodes}

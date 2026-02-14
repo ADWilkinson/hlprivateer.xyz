@@ -28,44 +28,52 @@ type LiveTopologyGraphProps = {
   className?: string
 }
 
-const NODE_BASE_SIZE = 9
+const NODE_BASE_SIZE = 10
 const HUB_NODE_ID = 'ops'
-const HUB_SIZE_BOOST = 3
+const HUB_SIZE_BOOST = 4
 const LABEL_MAX_LENGTH = 11
 const HEARTBEAT_MAX_LENGTH = 9
 const CONTOUR_STEPS = 4
 const GRID_STEPS = 5
 const EDGE_OFFSET = 12
-const MAP_PADDING = 24
+const MAP_PADDING = 20
+
+const EDGE_STATUS_COLOR = {
+  active: '#1bc89f',
+  warning: '#e0a63b',
+  congested: '#e77d3e',
+  error: '#bf555a',
+  inactive: '#7f7f88',
+} as const
+
+const NODE_STATUS_COLOR = {
+  online: '#1bc89f',
+  warning: '#e0a63b',
+  offline: '#a2555d',
+} as const
+
+const MAP_GRID_COLOR = '#27272a'
 
 type LiveNodePosition = { id: string; x: number; y: number }
 
 function linkColor(status: EdgeStatus) {
-  if (status === 'active') {
-    return 'stroke-[#1f6f52]'
-  }
-
-  if (status === 'warning' || status === 'congested') {
-    return status === 'congested' ? 'stroke-[#b06a2d]' : 'stroke-[#c87a34]'
-  }
-
-  if (status === 'error') {
-    return 'stroke-[#9a4a4b]'
-  }
-
-  return 'stroke-[#7a7a83]'
+  if (status === 'active') return `stroke-[${EDGE_STATUS_COLOR.active}]`
+  if (status === 'warning') return `stroke-[${EDGE_STATUS_COLOR.warning}]`
+  if (status === 'congested') return `stroke-[${EDGE_STATUS_COLOR.congested}]`
+  if (status === 'error') return `stroke-[${EDGE_STATUS_COLOR.error}]`
+  return `stroke-[${EDGE_STATUS_COLOR.inactive}]`
 }
 
 function nodeStatusColor(status: NodeStatus) {
   if (status === 'online') {
-    return 'fill-[#1f6f52]'
+    return `fill-[${NODE_STATUS_COLOR.online}]`
   }
 
   if (status === 'warning') {
-    return 'fill-[#c87a34]'
+    return `fill-[${NODE_STATUS_COLOR.warning}]`
   }
 
-  return 'fill-[#9a4a4b]'
+  return `fill-[${NODE_STATUS_COLOR.offline}]`
 }
 
 function rank(nodeId: string, nodes: LiveNode[]) {
@@ -168,7 +176,7 @@ export function LiveConnectivityGraph({
         aria-label='live network topology map'
       >
         <g className='stroke-hlpBorder/32'>
-          {Array.from({ length: GRID_STEPS }, (_, index) => {
+        {Array.from({ length: GRID_STEPS }, (_, index) => {
             const ratio = (index + 1) / (GRID_STEPS + 1)
             return (
               <line
@@ -177,7 +185,8 @@ export function LiveConnectivityGraph({
                 x2={safeWidth * ratio}
                 y1={MAP_PADDING}
                 y2={safeHeight - MAP_PADDING}
-                className='stroke-hlpBorder/30'
+                stroke={MAP_GRID_COLOR}
+                strokeOpacity='0.22'
                 strokeWidth='0.25'
                 strokeDasharray='2 8'
               />
@@ -193,7 +202,8 @@ export function LiveConnectivityGraph({
                 x2={safeWidth - MAP_PADDING}
                 y1={safeHeight * ratio}
                 y2={safeHeight * ratio}
-                className='stroke-hlpBorder/30'
+                stroke={MAP_GRID_COLOR}
+                strokeOpacity='0.22'
                 strokeWidth='0.25'
                 strokeDasharray='2 8'
               />
@@ -210,7 +220,8 @@ export function LiveConnectivityGraph({
                 rx={Math.max(22, maxRingX * t)}
                 ry={Math.max(18, maxRingY * t)}
                 fill='none'
-                className='stroke-hlpBorder/24'
+                stroke={MAP_GRID_COLOR}
+                strokeOpacity='0.25'
                 strokeWidth='0.4'
                 strokeDasharray='4 7'
               />
@@ -223,7 +234,8 @@ export function LiveConnectivityGraph({
           y1={safeHeight * 0.5}
           x2={safeWidth - MAP_PADDING}
           y2={safeHeight * 0.5}
-          className='stroke-hlpBorder/22'
+          stroke={MAP_GRID_COLOR}
+          strokeOpacity='0.18'
           strokeWidth='0.2'
           strokeDasharray='3 6'
         />
@@ -232,12 +244,13 @@ export function LiveConnectivityGraph({
           y1={MAP_PADDING}
           x2={safeWidth * 0.5}
           y2={safeHeight - MAP_PADDING}
-          className='stroke-hlpBorder/22'
+          stroke={MAP_GRID_COLOR}
+          strokeOpacity='0.18'
           strokeWidth='0.2'
           strokeDasharray='3 6'
         />
 
-        {mappedNodes.length > 0 &&
+      {mappedNodes.length > 0 &&
           edges.map((edge, index) => {
             const sourceNode = nodePosition(mappedNodes, edge.source)
             const targetNode = nodePosition(mappedNodes, edge.target)
@@ -252,7 +265,7 @@ export function LiveConnectivityGraph({
                   d={routePath(sourceNode, targetNode, index, active)}
                   stroke='currentColor'
                   strokeWidth={active ? 1.45 : 0.95}
-                  strokeOpacity={loading ? 0.5 : muted ? 0.45 : 0.9}
+                  strokeOpacity={loading ? 0.45 : muted ? 0.4 : 0.95}
                   strokeDasharray={muted ? '4 4' : active ? '0' : edge.status === 'congested' ? '5 3' : undefined}
                   markerEnd={active ? 'url(#edgeArrow)' : undefined}
                   className={`${active ? 'animate-hlp-led' : ''} ${color}`}
@@ -279,13 +292,14 @@ export function LiveConnectivityGraph({
 
           return (
             <g key={node.id} transform={`translate(${x}, ${y})`}>
-              <circle cx='0' cy='0' r={radius + 5} className='fill-hlpSurface/85' />
-              <circle cx='0' cy='0' r={radius + 3} className='stroke-hlpBorder/36 fill-none' strokeWidth='0.45' />
+              <circle cx='0' cy='0' r={radius + 7} className='fill-hlpSurface/90' />
+              <circle cx='0' cy='0' r={radius + 3} fill='none' stroke='rgba(39, 39, 42, 0.28)' strokeWidth='0.58' />
               {isHub ? (
                 <path
                   d={`M ${-radius - 2} 0 L 0 ${-radius - 2} L ${radius + 2} 0 L 0 ${radius + 2} Z`}
-                  className='fill-hlpSurface/90 stroke-hlpBorder/60'
-                  strokeWidth='0.35'
+                  fill='none'
+                  stroke='rgba(39, 39, 42, 0.35)'
+                  strokeWidth='0.5'
                 />
               ) : null}
               <circle
@@ -299,7 +313,7 @@ export function LiveConnectivityGraph({
                 y='-13'
                 className='fill-hlpFg'
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
-                fontSize={8}
+                fontSize={8.8}
                 textAnchor='middle'
                 fontWeight={700}
                 style={{ letterSpacing: '0.08em' }}
@@ -311,7 +325,7 @@ export function LiveConnectivityGraph({
                 y='22'
                 className='fill-hlpFg/80'
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
-                fontSize={7.2}
+                fontSize={7.8}
                 textAnchor='middle'
                 style={{ letterSpacing: '0.07em' }}
               >
@@ -322,7 +336,7 @@ export function LiveConnectivityGraph({
                 y='29'
                 className='fill-hlpFg/60'
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
-                fontSize={6.8}
+                fontSize={7}
                 textAnchor='middle'
                 style={{ letterSpacing: '0.08em' }}
               >
@@ -334,7 +348,7 @@ export function LiveConnectivityGraph({
                   y='36'
                   className='fill-hlpFg/60'
                   fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
-                  fontSize={6.6}
+                  fontSize={6.8}
                   textAnchor='middle'
                   style={{ letterSpacing: '0.1em' }}
                 >
