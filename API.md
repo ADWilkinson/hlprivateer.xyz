@@ -63,10 +63,23 @@ Command request example:
 - `GET /v1/agent/stream/snapshot`
 - `GET /v1/agent/analysis/latest`
 - `GET /v1/agent/analysis`
+- `GET /v1/agent/data/overview`
+- `GET /v1/agent/insights`
+- `GET /v1/agent/copy-trade/signals`
+- `GET /v1/agent/copy-trade/positions`
 - `GET /v1/agent/positions`
 - `GET /v1/agent/orders`
 - `POST /v1/agent/command`
 - `POST /v1/agent/unlock/:tier`
+
+Required x402 capability (minimum tier) examples:
+- `stream.read.public`: `/v1/agent/stream/snapshot`
+- `analysis.read`: `/v1/agent/analysis/latest`, `/v1/agent/analysis`
+- `market.data.read`: `/v1/agent/data/overview`
+- `agent.insights.read`: `/v1/agent/insights`
+- `copy.signals.read`: `/v1/agent/copy-trade/signals`
+- `copy.positions.read`: `/v1/agent/copy-trade/positions`
+- `command.positions`: `/v1/agent/positions`, `/v1/agent/orders`
 
 ## x402 behavior
 - This repo supports two x402 modes (configured via `X402_PROVIDER`):
@@ -82,6 +95,16 @@ Command request example:
   - `402` returns `PAYMENT-REQUIRED` (PaymentRequired payload) and paid retries use `PAYMENT-SIGNATURE`.
   - Successful responses include `PAYMENT-RESPONSE` (settlement response).
   - Demo client: `bun scripts/x402/facilitator-demo.ts`
+- Route price configuration (override via env):
+  - `X402_PRICE_STREAM_SNAPSHOT` (default `$0.001`)
+  - `X402_PRICE_ANALYSIS_LATEST` (default `$0.005`)
+  - `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`)
+  - `X402_PRICE_POSITIONS` (default `$0.01`)
+  - `X402_PRICE_ORDERS` (default `$0.01`)
+  - `X402_PRICE_MARKET_DATA` (default `$0.02`)
+  - `X402_PRICE_AGENT_INSIGHTS` (default `$0.02`)
+  - `X402_PRICE_COPY_TRADE_SIGNALS` (default `$0.03`)
+  - `X402_PRICE_COPY_TRADE_POSITIONS` (default `$0.03`)
 - Notes + seller quickstart reference: `docs/X402_SELLER_QUICKSTART.md`.
 
 ## Websocket protocol

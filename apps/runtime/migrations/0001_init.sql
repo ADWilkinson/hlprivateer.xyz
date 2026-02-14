@@ -150,8 +150,10 @@ INSERT INTO tier_capabilities (tier, capabilities)
 VALUES
   ('tier0', '["stream.read.public","command.status"]'::jsonb),
   ('tier1', '["stream.read.public","command.status","stream.read.obfuscated.realtime","command.explain.redacted"]'::jsonb),
-  ('tier2', '["stream.read.public","stream.read.obfuscated.realtime","stream.read.full","command.status","command.explain.redacted","command.positions","command.execute","plugin.health.read"]'::jsonb),
-  ('tier3', '["stream.read.public","stream.read.obfuscated.realtime","stream.read.full","command.status","command.explain.redacted","command.positions","command.execute","plugin.health.read","plugin.submit","command.audit"]'::jsonb)
-ON CONFLICT (tier) DO NOTHING;
+  ('tier2', '["stream.read.public","stream.read.obfuscated.realtime","stream.read.full","command.status","command.explain.redacted","market.data.read","agent.insights.read","copy.positions.read","copy.signals.read","command.positions","command.execute","plugin.health.read","analysis.read"]'::jsonb),
+  ('tier3', '["stream.read.public","stream.read.obfuscated.realtime","stream.read.full","command.status","command.explain.redacted","market.data.read","agent.insights.read","copy.positions.read","copy.signals.read","command.positions","command.execute","plugin.health.read","plugin.submit","command.audit","analysis.read"]'::jsonb)
+ON CONFLICT (tier) DO UPDATE
+  SET capabilities = EXCLUDED.capabilities,
+      updated_at = NOW();
 
 COMMIT;

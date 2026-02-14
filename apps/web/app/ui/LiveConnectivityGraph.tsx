@@ -34,14 +34,14 @@ const HUB_SIZE_BOOST = 3
 const LABEL_MAX_LENGTH = 11
 const PADDING = 22
 const HEARTBEAT_MAX_LENGTH = 9
-const CONTOUR_STEPS = 4
+const CONTOUR_STEPS = 5
 const GRID_STEPS = 5
 
 type LiveNodePosition = { id: string; x: number; y: number }
 
 function linkColor(status: EdgeStatus) {
   if (status === 'active') {
-    return 'stroke-hlpPositive'
+    return 'stroke-hlpHealthy'
   }
 
   if (status === 'warning' || status === 'congested') {
@@ -57,7 +57,7 @@ function linkColor(status: EdgeStatus) {
 
 function nodeStatusColor(status: NodeStatus) {
   if (status === 'online') {
-    return 'fill-hlpPositive'
+    return 'fill-hlpHealthy'
   }
 
   if (status === 'warning') {
@@ -151,7 +151,7 @@ export function LiveConnectivityGraph({
         fill='none'
         xmlns='http://www.w3.org/2000/svg'
       >
-        <g className='stroke-hlpBorder/28'>
+        <g className='stroke-hlpBorder/32'>
           {Array.from({ length: GRID_STEPS }, (_, index) => {
             const ratio = (index + 1) / (GRID_STEPS + 1)
             return (
@@ -200,7 +200,7 @@ export function LiveConnectivityGraph({
             )
           })}
 
-          {Array.from({ length: 4 }, (_, index) => {
+          {Array.from({ length: 3 }, (_, index) => {
             const t = (index + 1) / 5
             const span = safeHeight * 0.16
             const yTop = safeHeight * 0.16 + t * (safeHeight - span - safeHeight * 0.32)
@@ -211,6 +211,20 @@ export function LiveConnectivityGraph({
                 fill='none'
                 strokeWidth='0.4'
                 strokeDasharray='2 5'
+              />
+            )
+          })}
+          {Array.from({ length: 3 }, (_, index) => {
+            const ratio = (index + 1) / 4
+            const mid = safeWidth * 0.16 + ratio * (safeWidth * 0.67)
+            return (
+              <path
+                key={`aisle-${index}`}
+                d={`M ${mid} ${PADDING / 1.4} L ${mid} ${safeHeight - PADDING / 1.4}`}
+                fill='none'
+                strokeWidth='0.25'
+                strokeDasharray='4 4'
+                className='stroke-hlpBorder/20'
               />
             )
           })}

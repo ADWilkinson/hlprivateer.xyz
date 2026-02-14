@@ -156,15 +156,15 @@ export const EMPTY_STATS: CrewStats = CREW.reduce(
 
 export function badgeVariantForHealth(code: string): 'ok' | 'warn' | 'danger' {
   const status = code.toUpperCase().trim()
-  if (status === 'GREEN') return 'ok'
-  if (status === 'YELLOW') return 'warn'
+  if (status === 'GREEN' || status === 'HEALTHY' || status === 'OK' || status === 'GOOD') return 'ok'
+  if (status === 'YELLOW' || status === 'WARNING' || status === 'WARN') return 'warn'
   return 'danger'
 }
 
 export function healthStatusLabel(code: string): string {
   const status = code.toUpperCase().trim()
-  if (status === 'GREEN') return 'HEALTHY'
-  if (status === 'YELLOW') return 'CAUTION'
+  if (status === 'GREEN' || status === 'HEALTHY' || status === 'OK' || status === 'GOOD') return 'HEALTHY'
+  if (status === 'YELLOW' || status === 'WARNING' || status === 'WARN') return 'CAUTION'
   return 'DEGRADED'
 }
 

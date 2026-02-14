@@ -106,7 +106,7 @@ export function CrewStationsPanel({
                       isLoading
                         ? 'bg-hlpMuted'
                         : active
-                          ? 'bg-hlpPositive animate-hlp-led'
+                          ? 'bg-hlpHealthy animate-hlp-led'
                           : 'bg-hlpMuted'
                     }`}
                   />
@@ -135,7 +135,7 @@ export function CrewStationsPanel({
                   {isLoading ? <span className={`block h-full rounded-sm ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
                   {!isLoading ? (
                     <span
-                      className='block h-full rounded-sm bg-hlpPositive/85'
+                      className='block h-full rounded-sm bg-hlpHealthy/85'
                       style={{ width: getActivityWidth(beatScore) }}
                     />
                   ) : null}

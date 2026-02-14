@@ -188,6 +188,26 @@ if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
       accepts: acceptExact(env.X402_PRICE_ORDERS),
       description: 'Current HL Privateer orders',
       mimeType: 'application/json'
+    },
+    'GET /v1/agent/data/overview': {
+      accepts: acceptExact(env.X402_PRICE_MARKET_DATA),
+      description: 'HL Privateer market + execution overview for machine agents',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/insights': {
+      accepts: acceptExact(env.X402_PRICE_AGENT_INSIGHTS),
+      description: 'HL Privateer floor insights bundle (health, mode, policy, risk, tape)',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/copy-trade/signals': {
+      accepts: acceptExact(env.X402_PRICE_COPY_TRADE_SIGNALS),
+      description: 'HL Privateer copy-trade signals and analyst events',
+      mimeType: 'application/json'
+    },
+    'GET /v1/agent/copy-trade/positions': {
+      accepts: acceptExact(env.X402_PRICE_COPY_TRADE_POSITIONS),
+      description: 'HL Privateer positions formatted for copy-trading consumers',
+      mimeType: 'application/json'
     }
   }
 
@@ -206,6 +226,86 @@ const adminUsers = new Set(
     .map((entry) => entry.trim())
     .filter(Boolean)
 )
+
+function normalizeLimit(value: unknown, fallback: number, max = 200): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+
+  const safe = Math.floor(parsed)
+  if (!Number.isFinite(safe)) {
+    return fallback
+  }
+
+  if (safe > max) {
+    return max
+  }
+
+  return safe
+}
+
+function getEffectiveRiskConfig() {
+  const runtimePolicy = store.snapshot.riskPolicy
+  const riskPolicy = typeof runtimePolicy === 'object' && runtimePolicy !== null ? runtimePolicy : null
+  const num = (value: unknown, fallback: number): number => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+
+    return fallback
+  }
+
+  return {
+    maxLeverage: Number.isFinite(riskPolicy?.maxLeverage) ? Number(riskPolicy.maxLeverage) : env.RISK_MAX_LEVERAGE,
+    maxDrawdownPct: Number.isFinite(riskPolicy?.maxDrawdownPct)
+      ? Number(riskPolicy.maxDrawdownPct)
+      : env.RISK_MAX_DRAWDOWN_PCT,
+    maxNotionalUsd: Number.isFinite(riskPolicy?.maxExposureUsd)
+      ? Number(riskPolicy.maxExposureUsd)
+      : env.RISK_MAX_NOTIONAL_USD,
+    maxSlippageBps: num(riskPolicy?.maxSlippageBps, env.RISK_MAX_SLIPPAGE_BPS),
+    staleDataMs: num(riskPolicy?.staleDataMs, env.RISK_STALE_DATA_MS),
+    liquidityBufferPct: num(riskPolicy?.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT),
+    notionalParityTolerance: num(riskPolicy?.notionalParityTolerance, env.RISK_NOTIONAL_PARITY_TOLERANCE)
+  }
+}
+
+function buildCopyTradePositionSummary(positions: typeof store.positions) {
+  const bySide = positions.reduce<Record<string, { count: number; notionalUsd: number }>>((acc, position) => {
+    const side = position.side
+    if (!acc[side]) {
+      acc[side] = { count: 0, notionalUsd: 0 }
+    }
+
+    acc[side].count += 1
+    acc[side].notionalUsd += Number.isFinite(position.notionalUsd) ? position.notionalUsd : 0
+    return acc
+  }, {})
+
+  const totalNotionalUsd = positions.reduce(
+    (sum, position) => sum + (Number.isFinite(position.notionalUsd) ? position.notionalUsd : 0),
+    0
+  )
+  const basketSymbols = [...new Set(positions.map((position) => position.symbol))].filter(Boolean)
+  const longShortBalance = {
+    long: bySide.LONG ? Number(bySide.LONG.notionalUsd.toFixed(4)) : 0,
+    short: bySide.SHORT ? Number(bySide.SHORT.notionalUsd.toFixed(4)) : 0
+  }
+
+  const netExposureUsd = longShortBalance.long + longShortBalance.short
+  return {
+    sideSummary: bySide,
+    basketSymbols,
+    totalNotionalUsd,
+    netExposureUsd,
+    longShortBalance
+  }
+}
+
+function sanitizeCopySignalLimit(value: unknown): number {
+  return normalizeLimit(value, 50, 500)
+}
 
 const bannedActors = new Map<string, number>()
 const agentAbuse = new Map<string, AbuseState>()
@@ -561,32 +661,7 @@ app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [ap
     return reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
   }
 
-  const runtimePolicy = store.snapshot.riskPolicy
-  const riskPolicy = typeof runtimePolicy === 'object' && runtimePolicy !== null ? runtimePolicy : null
-  const num = (v: unknown, fallback: number) => {
-    if (typeof v === 'number' && Number.isFinite(v)) {
-      return v
-    }
-    return fallback
-  }
-  const maxLeverage = Number.isFinite(riskPolicy?.maxLeverage) ? Number(riskPolicy?.maxLeverage) : env.RISK_MAX_LEVERAGE
-  const maxDrawdownPct = Number.isFinite(riskPolicy?.maxDrawdownPct)
-    ? Number(riskPolicy?.maxDrawdownPct)
-    : env.RISK_MAX_DRAWDOWN_PCT
-  const maxNotionalUsd = Number.isFinite(riskPolicy?.maxExposureUsd)
-    ? Number(riskPolicy?.maxExposureUsd)
-    : env.RISK_MAX_NOTIONAL_USD
-
-  const riskConfig = {
-    maxLeverage,
-    maxDrawdownPct,
-    maxNotionalUsd,
-    maxExposureUsd: maxNotionalUsd,
-    maxSlippageBps: num(riskPolicy?.maxSlippageBps, env.RISK_MAX_SLIPPAGE_BPS),
-    staleDataMs: num(riskPolicy?.staleDataMs, env.RISK_STALE_DATA_MS),
-    liquidityBufferPct: num(riskPolicy?.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT),
-    notionalParityTolerance: num(riskPolicy?.notionalParityTolerance, env.RISK_NOTIONAL_PARITY_TOLERANCE)
-  }
+  const riskConfig = getEffectiveRiskConfig()
 
   return {
     mode: store.snapshot.mode,
@@ -1339,16 +1414,131 @@ app.get('/v1/agent/analysis', { ...routeRateLimit(180, 60_000), preHandler: [x40
   reply.send({ count: items.length, items })
 })
 
-app.get('/v1/agent/positions', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+app.get('/v1/agent/positions', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('command.positions')] }, async (_request, reply) => {
   // If the x402 gate already handled the response (e.g. 402), do not double-send.
   if (((_request as any).x402GateHandled) || (reply as any).sent || (reply as any).raw?.headersSent) return
   reply.send(store.positions)
 })
 
-app.get('/v1/agent/orders', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('analysis.read')] }, async (_request, reply) => {
+app.get('/v1/agent/orders', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('command.positions')] }, async (_request, reply) => {
   // If the x402 gate already handled the response (e.g. 402), do not double-send.
   if (((_request as any).x402GateHandled) || (reply as any).sent || (reply as any).raw?.headersSent) return
   reply.send(store.orders)
+})
+
+app.get('/v1/agent/data/overview', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('market.data.read')] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
+
+  const query = request.query as any
+  const tapeLimit = normalizeLimit(query?.tapeLimit, 20, 100)
+  const snapshot = store.getPublicSnapshot()
+  const riskConfig = getEffectiveRiskConfig()
+  const signalItems = store.audits
+    .filter((event) => event.resource === 'agent.analysis' || event.resource === 'agent.proposal' || event.resource === 'agent.risk')
+    .slice(0, tapeLimit)
+    .map((event) => ({
+      ts: event.ts,
+      resource: event.resource,
+      action: event.action,
+      actorId: event.actorId,
+      correlationId: event.correlationId
+    }))
+
+  reply.send({
+    generatedAt: new Date().toISOString(),
+    mode: snapshot.mode,
+    pnlPct: snapshot.pnlPct,
+    healthCode: snapshot.healthCode,
+    driftState: snapshot.driftState,
+    riskConfig,
+    marketData: {
+      openPositionCount: snapshot.openPositionCount ?? snapshot.openPositions.length,
+      openPositionNotionalUsd: snapshot.openPositionNotionalUsd,
+      openPositions: snapshot.openPositions
+    },
+    recentOrders: store.orders.slice(0, 25),
+    signalHistory: signalItems,
+    recentTape: snapshot.recentTape.slice(-tapeLimit)
+  })
+})
+
+app.get('/v1/agent/insights', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('agent.insights.read')] }, async (_request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if (((_request as any).x402GateHandled) || (reply as any).sent || (reply as any).raw?.headersSent) return
+
+  const snapshot = store.getPublicSnapshot()
+  const riskConfig = getEffectiveRiskConfig()
+  const latestAnalysis = store.audits.find((event) => event.resource === 'agent.analysis')
+  const copySummary = buildCopyTradePositionSummary(store.positions)
+
+  reply.send({
+    generatedAt: new Date().toISOString(),
+    floor: {
+      mode: snapshot.mode,
+      pnlPct: snapshot.pnlPct,
+      healthCode: snapshot.healthCode,
+      driftState: snapshot.driftState,
+      updatedAt: snapshot.lastUpdateAt
+    },
+    riskConfig,
+    latestAnalysis: latestAnalysis
+      ? {
+          ts: latestAnalysis.ts,
+          action: latestAnalysis.action,
+          resource: latestAnalysis.resource,
+          correlationId: latestAnalysis.correlationId
+        }
+      : null,
+    execution: {
+      mode: store.snapshot.mode,
+      riskPosture: store.snapshot.healthCode,
+      openPositionCount: store.positions.length,
+      netNotionalUsd: copySummary.totalNotionalUsd,
+      longShortBalance: copySummary.longShortBalance
+    },
+    recentTape: snapshot.recentTape.slice(-20)
+  })
+})
+
+app.get('/v1/agent/copy-trade/signals', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('copy.signals.read')] }, async (request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if ((request as any).x402GateHandled || (reply as any).sent || (reply as any).raw?.headersSent) return
+
+  const query = request.query as any
+  const limit = sanitizeCopySignalLimit(query?.limit)
+  const resourceFilter = typeof query?.resource === 'string' ? query.resource.trim() : undefined
+
+  const signals = store.audits
+    .filter((event) => event.resource === 'agent.analysis' || event.resource === 'agent.proposal' || event.resource === 'agent.risk' || event.resource === 'agent.strategist' || event.resource === 'agent.basket')
+    .filter((event) => !resourceFilter || event.resource === resourceFilter)
+    .slice(0, limit)
+    .map((event) => ({
+      ts: event.ts,
+      resource: event.resource,
+      action: event.action,
+      actorId: event.actorId,
+      correlationId: event.correlationId,
+      details: event.details
+    }))
+
+  reply.send({ generatedAt: new Date().toISOString(), count: signals.length, signals })
+})
+
+app.get('/v1/agent/copy-trade/positions', { ...routeRateLimit(180, 60_000), preHandler: [x402AgentReadGate('copy.positions.read')] }, async (_request, reply) => {
+  // If the x402 gate already handled the response (e.g. 402), do not double-send.
+  if (((_request as any).x402GateHandled) || (reply as any).sent || (reply as any).raw?.headersSent) return
+  const copySummary = buildCopyTradePositionSummary(store.positions)
+  const snapshot = store.getPublicSnapshot()
+
+  reply.send({
+    generatedAt: new Date().toISOString(),
+    mode: snapshot.mode,
+    copySignalCompatible: snapshot.mode === 'READY' || snapshot.mode === 'IN_TRADE' || snapshot.mode === 'REBALANCE',
+    riskPolicy: getEffectiveRiskConfig(),
+    positions: store.positions,
+    summary: copySummary
+  })
 })
 
 app.get('/v1/agent/entitlement', { ...routeRateLimit(180, 60_000), preHandler: [x402Protected()] }, async (request, reply) => {
