@@ -129,16 +129,14 @@ export function StatusStrip({
             <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
             <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
             <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
-            <span className={`${skeletonPulseClass} h-5 w-32 rounded-sm`} />
           </>
         ) : (
           <>
             <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>live stream</span>
             <span className={inlineBadgeClass}>risk denied {riskDeniedCount}</span>
             <span className={inlineBadgeClass}>suppressed {suppressedNoAction}</span>
-            <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
-            <span className={inlineBadgeClass}>missing={deckMissing}</span>
             <span className={inlineBadgeClass}>status {isFeedStale ? 'DEGRADED' : 'LIVE'}</span>
+            <span className={inlineBadgeClass}>missing={deckMissing}</span>
           </>
         )}
       </div>

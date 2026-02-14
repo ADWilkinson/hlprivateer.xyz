@@ -214,7 +214,6 @@ export function FloorPlanPanel({
       <div className={cardHeaderClass}>
         <div>
           <div className={sectionTitleClass}>FLOOR PLAN MAP</div>
-          <div className='text-[11px] text-hlpMuted dark:text-hlpMutedDark'>LIVE CONNECTIVITY GRAPH</div>
         </div>
         <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
           {isLoading ? 'warming map' : 'topology mode'}
