@@ -29,6 +29,7 @@ import { X402AgentMaterialsPanel } from './ui/X402AgentMaterialsPanel'
 type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
 type CrewLast = Record<CrewRole, TapeEntry | null>
+type SectionKey = 'status' | 'pnl' | 'floorPlan' | 'crew' | 'tape' | 'x402'
 
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
@@ -242,16 +243,7 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
       'openPositionNotionalUsd' in payload || 'openPositionNotional' in payload || 'positionNotional' in payload || 'open_position_notional' in payload || 'position_notional' in payload
         ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
         : fallback.openPositionNotionalUsd,
-    accountValueUsd:
-      payload.accountValueUsd !== undefined ||
-      payload.accountValue !== undefined ||
-      payload.account_value_usd !== undefined ||
-      payload.account_equity_usd !== undefined ||
-      payload.accountEquityUsd !== undefined ||
-      payload.equityUsd !== undefined ||
-      payload.equity !== undefined
-        ? nextAccountValueUsd ?? fallback.accountValueUsd
-        : fallback.accountValueUsd,
+    accountValueUsd: nextAccountValueUsd,
   }
 }
 
@@ -336,6 +328,14 @@ export default function DeckPage() {
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
   const [isBootstrapping, setIsBootstrapping] = useState(true)
+  const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
+    status: false,
+    pnl: false,
+    floorPlan: true,
+    crew: true,
+    tape: true,
+    x402: true,
+  })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
   const seenTapeRef = useRef<Set<string>>(new Set())
 
@@ -641,6 +641,12 @@ export default function DeckPage() {
   const crewNow = nowTick
   const heartbeatMs = Date.now() - deckHeartbeatMs
   const snapshotAgeMs = Number.isFinite(Date.parse(snapshot.lastUpdateAt)) ? nowTick - Date.parse(snapshot.lastUpdateAt) : 0
+  const toggleSection = (section: SectionKey) => {
+    setCollapsedSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }))
+  }
 
   return (
     <main className={pageShellClass}>
@@ -656,12 +662,18 @@ export default function DeckPage() {
           snapshotAgeMs={snapshotAgeMs}
           deckFeedAgeMs={deckFeedAgeMs}
           deckMissing={deckMissing}
+          isCollapsed={collapsedSections.status}
+          onToggle={() => toggleSection('status')}
+          sectionId='status'
         />
         <PnlPanel
           snapshot={snapshot}
           trajectory={pnlSeries}
           accountValueTrajectory={accountValueSeries}
           isLoading={isBootstrapping}
+          isCollapsed={collapsedSections.pnl}
+          onToggle={() => toggleSection('pnl')}
+          sectionId='pnl'
         />
         <FloorPlanPanel
           isLoading={isBootstrapping}
@@ -670,6 +682,9 @@ export default function DeckPage() {
           deckFeedAgeMs={deckFeedAgeMs}
           deckMissing={deckMissing}
           deckHeartbeatMs={deckHeartbeatMs}
+          isCollapsed={collapsedSections.floorPlan}
+          onToggle={() => toggleSection('floorPlan')}
+          sectionId='floorPlan'
         />
         <CrewStationsPanel
           crewLast={crewLast}
@@ -677,9 +692,23 @@ export default function DeckPage() {
           crewSignals={crewSignals}
           nowMs={crewNow}
           isLoading={isBootstrapping}
+          isCollapsed={collapsedSections.crew}
+          onToggle={() => toggleSection('crew')}
+          sectionId='crew'
         />
-        <TapeSection tape={tape} tapeRef={tapeRef} isLoading={isBootstrapping} />
-        <X402AgentMaterialsPanel />
+        <TapeSection
+          tape={tape}
+          tapeRef={tapeRef}
+          isLoading={isBootstrapping}
+          isCollapsed={collapsedSections.tape}
+          onToggle={() => toggleSection('tape')}
+          sectionId='tape'
+        />
+        <X402AgentMaterialsPanel
+          isCollapsed={collapsedSections.x402}
+          onToggle={() => toggleSection('x402')}
+          sectionId='x402'
+        />
       </div>
     </main>
   )

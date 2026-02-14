@@ -355,7 +355,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           rawPatch[canonicalKey] = Number(rawValue)
         }
         return normalizeRiskPolicy(readRuntimeRiskPolicy(), rawPatch)
-      } catch {
+      } catch (error) {
+        console.warn('[runtime-state] failed to parse risk policy json payload', error) // eslint-disable-line no-console
         return { message: 'invalid JSON payload', fields: ['json'] }
       }
     }
@@ -409,10 +410,24 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           lastLiveAccountValueOkAtMs = nowMs
         }
       }
-    } catch {
+    } catch (error) {
+      console.warn(
+        '[runtime-state] failed to fetch live account value',
+        {
+          nowMs,
+          hasWallet: Boolean(cachedLiveWalletAddress)
+        },
+        error
+      ) // eslint-disable-line no-console
       // Keep last known value. Funding gate additionally requires a recent successful fetch.
     }
   }
+
+  const resolveLiveAccountValueUsd = (): number | undefined =>
+    env.ENABLE_LIVE_OMS && cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : undefined
+
+  const resolveRuntimeAccountValueUsd = (): number =>
+    resolveLiveAccountValueUsd() ?? 0
 
   const buildRiskConfig = (): RiskConfig => {
     const policy = readRuntimeRiskPolicy()
@@ -613,11 +628,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const notionalUsd = typeof position.notionalUsd === 'number' && Number.isFinite(position.notionalUsd) ? position.notionalUsd : 0
       return seed + Math.abs(notionalUsd)
     }, 0)
-    const accountValueUsd = env.ENABLE_LIVE_OMS
-      ? cachedLiveAccountValueUsd > 0
-        ? cachedLiveAccountValueUsd
-        : minLiveAccountValueUsd()
-      : env.ACCOUNT_VALUE_USD
+    const accountValueUsd = resolveLiveAccountValueUsd()
 
     await bus.publish('hlp.ui.events', {
       type: 'STATE_UPDATE',
@@ -630,7 +641,6 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         mode: state.mode,
         pnlPct: state.pnlPct,
         realizedPnlUsd: state.realizedPnlUsd,
-        accountValueUsd,
         openPositions: state.positions,
         openPositionCount: state.positions.length,
         openPositionNotionalUsd,
@@ -638,7 +648,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         healthCode: state.mode === 'SAFE_MODE' || state.mode === 'HALT' ? 'RED' : 'GREEN',
         lastUpdateAt: state.lastUpdateAt,
         riskPolicy: runtimeRiskPolicyContext(),
-        message
+        message,
+        ...(accountValueUsd !== undefined ? { accountValueUsd } : {})
       }
     })
   }
@@ -725,9 +736,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const mark = markToMarketPositions(state.positions, ticks, nowIso)
       state.positions = mark.positions
       const totalPnlUsd = state.realizedPnlUsd + mark.unrealizedPnlUsd
-      const pnlDenominatorUsd = env.ENABLE_LIVE_OMS
-        ? (cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : minLiveAccountValueUsd())
-        : env.ACCOUNT_VALUE_USD
+      const pnlDenominatorUsd = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsd > 0 ? Number(((totalPnlUsd / pnlDenominatorUsd) * 100).toFixed(3)) : 0
       state.driftState = driftFrom(state)
 
@@ -919,9 +928,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const risk = evaluateRisk(buildRiskConfig(), {
         state: state.mode,
         actorType: 'system',
-        accountValueUsd: env.ENABLE_LIVE_OMS
-          ? (cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : minLiveAccountValueUsd())
-          : env.ACCOUNT_VALUE_USD,
+        accountValueUsd: resolveRuntimeAccountValueUsd(),
         dependenciesHealthy,
         openPositions: state.positions,
         ticks,
@@ -976,9 +983,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const postMark = markToMarketPositions(state.positions, ticks, postMarkIso)
       state.positions = postMark.positions
       const totalAfterUsd = state.realizedPnlUsd + postMark.unrealizedPnlUsd
-      const pnlDenominatorUsdAfter = env.ENABLE_LIVE_OMS
-        ? (cachedLiveAccountValueUsd > 0 ? cachedLiveAccountValueUsd : minLiveAccountValueUsd())
-        : env.ACCOUNT_VALUE_USD
+      const pnlDenominatorUsdAfter = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsdAfter > 0 ? Number(((totalAfterUsd / pnlDenominatorUsdAfter) * 100).toFixed(3)) : 0
       state.driftState = driftFrom(state)
       await publishPositionsUpdate(proposal.proposalId)
@@ -1895,10 +1900,13 @@ async function fetchHyperliquidL2BookSnapshot(infoUrl: string, coin: string, lev
         askDepthUsd: sumLevelsUsd(asks, levels),
         updatedAtIso: isoFromEpoch(book.time)
       }
-    } catch {
+    } catch (error) {
       if (attempt >= retries) {
+        console.warn('[runtime-state] hyperliquid l2Book fetch failed after retries', { attempt, coin, infoUrl }, error) // eslint-disable-line no-console
         return null
       }
+
+      console.warn('[runtime-state] hyperliquid l2Book retrying', { attempt, coin, infoUrl, error }) // eslint-disable-line no-console
 
       const backoffMs = 120 * (attempt + 1) + Math.floor(Math.random() * 120)
       await new Promise((resolve) => setTimeout(resolve, backoffMs))

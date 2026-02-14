@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { type KeyboardEvent, useMemo } from 'react'
 import { AsciiBadge } from './ascii-kit'
 import {
   cardClass,
@@ -32,6 +32,9 @@ type PnlPanelProps = {
   trajectory?: TrajectoryPoint[]
   accountValueTrajectory?: AccountValuePoint[]
   isLoading?: boolean
+  isCollapsed?: boolean
+  onToggle?: () => void
+  sectionId?: string
 }
 
 type SparklineMetric = {
@@ -54,13 +57,13 @@ function toSigned(value: number): string {
   return `${sign}${SMALL_PNL_FORMAT.format(value)}%`
 }
 
-function toSignedUsd(value: number): string {
+function toSignedUsd(value: number | undefined): string {
   if (!Number.isFinite(value)) return '—'
   const sign = value > 0 ? '+' : ''
   return `${sign}${ACCOUNT_VALUE_FORMAT.format(value)}`
 }
 
-function toUsd(value: number): string {
+function toUsd(value: number | undefined): string {
   if (!Number.isFinite(value)) return '—'
   return ACCOUNT_VALUE_FORMAT.format(value)
 }
@@ -90,9 +93,16 @@ function buildSquareWavePath(points: Array<{ x: number; y: number }>): string {
   return segments.join(' ')
 }
 
-function buildSparkline(values: number[], fallback: number): SparklineMetric {
+function buildSparkline(values: number[], fallback: number | undefined): SparklineMetric {
   const numeric = values.filter((value) => Number.isFinite(value))
-  const ordered = numeric.length >= 2 ? numeric : [fallback, fallback]
+  const ordered =
+    numeric.length >= 2
+      ? numeric
+      : numeric.length === 1 && numeric[0] !== undefined
+        ? [numeric[0], numeric[0]]
+        : Number.isFinite(fallback)
+          ? [fallback, fallback]
+          : [0, 0]
   const pointCount = ordered.length
   const baseline = {
     min: 0,
@@ -108,7 +118,7 @@ function buildSparkline(values: number[], fallback: number): SparklineMetric {
     height: 32,
   }
 
-  if (!Number.isFinite(fallback) && numeric.length === 0) {
+  if (numeric.length === 0 && !Number.isFinite(fallback)) {
     return baseline
   }
 
@@ -153,14 +163,25 @@ export function PnlPanel({
   trajectory = [],
   accountValueTrajectory = [],
   isLoading = false,
+  isCollapsed = false,
+  onToggle,
+  sectionId = 'pnl',
 }: PnlPanelProps) {
   const pnlValues = trajectory.map((point) => point.pnlPct)
   const pnlStats = useMemo(() => buildSparkline(pnlValues, snapshot.pnlPct), [pnlValues, snapshot.pnlPct])
   const accountValueValues = accountValueTrajectory.map((point) => point.accountValueUsd)
   const accountValueStats = useMemo(
-    () => buildSparkline(accountValueValues, snapshot.accountValueUsd ?? 0),
+    () => buildSparkline(accountValueValues, snapshot.accountValueUsd),
     [accountValueValues, snapshot.accountValueUsd],
   )
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!onToggle) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onToggle()
+    }
+  }
 
   const SparklineCard = ({
     id,
@@ -174,9 +195,9 @@ export function PnlPanel({
     id: string
     title: string
     colorClass: string
-    fallbackValue: number
-    metricSuffix: (value: number) => string
-    renderLabelValue: (value: number) => string
+    fallbackValue: number | undefined
+    metricSuffix: (value: number | undefined) => string
+    renderLabelValue: (value: number | undefined) => string
     stats: SparklineMetric
   }) => (
     <article className={monitorClass} aria-label={id}>
@@ -261,7 +282,7 @@ export function PnlPanel({
         <span className={inlineBadgeClass}>max={metricSuffix(stats.max)}</span>
         <span className={inlineBadgeClass}>first={metricSuffix(stats.first)}</span>
         <span className={inlineBadgeClass}>last={metricSuffix(stats.last)}</span>
-        <span className={inlineBadgeClass}>samples={Math.max(stats.samples, 1)}</span>
+        <span className={inlineBadgeClass}>samples={stats.samples}</span>
         <span className={inlineBadgeClass}>latest={renderLabelValue(fallbackValue)}</span>
       </div>
     </article>
@@ -269,14 +290,27 @@ export function PnlPanel({
 
   return (
     <section className={cardClass}>
-      <div className={cardHeaderClass}>
+      <div
+        className={`${cardHeaderClass} cursor-pointer`}
+        role='button'
+        tabIndex={0}
+        aria-expanded={!isCollapsed}
+        aria-controls={`section-${sectionId}`}
+        onClick={onToggle}
+        onKeyDown={handleKeyDown}
+      >
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
-        <AsciiBadge tone='neutral' className='text-hlpMuted'>
-          alpha stream
-        </AsciiBadge>
+        <div className='flex items-center gap-2'>
+          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+            {isCollapsed ? '+' : '−'}
+          </span>
+          <AsciiBadge tone='neutral' className='text-hlpMuted'>
+            alpha stream
+          </AsciiBadge>
+        </div>
       </div>
 
-      <div className={`${panelBodyPad} grid gap-2`}>
+      {!isCollapsed && <div className={`${panelBodyPad} grid gap-2`}>
         <article className={`${monitorClass} overflow-hidden`}>
           <div className={`flex min-h-[88px] flex-col gap-2 ${panelBodyPad}`}>
             <div className='flex flex-wrap items-start justify-between gap-2'>
@@ -288,8 +322,10 @@ export function PnlPanel({
               </div>
               <div className='min-w-0'>
                 <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>ACCOUNT VALUE</div>
-                <div className='text-2xl font-bold tracking-[0.14em] text-hlpHealthy'>
-                  {isLoading ? <span className={`inline-block h-7 w-40 ${skeletonPulseClass} ${panelRadiusSubtle}`} /> : toUsd(snapshot.accountValueUsd ?? 0)}
+                <div className={`text-2xl font-bold tracking-[0.14em] ${snapshot.accountValueUsd === undefined ? 'text-hlpMuted' : 'text-hlpHealthy'}`}>
+                  {isLoading
+                    ? <span className={`inline-block h-7 w-40 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
+                    : toUsd(snapshot.accountValueUsd)}
                 </div>
               </div>
               <div className='flex flex-wrap gap-1'>
@@ -303,7 +339,7 @@ export function PnlPanel({
                   <>
                     <span className={`${inlineBadgeClass} ${safePnlClass(pnlStats.delta)}`}>delta {toSigned(pnlStats.delta)}</span>
                     <span className={inlineBadgeClass}>delta%={toSigned(pnlStats.deltaPct)}</span>
-                    <span className={inlineBadgeClass}>samples={Math.max(pnlStats.samples, 1)}</span>
+                    <span className={inlineBadgeClass}>samples={pnlStats.samples}</span>
                   </>
                 )}
               </div>
@@ -319,7 +355,7 @@ export function PnlPanel({
               </div>
               <div className='rounded-sm bg-hlpSurface/65 px-2 py-1'>
                 <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>VALUE now</div>
-                <div className='text-[11px] font-semibold'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd ?? 0)}</div>
+                <div className='text-[11px] font-semibold'>{isLoading ? '--' : toUsd(snapshot.accountValueUsd)}</div>
               </div>
             </div>
           </div>
@@ -331,21 +367,21 @@ export function PnlPanel({
             title='MARKET PNL OVER TIME'
             colorClass='text-hlpHealthy'
             fallbackValue={snapshot.pnlPct}
-            metricSuffix={toSigned}
-            renderLabelValue={toSigned}
+            metricSuffix={(value) => toSigned(value ?? 0)}
+            renderLabelValue={(value) => toSigned(value ?? 0)}
             stats={pnlStats}
           />
           <SparklineCard
             id='account-value'
             title='ACCOUNT VALUE OVER TIME'
             colorClass='text-hlpNeutral'
-            fallbackValue={snapshot.accountValueUsd ?? 0}
+            fallbackValue={snapshot.accountValueUsd}
             metricSuffix={toSignedUsd}
             renderLabelValue={(value) => toSignedUsd(value)}
             stats={accountValueStats}
           />
         </div>
-      </div>
+      </div>}
     </section>
   )
 }
