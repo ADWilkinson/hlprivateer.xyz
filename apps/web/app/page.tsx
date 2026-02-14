@@ -296,7 +296,7 @@ function parseLevel(level: unknown): TapeEntry['level'] {
   }
 }
 
-function isHeartbeatPayload(payload: unknown, tsField?: unknown): boolean {
+function isHeartbeatPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') {
     return false
   }
@@ -305,11 +305,6 @@ function isHeartbeatPayload(payload: unknown, tsField?: unknown): boolean {
   const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : ''
   if (type === 'heartbeat' || type === 'ping' || type === 'pong') {
     return true
-  }
-
-  const ts = tsField
-  if (typeof ts === 'string' && ts) {
-    return false
   }
 
   return false
@@ -584,12 +579,6 @@ export default function DeckPage() {
               return
             }
 
-            if (envelopeType === 'heartbeat') {
-              const ts = typeof parsed?.ts === 'string' ? Date.parse(parsed.ts) : NaN
-              setDeckHeartbeatMs(Number.isFinite(ts) ? ts : Date.now())
-              return
-            }
-
             if (envelopeType === 'event' && envelopeChannel === 'public' && !hasEnvelopePayload) {
               logWarn('websocket event missing payload', { type: envelopeType, channel: envelopeChannel })
               return
@@ -606,13 +595,13 @@ export default function DeckPage() {
                 : ''
             logInfo(`ws payloadType=${payloadType || 'unknown'}`)
 
-            const isHeartbeatPayload = payloadType === 'heartbeat' ||
+            const isHeartbeatPayloadMessage = payloadType === 'heartbeat' ||
               (typeof (payload as Record<string, unknown>)?.type === 'string' &&
                 String((payload as Record<string, unknown>).type).trim().toLowerCase() === 'heartbeat') ||
               payloadType === 'pong' ||
               payloadType === 'ping'
 
-            if (isHeartbeatPayload) {
+            if (isHeartbeatPayloadMessage) {
               if (typeof payload?.ts === 'string' && Number.isFinite(Date.parse(payload.ts))) {
                 setDeckHeartbeatMs(Date.parse(payload.ts))
               } else {

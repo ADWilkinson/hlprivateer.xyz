@@ -170,10 +170,25 @@ function checkFreshTicks(ticks: Record<string, TickSnapshot>, staleDataMs: numbe
   return { ok: true }
 }
 
-function checkLeverage(proposal: StrategyProposal, accountValueUsd: number, maxLeverage: number): CheckResult {
+function checkLeverage(
+  positions: PositionSnapshot[],
+  proposal: StrategyProposal,
+  accountValueUsd: number,
+  maxLeverage: number
+): CheckResult {
   const parsed = z.array(ActionWithLegsSchema).safeParse(proposal.actions)
   if (!parsed.success || accountValueUsd <= 0) {
-    return { ok: false, reason: 'invalid proposal or account value' }
+    const currentGross = currentGrossNotional(positions)
+    const projectedGross = projectedGrossNotional(positions, proposal)
+    if (projectedGross <= currentGross + 1e-9) {
+      return { ok: true }
+    }
+
+    if (!parsed.success) {
+      return { ok: false, reason: 'invalid proposal legs' }
+    }
+
+    return { ok: false, reason: 'invalid account value for leverage checks' }
   }
 
   const gross = parsed.data.reduce((sum, action) => sum + action.notionalUsd, 0)
@@ -356,7 +371,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     })
   }
 
-  const leverage = checkLeverage(context.proposal, context.accountValueUsd, config.maxLeverage)
+  const leverage = checkLeverage(context.openPositions, context.proposal, context.accountValueUsd, config.maxLeverage)
   if (!leverage.ok) {
     reasons.push({ code: 'LEVERAGE', message: leverage.reason ?? 'leverage exceeded' })
   }

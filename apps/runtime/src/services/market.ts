@@ -271,11 +271,11 @@ export function createMarketAdapter(config: RuntimeEnv, eventBus: EventBus): Mar
   }
 
   if (basketSymbols.length === 0) {
-    console.warn('BASKET_SYMBOLS empty; running HYPE-only market adapter until basket is selected by agents.')
-    return new HyperliquidWebSocketAdapter(['HYPE'], config.HL_WS_URL, eventBus)
+    console.warn('BASKET_SYMBOLS empty; running dynamic-symbols-only market adapter.')
+    return new HyperliquidWebSocketAdapter([], config.HL_WS_URL, eventBus)
   }
 
-  const symbols = Array.from(new Set(['HYPE', ...basketSymbols]))
+  const symbols = Array.from(new Set(basketSymbols))
 
   return new HyperliquidWebSocketAdapter(symbols, config.HL_WS_URL, eventBus)
 }
