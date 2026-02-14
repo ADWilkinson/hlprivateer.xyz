@@ -217,6 +217,8 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
   return { expectedSlippageBps: expected, maxSlippageBps: max }
 }
 
+const BASE_LONG_SYMBOL = 'HYPE'
+
 const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
   `- Objective: maintain LONG ${BASE_LONG_SYMBOL} and SHORT basket-only exposure with market-neutral behavior.`,
@@ -468,7 +470,7 @@ function summarizeActiveBasketContext(context: BasketSelection['context'] | unde
     priceSymbols: Object.keys(context.priceBySymbol ?? {}).sort().slice(0, 12),
     coingecko: context.coingecko
       ? {
-        enabled: context.coingecko.enabled,
+        enabled: true,
         coveragePct: context.coingecko.coveragePct,
         sectorTopGainers: (context.coingecko.sectorTopGainers ?? []).slice(0, 3),
         sectorTopLosers: (context.coingecko.sectorTopLosers ?? []).slice(0, 3)
@@ -619,8 +621,6 @@ function buildAgentPrompt(params: {
     `TASK_CONTEXT=${toPromptPayload(params.context)}`
   ].join('\n')
 }
-
-const BASE_LONG_SYMBOL = 'HYPE'
 
 const coinGeckoApiKey = env.COINGECKO_API_KEY?.trim()
 const coinGecko = coinGeckoApiKey

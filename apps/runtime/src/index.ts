@@ -7,6 +7,7 @@ import { createRuntimeStore } from './db/persistence'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
 
 const METRICS_PATH = '/metrics'
+const HEALTH_PATH = '/health'
 
 function startMetricsServer(port: number): void {
   const server = http.createServer(async (request, response) => {
@@ -16,7 +17,7 @@ function startMetricsServer(port: number): void {
       return
     }
 
-    if (request.url === '/healthz' && request.method === 'GET') {
+    if ((request.url === '/healthz' || request.url === HEALTH_PATH) && request.method === 'GET') {
       response.statusCode = 200
       response.end('ok')
       return
