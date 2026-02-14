@@ -647,6 +647,21 @@ export default function DeckPage() {
     }
   }, [])
 
+  useEffect(() => {
+    const openX402PanelFromHash = () => {
+      if (typeof window === 'undefined') return
+      if (window.location.hash === '#x402-access') {
+        setCollapsedSections((current) => (current.x402 ? { ...current, x402: false } : current))
+      }
+    }
+
+    openX402PanelFromHash()
+    window.addEventListener('hashchange', openX402PanelFromHash)
+    return () => {
+      window.removeEventListener('hashchange', openX402PanelFromHash)
+    }
+  }, [])
+
   const crewNow = nowTick
   const heartbeatMs = Date.now() - deckHeartbeatMs
   const snapshotAgeMs = Number.isFinite(Date.parse(snapshot.lastUpdateAt)) ? nowTick - Date.parse(snapshot.lastUpdateAt) : 0
@@ -659,7 +674,7 @@ export default function DeckPage() {
 
   return (
     <main className={pageShellClass}>
-      <FloorHeader />
+      <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
       <div className='space-y-2'>
         <StatusStrip
           isLoading={isBootstrapping}
