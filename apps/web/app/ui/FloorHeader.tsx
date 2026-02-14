@@ -1,12 +1,7 @@
-import { buttonClass, cardClass, cardHeaderClass, panelBodyPad, sectionTitleClass } from './ascii-style'
+import { cardClass, cardHeaderClass, panelBodyPad, sectionTitleClass } from './ascii-style'
 import { AsciiBadge } from './ascii-kit'
 
-type FloorHeaderProps = {
-  theme: 'light' | 'dark'
-  onToggleTheme: () => void
-}
-
-export function FloorHeader({ theme, onToggleTheme }: FloorHeaderProps) {
+export function FloorHeader() {
   return (
     <section className={cardClass}>
       <header className={`flex flex-wrap items-start justify-between gap-2 border-b border-hlpBorder dark:border-hlpBorderDark ${panelBodyPad}`}>
@@ -18,9 +13,6 @@ export function FloorHeader({ theme, onToggleTheme }: FloorHeaderProps) {
           <AsciiBadge tone='neutral' variant='curly' className='tracking-[0.2em]'>
             system online
           </AsciiBadge>
-          <button type='button' className={buttonClass} onClick={onToggleTheme} aria-label='Toggle theme'>
-            {theme === 'light' ? 'DARK MODE' : 'LIGHT MODE'}
-          </button>
         </div>
       </header>
       <div className={cardHeaderClass}>
