@@ -563,6 +563,12 @@ app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [ap
 
   const runtimePolicy = store.snapshot.riskPolicy
   const riskPolicy = typeof runtimePolicy === 'object' && runtimePolicy !== null ? runtimePolicy : null
+  const num = (v: unknown, fallback: number) => {
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return v
+    }
+    return fallback
+  }
   const maxLeverage = Number.isFinite(riskPolicy?.maxLeverage) ? Number(riskPolicy?.maxLeverage) : env.RISK_MAX_LEVERAGE
   const maxDrawdownPct = Number.isFinite(riskPolicy?.maxDrawdownPct)
     ? Number(riskPolicy?.maxDrawdownPct)
@@ -576,14 +582,10 @@ app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [ap
     maxDrawdownPct,
     maxNotionalUsd,
     maxExposureUsd: maxNotionalUsd,
-    maxSlippageBps: Number.isFinite(riskPolicy?.maxSlippageBps) ? Number(riskPolicy?.maxSlippageBps) : env.RISK_MAX_SLIPPAGE_BPS,
-    staleDataMs: Number.isFinite(riskPolicy?.staleDataMs) ? Number(riskPolicy?.staleDataMs) : env.RISK_STALE_DATA_MS,
-    liquidityBufferPct: Number.isFinite(riskPolicy?.liquidityBufferPct)
-      ? Number(riskPolicy.liquidityBufferPct)
-      : env.RISK_LIQUIDITY_BUFFER_PCT,
-    notionalParityTolerance: Number.isFinite(riskPolicy?.notionalParityTolerance)
-      ? Number(riskPolicy.notionalParityTolerance)
-      : env.RISK_NOTIONAL_PARITY_TOLERANCE
+    maxSlippageBps: num(riskPolicy?.maxSlippageBps, env.RISK_MAX_SLIPPAGE_BPS),
+    staleDataMs: num(riskPolicy?.staleDataMs, env.RISK_STALE_DATA_MS),
+    liquidityBufferPct: num(riskPolicy?.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT),
+    notionalParityTolerance: num(riskPolicy?.notionalParityTolerance, env.RISK_NOTIONAL_PARITY_TOLERANCE)
   }
 
   return {
