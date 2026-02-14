@@ -105,6 +105,14 @@ const x402Pricing: PriceRow[] = [
 ]
 
 export function X402AgentMaterialsPanel() {
+  const docLinks = [
+    { id: 'api', label: 'API contract + endpoint map', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/API.md' },
+    { id: 'llms', label: 'llms.txt + agent discovery', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/llms.txt' },
+    { id: 'skills', label: 'Skills contracts', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/skills.md' },
+    { id: 'agent', label: 'AGENT.md', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/AGENT.md' },
+    { id: 'x402', label: 'x402 quickstart', href: 'https://github.com/ADWilkinson/hlprivateer.xyz/blob/main/docs/X402_SELLER_QUICKSTART.md' },
+  ]
+
   return (
     <section id='x402-access' className={cardClass}>
       <div className={cardHeaderClass}>
@@ -128,6 +136,23 @@ export function X402AgentMaterialsPanel() {
               {' '}
               <span className='font-mono'>/v1/agent/unlock/:tier</span>.
             </p>
+          </div>
+        </div>
+
+        <div className='grid gap-2'>
+          <div className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>Operational materials</div>
+          <div className='grid gap-2 text-[11px] md:grid-cols-3'>
+            {docLinks.map((link) => (
+              <a
+                key={link.id}
+                href={link.href}
+                target='_blank'
+                rel='noreferrer'
+                className='rounded border border-hlpBorder px-2 py-1 text-hlpAccent hover:bg-hlpPanel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
+              >
+                {link.label}
+              </a>
+            ))}
           </div>
         </div>
 
