@@ -106,45 +106,14 @@ const x402Pricing: PriceRow[] = [
 
 export function X402AgentMaterialsPanel() {
   const baseUrl = 'https://hlprivateer.xyz'
-  const docLinks = [
-    { id: 'api', label: 'API contract + endpoint map', href: `${baseUrl}/API.md` },
-    { id: 'llms', label: 'llms.txt + agent discovery', href: `${baseUrl}/llms.txt` },
-    { id: 'skills', label: 'Skills contracts', href: `${baseUrl}/skills.md` },
-    { id: 'agent', label: 'AGENT.md', href: `${baseUrl}/AGENT.md` },
-    { id: 'x402', label: 'x402 quickstart', href: `${baseUrl}/docs/X402_SELLER_QUICKSTART.md` },
-  ]
 
   const curlCommands = [
-    {
-      id: 'curl-llms',
-      title: 'llms.txt',
-      command: `curl -L ${baseUrl}/llms.txt`,
-    },
-    {
-      id: 'curl-spec',
-      title: 'Open spec',
-      command: `curl -L ${baseUrl}/docs/SPEC.md`,
-    },
-    {
-      id: 'curl-skills',
-      title: 'Agent skills',
-      command: `curl -L ${baseUrl}/skills.md`,
-    },
-    {
-      id: 'curl-agent-doc',
-      title: 'Agent docs',
-      command: `curl -L ${baseUrl}/AGENT.md`,
-    },
-    {
-      id: 'curl-api',
-      title: 'API map',
-      command: `curl -L ${baseUrl}/API.md`,
-    },
-    {
-      id: 'curl-x402',
-      title: 'x402 quickstart',
-      command: `curl -L ${baseUrl}/docs/X402_SELLER_QUICKSTART.md`,
-    },
+    { id: 'curl-llms', command: `curl -L ${baseUrl}/llms.txt`, href: `${baseUrl}/llms.txt` },
+    { id: 'curl-spec', command: `curl -L ${baseUrl}/docs/SPEC.md`, href: `${baseUrl}/docs/SPEC.md` },
+    { id: 'curl-skills', command: `curl -L ${baseUrl}/skills.md`, href: `${baseUrl}/skills.md` },
+    { id: 'curl-agent-doc', command: `curl -L ${baseUrl}/AGENT.md`, href: `${baseUrl}/AGENT.md` },
+    { id: 'curl-api', command: `curl -L ${baseUrl}/API.md`, href: `${baseUrl}/API.md` },
+    { id: 'curl-x402', command: `curl -L ${baseUrl}/docs/X402_SELLER_QUICKSTART.md`, href: `${baseUrl}/docs/X402_SELLER_QUICKSTART.md` },
   ]
 
   return (
@@ -174,32 +143,20 @@ export function X402AgentMaterialsPanel() {
         </div>
 
         <div className='grid gap-2'>
-          <div className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>Operational materials</div>
-          <div className='grid gap-2 text-[11px] md:grid-cols-3'>
-            {docLinks.map((link) => (
-              <a
-                key={link.id}
-                href={link.href}
-                target='_blank'
-                rel='noreferrer'
-                className='rounded border border-hlpBorder px-2 py-1 text-hlpAccent hover:bg-hlpPanel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
-              >
-                {link.label}
-              </a>
-            ))}
-          </div>
-        </div>
-
-        <div className='grid gap-2'>
           <div className='text-[9px] uppercase tracking-[0.1em] text-hlpMuted'>Direct curl access</div>
           <div className='rounded border border-hlpBorder'>
             <div className='px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>llms / openspec / agents</div>
             <div className='space-y-1 border-t border-hlpBorder px-2 py-2'>
               {curlCommands.map((entry) => (
-                <div key={entry.id} className='flex flex-wrap items-center gap-2 text-[10px]'>
-                  <span className='w-24 shrink-0 text-hlpMuted'>{entry.title}</span>
-                  <span className='font-mono break-all'>{entry.command}</span>
-                </div>
+                <a
+                  key={entry.id}
+                  href={entry.href}
+                  target='_blank'
+                  rel='noreferrer'
+                  className='block rounded px-2 py-1 font-mono text-[10px] break-all text-hlpAccent hover:bg-hlpPanel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
+                >
+                  {entry.command}
+                </a>
               ))}
             </div>
           </div>
