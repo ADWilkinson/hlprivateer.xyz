@@ -22,7 +22,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify()
-    } catch {
+    } catch (error) {
+      request.log.warn({ err: error }, 'authentication jwt verification failed')
       // Important: stop the request lifecycle here, otherwise the route handler will continue
       // and attempt to send a second response (Fastify will warn and Bun can crash).
       reply.code(401)
@@ -41,7 +42,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       let payload: OperatorClaims
       try {
         payload = (await request.jwtVerify()) as OperatorClaims
-      } catch {
+      } catch (error) {
+        request.log.warn({ err: error }, 'role check jwt verification failed')
         void reply.code(401).send({ error: 'UNAUTHORIZED', message: 'invalid token' })
         return
       }
@@ -62,7 +64,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
 }
 
 export function hasRole(request: FastifyRequest, role: string): boolean {
-  const token = request.headers.authorization?.replace('Bearer ', '')
+    const token = request.headers.authorization?.replace('Bearer ', '')
   if (!token) {
     return false
   }
@@ -70,7 +72,8 @@ export function hasRole(request: FastifyRequest, role: string): boolean {
   try {
     const claims = (request as { user?: OperatorClaims }).user
     return (claims?.roles ?? []).includes(role)
-  } catch {
+  } catch (error) {
+    request.log.warn({ err: error }, 'failed to read role from jwt payload')
     return false
   }
 }

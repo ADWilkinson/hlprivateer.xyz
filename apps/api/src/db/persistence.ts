@@ -318,7 +318,7 @@ function createDisabledStore(reason: string): ApiPersistence {
   }
 }
 
-async function createPostgresStore(databaseUrl: string): Promise<ApiPersistence> {
+  async function createPostgresStore(databaseUrl: string): Promise<ApiPersistence> {
   const pool = new Pool({ connectionString: databaseUrl })
   const db = drizzle(pool, { schema })
 
@@ -339,7 +339,8 @@ async function createPostgresStore(databaseUrl: string): Promise<ApiPersistence>
       try {
         await store.pool.query('SELECT 1')
         return true
-      } catch {
+      } catch (error) {
+        console.warn('[api-store.health] pool health check failed', error) // eslint-disable-line no-console
         return false
       }
     },
@@ -532,7 +533,8 @@ async function createPostgresStore(databaseUrl: string): Promise<ApiPersistence>
           .orderBy(asc(tierCapabilities.tier))
 
         return toTierCapabilityRecord(rows)
-      } catch {
+      } catch (error) {
+        console.warn('[api-store] failed to load tier capabilities', error) // eslint-disable-line no-console
         return null
       }
     },

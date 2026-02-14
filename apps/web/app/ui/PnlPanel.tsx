@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useMemo } from 'react'
+import { useMemo } from 'react'
 import { AsciiBadge } from './ascii-kit'
 import {
   cardClass,
@@ -175,14 +175,6 @@ export function PnlPanel({
     [accountValueValues, snapshot.accountValueUsd],
   )
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!onToggle) return
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onToggle()
-    }
-  }
-
   const SparklineCard = ({
     id,
     title,
@@ -290,14 +282,13 @@ export function PnlPanel({
 
   return (
     <section className={cardClass}>
-      <div
-        className={`${cardHeaderClass} cursor-pointer`}
-        role='button'
-        tabIndex={0}
+      <button
+        type='button'
+        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        aria-label='Toggle pnl trajectory panel'
         aria-expanded={!isCollapsed}
         aria-controls={`section-${sectionId}`}
         onClick={onToggle}
-        onKeyDown={handleKeyDown}
       >
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
         <div className='flex items-center gap-2'>
@@ -308,7 +299,7 @@ export function PnlPanel({
             alpha stream
           </AsciiBadge>
         </div>
-      </div>
+      </button>
 
       {!isCollapsed && <div className={`${panelBodyPad} grid gap-2`}>
         <article className={`${monitorClass} overflow-hidden`}>

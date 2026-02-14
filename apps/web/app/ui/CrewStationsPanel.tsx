@@ -27,6 +27,9 @@ type CrewStationsPanelProps = {
   crewSignals: CrewStats
   nowMs: number
   isLoading?: boolean
+  isCollapsed?: boolean
+  onToggle?: () => void
+  sectionId?: string
 }
 
   const roleLane: Record<CrewRole, string> = {
@@ -55,6 +58,9 @@ export function CrewStationsPanel({
   crewSignals,
   nowMs,
   isLoading = false,
+  isCollapsed = false,
+  onToggle,
+  sectionId = 'crew',
 }: CrewStationsPanelProps) {
   const getActivityWidth = (beatScore: number) => `${Math.max(0, Math.min(100, Math.round(beatScore / 10) * 10))}%`
   const roles = Object.keys(crewHeartbeat) as CrewRole[]
@@ -63,14 +69,24 @@ export function CrewStationsPanel({
 
   return (
     <section className={cardClass}>
-      <div className={cardHeaderClass}>
+      <button
+        type='button'
+        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        aria-label='Toggle crew stations panel'
+        aria-expanded={!isCollapsed}
+        aria-controls={`section-${sectionId}`}
+        onClick={onToggle}
+      >
         <span className={sectionTitleClass}>CREW STATIONS</span>
-        <AsciiBadge tone='neutral'>
-          {isLoading ? 'BOOTING' : '7 AGENTS'}
-        </AsciiBadge>
-      </div>
+        <div className='flex items-center gap-2'>
+          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+            {isCollapsed ? '+' : '−'}
+          </span>
+          <AsciiBadge tone='neutral'>{isLoading ? 'BOOTING' : '7 AGENTS'}</AsciiBadge>
+        </div>
+      </button>
 
-      <div className={`grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 ${panelBodyPad}`}>
+      {!isCollapsed && <div className={`grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 ${panelBodyPad}`}>
         {roles.map((role) => {
           const last = isLoading ? null : crewLast[role]
           const lastMs = last?.ts ? Date.parse(last.ts) : 0
@@ -162,7 +178,7 @@ export function CrewStationsPanel({
             </article>
           )
         })}
-      </div>
+      </div>}
     </section>
   )
 }

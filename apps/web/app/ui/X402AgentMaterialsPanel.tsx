@@ -104,7 +104,17 @@ const x402Pricing: PriceRow[] = [
   },
 ]
 
-export function X402AgentMaterialsPanel() {
+type X402AgentMaterialsPanelProps = {
+  isCollapsed?: boolean
+  onToggle?: () => void
+  sectionId?: string
+}
+
+export function X402AgentMaterialsPanel({
+  isCollapsed = false,
+  onToggle,
+  sectionId = 'x402',
+}: X402AgentMaterialsPanelProps) {
   const baseUrl = 'https://hlprivateer.xyz'
 
   const curlCommands = [
@@ -118,79 +128,94 @@ export function X402AgentMaterialsPanel() {
 
   return (
     <section id='x402-access' className={cardClass}>
-      <div className={cardHeaderClass}>
+      <button
+        type='button'
+        className={`${cardHeaderClass} w-full cursor-pointer appearance-none bg-hlpSurface text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpBorder`}
+        aria-label='Toggle x402 panel'
+        aria-expanded={!isCollapsed}
+        aria-controls={`section-${sectionId}`}
+        onClick={onToggle}
+      >
         <span className={sectionTitleClass}>[HL] PRIVATEER / X402 + AGENTS</span>
-        <AsciiBadge tone='neutral' className='text-hlpMuted'>
-          external access surface
-        </AsciiBadge>
-      </div>
-      <div className={`${panelBodyPad} grid gap-3`}>
-        <div>
-          <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>Access summary</div>
-          <div className='grid gap-2 text-[11px] md:grid-cols-2'>
-            <p>
-              The external agent layer can access live floor materials via machine-gated endpoints. Routes are protected through
-              x402 payments and dynamic capability checks, then mapped to tiered entitlements.
-            </p>
-            <p>
-              Tiering and capability negotiation is resolved via
-              {' '}
-              <span className='font-mono'>POST /v1/agent/handshake</span> and entitlement refresh through
-              {' '}
-              <span className='font-mono'>/v1/agent/unlock/:tier</span>.
-            </p>
-          </div>
+        <div className='flex items-center gap-2'>
+          <span className='inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpSurface text-[10px] uppercase tracking-[0.14em] text-hlpMuted'>
+            {isCollapsed ? '+' : '−'}
+          </span>
+          <AsciiBadge tone='neutral' className='text-hlpMuted'>
+            external access surface
+          </AsciiBadge>
         </div>
+      </button>
 
-        <div className='grid gap-2'>
-          <div className='text-[9px] uppercase tracking-[0.1em] text-hlpMuted'>Direct curl access</div>
-          <div className='rounded border border-hlpBorder'>
-            <div className='px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>llms / openspec / agents</div>
-            <div className='space-y-1 border-t border-hlpBorder px-2 py-2'>
-              {curlCommands.map((entry) => (
-                <a
-                  key={entry.id}
-                  href={entry.href}
-                  target='_blank'
-                  rel='noreferrer'
-                  className='block rounded px-2 py-1 font-mono text-[10px] break-all text-hlpAccent hover:bg-hlpPanel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
-                >
-                  {entry.command}
-                </a>
-              ))}
+      {!isCollapsed && (
+        <div className={`${panelBodyPad} grid gap-3`}>
+          <div>
+            <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>Access summary</div>
+            <div className='grid gap-2 text-[11px] md:grid-cols-2'>
+              <p>
+                The external agent layer can access live floor materials via machine-gated endpoints. Routes are protected through
+                x402 payments and dynamic capability checks, then mapped to tiered entitlements.
+              </p>
+              <p>
+                Tiering and capability negotiation is resolved via
+                {' '}
+                <span className='font-mono'>POST /v1/agent/handshake</span> and entitlement refresh through
+                {' '}
+                <span className='font-mono'>/v1/agent/unlock/:tier</span>.
+              </p>
             </div>
           </div>
+
+          <div className='grid gap-2'>
+            <div className='text-[9px] uppercase tracking-[0.1em] text-hlpMuted'>Direct curl access</div>
+            <div className='rounded border border-hlpBorder'>
+              <div className='px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>llms / openspec / agents</div>
+              <div className='space-y-1 border-t border-hlpBorder px-2 py-2'>
+                {curlCommands.map((entry) => (
+                  <a
+                    key={entry.id}
+                    href={entry.href}
+                    target='_blank'
+                    rel='noreferrer'
+                    className='block rounded px-2 py-1 font-mono text-[10px] break-all text-hlpAccent hover:bg-hlpPanel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
+                  >
+                    {entry.command}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <AsciiTable
+            caption='pay-gated agent routes'
+            columns={[
+              {
+                key: 'method',
+                header: 'METHOD',
+                align: 'left',
+                width: '10%',
+                render: (value) => String(value),
+              },
+              { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
+              { key: 'capability', header: 'CAPABILITY', align: 'left', width: '20%' },
+              { key: 'purpose', header: 'PURPOSE', align: 'left', width: '35%' },
+            ]}
+            data={paywallRoutes}
+            emptyText='no routes'
+          />
+
+          <AsciiTable
+            caption='x402 route pricing'
+            columns={[
+              { key: 'route', header: 'ROUTE', align: 'left', width: '58%' },
+              { key: 'price', header: 'PRICE', align: 'right', width: '12%' },
+              { key: 'notes', header: 'NOTES', align: 'left', width: '30%' },
+            ]}
+            data={x402Pricing}
+            emptyText='no pricing data'
+          />
         </div>
-
-        <AsciiTable
-          caption='pay-gated agent routes'
-          columns={[
-            {
-              key: 'method',
-              header: 'METHOD',
-              align: 'left',
-              width: '10%',
-              render: (value) => String(value),
-            },
-            { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
-            { key: 'capability', header: 'CAPABILITY', align: 'left', width: '20%' },
-            { key: 'purpose', header: 'PURPOSE', align: 'left', width: '35%' },
-          ]}
-          data={paywallRoutes}
-          emptyText='no routes'
-        />
-
-        <AsciiTable
-          caption='x402 route pricing'
-          columns={[
-            { key: 'route', header: 'ROUTE', align: 'left', width: '58%' },
-            { key: 'price', header: 'PRICE', align: 'right', width: '12%' },
-            { key: 'notes', header: 'NOTES', align: 'left', width: '30%' },
-          ]}
-          data={x402Pricing}
-          emptyText='no pricing data'
-        />
-      </div>
+      )}
     </section>
   )
 }
