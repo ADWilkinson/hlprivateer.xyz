@@ -9,7 +9,7 @@ import {
   type CrewHeartbeat,
   type CrewRole,
 } from './floor-dashboard'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, sectionTitleClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, sectionTitleClass, skeletonPulseClass } from './ascii-style'
 
 type CrewNode = {
   id: string
@@ -28,6 +28,7 @@ type FloorPlanPanelProps = {
   deckMissing: number
   deckHeartbeatMs: number
   theme: 'light' | 'dark'
+  isLoading?: boolean
 }
 
 type TopologyEdge = {
@@ -59,7 +60,19 @@ function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 's
   return { status: 'silent', pulse: '◌◌◌◌◌', label: 'silent' }
 }
 
-function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number): CrewNode[] {
+function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number, isLoading: boolean): CrewNode[] {
+  if (isLoading) {
+    return CREW.map((role) => ({
+      id: role,
+      label: crewLabel(role),
+      role,
+      ageText: 'pending',
+      status: 'stale',
+      pulse: '◌◌◉◌◌',
+      route: roleRoute[role],
+    }))
+  }
+
   return CREW.map((role) => {
     const lastPing = crewHeartbeat[role]
     const heartbeatMs = lastPing > 0 ? Math.max(0, nowMs - lastPing) : Number.POSITIVE_INFINITY
@@ -77,6 +90,25 @@ function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number): CrewNode[] 
   })
 }
 
+function loadingTopologyNodeRow(): AsciiTopologyNode[] {
+  return CREW.map((role) => ({
+    id: role,
+    label: crewLabel(role),
+    status: 'warning',
+    metadata: {
+      role,
+      heartbeat: 'pending',
+      pulse: '◌◌◉◌◌',
+    },
+  }))
+}
+
+const nodeStatusByCrewState: Record<CrewNode['status'], AsciiTopologyNode['status']> = {
+  active: 'online',
+  stale: 'warning',
+  silent: 'offline',
+}
+
 export function FloorPlanPanel({
   crewHeartbeat,
   nowMs,
@@ -84,17 +116,18 @@ export function FloorPlanPanel({
   deckMissing,
   deckHeartbeatMs,
   theme,
+  isLoading = false,
 }: FloorPlanPanelProps) {
-  const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs), [crewHeartbeat, nowMs])
+  const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs, isLoading), [crewHeartbeat, nowMs, isLoading])
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
   const mapRef = useRef<HTMLDivElement | null>(null)
-  const [networkWidth, setNetworkWidth] = useState(480)
+  const [networkWidth, setNetworkWidth] = useState(540)
 
   useEffect(() => {
     const updateWidth = () => {
-      const fallback = typeof window === 'undefined' ? 620 : window.innerWidth - 44
+      const fallback = typeof window === 'undefined' ? 980 : window.innerWidth - 58
       const measured = mapRef.current?.clientWidth ?? fallback
-      setNetworkWidth(Math.max(260, measured))
+      setNetworkWidth(Math.max(360, Math.min(measured, 1560)))
     }
 
     updateWidth()
@@ -113,34 +146,58 @@ export function FloorPlanPanel({
   }, [])
 
   const topology = useMemo(() => {
-    const nodes: AsciiTopologyNode[] = stationRows.map((row) => ({
-      id: row.id,
-      label: row.label,
-      status: row.status === 'active' ? 'online' : row.status === 'stale' ? 'warning' : 'offline',
-      metadata: {
-        role: row.role,
-        heartbeat: row.ageText,
-        pulse: row.pulse,
-      },
-    }))
+    const nodes = isLoading
+      ? loadingTopologyNodeRow()
+      : stationRows.map((row) => ({
+          id: row.id,
+          label: row.label,
+          status: nodeStatusByCrewState[row.status],
+          metadata: {
+            role: row.role,
+            heartbeat: row.ageText,
+            pulse: row.pulse,
+          },
+        }))
 
-    const edges: TopologyEdge[] = stationRows
-      .filter((row) => row.role !== 'ops')
-      .map((row) => ({
+    const ringMembers = stationRows.filter((row) => row.role !== 'ops')
+    const edges = ringMembers
+      .map((row) =>
+        ({
         id: `ops-${row.role}`,
         source: 'ops',
         target: row.id,
-        status:
-          crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.45
+        status: isLoading
+          ? 'warning'
+          : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.45
             ? 'active'
             : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.8
               ? 'warning'
               : 'error',
         label: `link:${row.label}`,
-      }))
+      } satisfies TopologyEdge),
+      )
+    const ringEdges =
+      isLoading || ringMembers.length <= 2
+        ? []
+        : ringMembers.map((row, idx) => {
+            const next = ringMembers[(idx + 1) % ringMembers.length]
+            return {
+              id: `mesh-${row.role}-${next.role}`,
+              source: row.id,
+              target: next.id,
+              status: isLoading
+                ? 'inactive'
+                : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.55
+                  ? 'congested'
+                  : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS
+                    ? 'warning'
+                    : 'error',
+              label: `mesh:${row.label}`,
+            } satisfies TopologyEdge
+          })
 
-    return { nodes, edges }
-  }, [crewHeartbeat, stationRows, nowMs])
+    return { nodes, edges: [...edges, ...ringEdges] }
+  }, [crewHeartbeat, isLoading, nowMs, stationRows])
 
   return (
     <section className={cardClass}>
@@ -150,12 +207,12 @@ export function FloorPlanPanel({
           <div className='text-[11px] text-hlpMuted dark:text-hlpMutedDark'>LIVE CONNECTIVITY GRAPH</div>
         </div>
         <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
-          topology mode
+          {isLoading ? 'warming map' : 'topology mode'}
         </AsciiBadge>
       </div>
 
-      <div className='grid grid-cols-1 gap-2 p-2 md:grid-cols-[minmax(220px,_320px)_1fr]'>
-        <div className='overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+      <div className='grid grid-cols-1 gap-2 p-2 lg:grid-cols-[minmax(260px,_340px)_minmax(520px,_1fr)]'>
+        <div className='min-h-[360px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>NODE TABLE</span>
           </div>
@@ -172,25 +229,38 @@ export function FloorPlanPanel({
           />
         </div>
 
-        <div className='overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+        <div className='min-h-[360px] overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
           <div className={cardHeaderClass}>
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
-          <div ref={mapRef} className='h-[258px] w-full max-w-full overflow-auto px-1 pb-1'>
+          <div ref={mapRef} className='min-h-[360px] w-full max-w-full overflow-auto px-1 pb-1'>
             <AsciiTopology
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
               theme={theme}
+              pulseMs={nowMs}
               className='text-[9px] text-hlpMuted dark:text-hlpMutedDark'
+              loading={isLoading}
             />
           </div>
           <div className={sectionStripClass}>
-            <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
-            <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>
-            <span className={inlineBadgeClass}>missing={deckMissing}</span>
-            <span className={inlineBadgeClass}>stations={stationRows.length}</span>
-            <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
+            {isLoading ? (
+              <>
+                <span className={`${skeletonPulseClass} h-5 w-32 rounded-sm`} />
+                <span className={`${skeletonPulseClass} h-5 w-36 rounded-sm`} />
+                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+              </>
+            ) : (
+              <>
+                <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
+                <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>
+                <span className={inlineBadgeClass}>missing={deckMissing}</span>
+                <span className={inlineBadgeClass}>stations={stationRows.length}</span>
+                <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
+              </>
+            )}
           </div>
           <div className='px-2 py-2 text-[9px] text-hlpMuted dark:text-hlpMutedDark'>
             <div className='mb-1 uppercase tracking-[0.16em]'>LINK LEGEND</div>

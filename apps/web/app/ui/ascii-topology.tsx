@@ -25,6 +25,8 @@ type AsciiTopologyProps = {
   width: number
   theme: 'light' | 'dark'
   className?: string
+  pulseMs?: number
+  loading?: boolean
 }
 
 type NodePos = {
@@ -38,21 +40,48 @@ const nodeGlyph: Record<NodeStatus, string> = {
   offline: '◌',
 }
 
-const edgeGlyph: Record<'light' | 'dark', Record<EdgeStatus, string>> = {
+const nodeRingGlyph: Record<NodeStatus, string[]> = {
+  online: ['◌', '◦', '◉', '◦'],
+  warning: ['◍', '◌', '◈', '◍'],
+  offline: ['◌', '·', '·', '◌'],
+}
+
+const edgeGlyph: Record<'light' | 'dark', Record<EdgeStatus, string[]>> = {
   light: {
-    active: '─',
-    inactive: '┄',
-    congested: '┅',
-    warning: '┈',
-    error: '⟶',
+    active: ['━', '╌', '⎯', '━'],
+    inactive: ['╌', '─', '╌', '─'],
+    congested: ['┄', '┅', '┄', '┅'],
+    error: ['⟹', '➤', '═', '⟶'],
+    warning: ['┈', '┄', '┈', '┄'],
   },
   dark: {
-    active: '━',
-    inactive: '╌',
-    congested: '┄',
-    warning: '┈',
-    error: '═',
+    active: ['━', '╌', '═', '⎯'],
+    inactive: ['╌', '╌', '╌', '╌'],
+    congested: ['┄', '┅', '┄', '┅'],
+    error: ['⟹', '═', '⟶', '➤'],
+    warning: ['┈', '┄', '┈', '┄'],
   },
+}
+
+function hash(value: string): number {
+  let h = 2166136261
+  for (let i = 0; i < value.length; i += 1) {
+    h ^= value.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function placeCell(grid: string[][], x: number, y: number, value: string, force = false) {
+  if (y < 0 || y >= grid.length || x < 0 || x >= grid[0]!.length) return
+  if (force || grid[y]![x] === ' ') grid[y]![x] = value
+}
+
+function drawText(grid: string[][], startX: number, y: number, text: string) {
+  if (y < 0 || y >= grid.length) return
+  for (let i = 0; i < text.length; i += 1) {
+    placeCell(grid, startX + i, y, text[i]!, true)
+  }
 }
 
 function drawLine(grid: string[][], p0: NodePos, p1: NodePos, fill: string) {
@@ -70,10 +99,7 @@ function drawLine(grid: string[][], p0: NodePos, p1: NodePos, fill: string) {
   let y = y0
 
   while (true) {
-    const current = grid[y]?.[x]
-    if (current !== undefined && current === ' ') {
-      grid[y]![x] = fill
-    }
+    placeCell(grid, x, y, fill)
     if (x === x1 && y === y1) break
     const e2 = 2 * err
     if (e2 >= dy) {
@@ -87,87 +113,160 @@ function drawLine(grid: string[][], p0: NodePos, p1: NodePos, fill: string) {
   }
 }
 
-function renderTopologyMap(nodes: AsciiTopologyNode[], edges: AsciiTopologyEdge[], theme: 'light' | 'dark', widthPx: number): string {
-  const width = Math.max(56, Math.min(84, Math.floor(widthPx / 10) * 2 + 8))
-  const height = 16
+function drawOrbit(grid: string[][], node: NodePos, pulsePhase: number, radiusX: number, radiusY: number, glyph: string, status: NodeStatus) {
+  const nodes = status === 'online' ? 10 : 7
+  for (let i = 0; i < nodes; i += 1) {
+    const ratio = (i / nodes) * Math.PI * 2
+    const offset = pulsePhase * 0.12
+    const x = Math.round(node.x + Math.cos(ratio + offset) * radiusX)
+    const y = Math.round(node.y + Math.sin(ratio + offset) * radiusY)
+    placeCell(grid, x, y, glyph)
+  }
+}
+
+function renderSignalNoise(grid: string[][], theme: 'light' | 'dark', pulsePhase: number) {
+  const width = grid[0]!.length
+  const height = grid.length
+  const density = Math.max(20, Math.floor((width * height) / 130))
+  for (let i = 0; i < density; i += 1) {
+    const s = hash(`${theme}:${pulsePhase}:${i}`)
+    const x = s % width
+    const y = Math.floor((s >>> 7) % height)
+    if ((x + y + pulsePhase) % 4 !== 0) continue
+    const glyph = ((x + y + pulsePhase) % 2 === 0 ? '·' : '•')
+    placeCell(grid, x, y, glyph)
+  }
+}
+
+function renderHubCore(grid: string[][], x: number, y: number, pulsePhase: number, status: NodeStatus) {
+  const pulse = pulsePhase % 4
+  const core = status === 'online' ? '◎' : status === 'warning' ? '◉' : '◌'
+  placeCell(grid, x, y, core, true)
+  if (pulse % 2 === 0) {
+    placeCell(grid, x - 2, y, '─')
+    placeCell(grid, x + 2, y, '─')
+    placeCell(grid, x, y - 2, '│')
+    placeCell(grid, x, y + 2, '│')
+  } else {
+    placeCell(grid, x - 2, y - 2, '╱')
+    placeCell(grid, x + 2, y - 2, '╲')
+    placeCell(grid, x - 2, y + 2, '╲')
+    placeCell(grid, x + 2, y + 2, '╱')
+  }
+  drawOrbit(grid, { x, y }, pulsePhase, 1, 0.6, '✦', status)
+}
+
+function renderTopologyMap(
+  nodes: AsciiTopologyNode[],
+  edges: TopologyEdge[],
+  theme: 'light' | 'dark',
+  widthPx: number,
+  pulseMs = 0,
+  loading = false,
+): string {
+  const width = Math.max(78, Math.min(176, Math.floor(widthPx / 7)))
+  const height = Math.max(18, Math.min(34, Math.floor(width / 4.5)))
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '))
 
-  if (nodes.length === 0) {
-    const empty = '\n  [topology unavailable]\n'.padStart(28, ' ')
-    return `${'╭' + '─'.repeat(width - 2) + '╮'}\n${empty}\n${'╰' + '─'.repeat(width - 2) + '╯'}`
-  }
-
+  const pulsePhase = Math.floor(pulseMs / 280)
+  const framePadX = Math.max(2, Math.floor(width * 0.04))
+  const framePadY = 2
   const centerX = Math.floor((width - 1) / 2)
   const centerY = Math.floor((height - 1) / 2)
   const map = new Map<string, NodePos>()
 
-  const outer = nodes.filter((node) => node.id !== 'ops')
-  const outerRadiusX = Math.max(8, Math.floor((width - 6) / 2))
-  const outerRadiusY = Math.max(4, Math.floor((height - 4) / 2))
+  const hub = nodes.find((node) => node.id === 'ops') ?? nodes[0]
+  if (hub) {
+    const hubX = Math.max(framePadX, Math.min(width - framePadX - 1, centerX))
+    const hubY = Math.max(framePadY, Math.min(height - framePadY - 1, centerY))
+    map.set(hub.id, { x: hubX, y: hubY })
+  }
 
-  map.set('ops', { x: centerX, y: centerY })
+  const outer = nodes.filter((node) => node.id !== hub?.id)
+  const outerRadiusX = Math.max(14, Math.floor((width - 14) * 0.37))
+  const outerRadiusY = Math.max(6, Math.floor((height - 8) * 0.34))
 
   outer.forEach((node, index) => {
-    const angle = (Math.PI * 2 * (index + 1)) / Math.max(outer.length, 1)
-    const x = Math.round(centerX + outerRadiusX * Math.cos(angle))
-    const y = Math.round(centerY + outerRadiusY * Math.sin(angle))
+    const angle = (Math.PI * 2 * (index + 0.5)) / Math.max(1, outer.length)
+    const x = Math.round((hub?.id ? map.get(hub?.id)!.x : centerX) + outerRadiusX * Math.cos(angle))
+    const y = Math.round((hub?.id ? map.get(hub?.id)!.y : centerY) + outerRadiusY * Math.sin(angle))
     map.set(node.id, {
-      x: Math.min(width - 3, Math.max(2, x)),
-      y: Math.min(height - 3, Math.max(2, y)),
+      x: Math.min(width - framePadX, Math.max(framePadX, x)),
+      y: Math.min(height - framePadY - 1, Math.max(framePadY, y)),
     })
   })
 
-  const hubX = width - 6
-  const hubY = 2
-  nodes.forEach((node, index) => {
-    const point = map.get(node.id)
-    if (!point) return
-    const glyph = nodeGlyph[node.status] ?? nodeGlyph.offline
-    grid[point.y]![point.x] = glyph
-
-    const idText = node.id.toUpperCase().slice(0, 8)
-    const labelX = Math.max(0, Math.min(width - idText.length - 1, point.x + (index === 0 ? -Math.floor(idText.length / 2) : -2)))
-    const labelY = point.y + 1
-    if (labelY < height) {
-      for (let i = 0; i < idText.length && labelX + i < width; i += 1) {
-        if (grid[labelY]?.[labelX + i] === ' ') {
-          grid[labelY]![labelX + i] = idText[i]!
-        }
-      }
-    }
-
-    if (point.x + 1 < width && point.y + 2 < height) {
-      const heartbeat = node.metadata?.heartbeat ? `:${node.metadata.heartbeat}` : ''
-      const metaX = Math.max(0, Math.min(width - heartbeat.length - 1, point.x - Math.floor(heartbeat.length / 2)))
-      const metaY = Math.min(height - 1, point.y + 2)
-      for (let i = 0; i < heartbeat.length && metaX + i < width; i += 1) {
-        if (grid[metaY]?.[metaX + i] === ' ') {
-          grid[metaY]![metaX + i] = heartbeat[i]!
-        }
-      }
-    }
+  const orderedEdges = [...edges].sort((a, b) => {
+    const rank = (status: EdgeStatus) => (status === 'active' ? 0 : status === 'warning' ? 1 : status === 'congested' ? 2 : 3)
+    return rank(a.status) - rank(b.status)
   })
 
-  edges.forEach((edge) => {
+  renderSignalNoise(grid, theme, pulsePhase)
+
+  orderedEdges.forEach((edge) => {
     const sourcePos = map.get(edge.source)
     const targetPos = map.get(edge.target)
     if (!sourcePos || !targetPos) return
+    const variants = edgeGlyph[theme][edge.status] ?? edgeGlyph[theme].active
+    const segmentChar = variants[Math.floor(hash(`${edge.id}:${pulsePhase}`) % variants.length)] ?? variants[0]
+    drawLine(grid, sourcePos, targetPos, segmentChar)
 
-    let lineChar = edgeGlyph[theme][edge.status] ?? edgeGlyph[theme].active
-    if (lineChar.length === 0) lineChar = '─'
-
-    drawLine(grid, sourcePos, targetPos, lineChar)
-    const midX = Math.round((sourcePos.x + targetPos.x) / 2)
-    const midY = Math.round((sourcePos.y + targetPos.y) / 2)
-    const label = edge.label ? edge.label.slice(0, 11) : undefined
-    if (label) {
-      const labelX = Math.min(width - label.length - 1, Math.max(1, midX - Math.floor(label.length / 2)))
-      for (let i = 0; i < label.length; i += 1) {
-        if (grid[midY]?.[labelX + i] === ' ') {
-          grid[midY]![labelX + i] = label[i]!
-        }
+    const packetCount = edge.status === 'active' ? 3 : edge.status === 'warning' || edge.status === 'congested' ? 2 : loading ? 1 : edge.status === 'error' ? 1 : 0
+    for (let i = 0; i < packetCount; i += 1) {
+      const offset = (hash(`${edge.id}:packet:${pulsePhase}:${i}`) % 32) / 32
+      const packetX = Math.round(sourcePos.x + (targetPos.x - sourcePos.x) * offset)
+      const packetY = Math.round(sourcePos.y + (targetPos.y - sourcePos.y) * offset)
+      const packet = loading
+        ? '◍'
+        : edge.status === 'active'
+          ? (pulsePhase % 2 === 0 ? '◉' : '◈')
+          : edge.status === 'warning' || edge.status === 'congested'
+            ? '◍'
+            : '·'
+      if (pulsePhase % 2 === 0) {
+        placeCell(grid, packetX, packetY, packet)
       }
     }
+
+    if (edge.label) {
+      const label = edge.label.replace('link:', '').replace('mesh:', '').toLowerCase().replace(' -> ', '>')
+      const displayWidth = Math.min(10, Math.max(0, label.length))
+      const trimmed = label.slice(0, displayWidth)
+      const midX = Math.round((sourcePos.x + targetPos.x) / 2) - 1
+      const midY = Math.min(height - 2, Math.round((sourcePos.y + targetPos.y) / 2))
+      const labelX = Math.max(1, Math.min((grid[0]!.length - 2) - trimmed.length, midX))
+      drawText(grid, labelX, midY, trimmed)
+    }
+  })
+
+  nodes.forEach((node, index) => {
+    const pos = map.get(node.id)
+    if (!pos) return
+
+    const label = node.label.slice(0, 8)
+    const glyph = nodeGlyph[node.status] ?? nodeGlyph.offline
+    placeCell(grid, pos.x, pos.y, glyph, true)
+
+    if (node.id === 'ops') {
+      renderHubCore(grid, pos.x, pos.y, pulsePhase, node.status)
+    } else if (node.status !== 'offline') {
+      const orbitGlyph = nodeRingGlyph[node.status] ?? nodeRingGlyph.warning
+      const orbit = orbitGlyph[(index + hash(node.id) + pulsePhase) % orbitGlyph.length] ?? orbitGlyph[0]
+      drawOrbit(grid, pos, pulsePhase + hash(node.id), 1, 0.5, orbit, node.status)
+      if (node.status === 'online' && pulsePhase % 3 === 0) {
+        drawOrbit(grid, pos, pulsePhase + 4, 1.9, 1.0, '·', node.status)
+      }
+    }
+
+    const labelX = Math.max(0, Math.min(width - label.length - 1, pos.x - Math.floor(label.length / 2)))
+    const labelY = Math.min(height - 2, pos.y + 1)
+    drawText(grid, labelX, labelY, label)
+
+    const heartbeat = loading ? `boot:${pulsePhase % 7}` : node.metadata?.heartbeat ?? '--'
+    const metaLine = node.id === 'ops' ? `hub · ${heartbeat}` : heartbeat
+    const meta = loading ? `${metaLine}` : `${metaLine} ${node.metadata?.pulse ?? ''}`
+    const metaX = Math.max(1, Math.min(width - meta.length - 1, pos.x - Math.floor(meta.length / 2)))
+    drawText(grid, metaX, Math.min(height - 1, pos.y + 2), meta.slice(0, 18))
   })
 
   const body = grid.map((row) => row.join('')).join('\n')
@@ -177,10 +276,19 @@ function renderTopologyMap(nodes: AsciiTopologyNode[], edges: AsciiTopologyEdge[
   return `${frameTop}\n${body}\n${frameBottom}`
 }
 
-type AsciiTopologyEdge = TopologyEdge
-
-export function AsciiTopology({ nodes, edges, width, theme, className = '' }: AsciiTopologyProps) {
-  const map = useMemo(() => renderTopologyMap(nodes, edges, theme, width), [nodes, edges, theme, width])
+export function AsciiTopology({
+  nodes,
+  edges,
+  width,
+  theme,
+  className = '',
+  pulseMs = 0,
+  loading = false,
+}: AsciiTopologyProps) {
+  const map = useMemo(
+    () => renderTopologyMap(nodes, edges, theme, width, pulseMs, loading),
+    [nodes, edges, theme, width, pulseMs, loading],
+  )
 
   return <pre className={`overflow-auto whitespace-pre ${className}`}>{map}</pre>
 }

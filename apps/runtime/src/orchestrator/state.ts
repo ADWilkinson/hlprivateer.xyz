@@ -99,6 +99,8 @@ const runtimeCommandCounter = new promClient.Counter({
   help: 'Runtime command outcomes',
   labelNames: ['command', 'result']
 })
+const RISK_DENIAL_NOTICE_COOLDOWN_MS = 120_000
+const RISK_AUTO_MITIGATION_COOLDOWN_MS = 60_000
 
 void promClient.collectDefaultMetrics()
 
@@ -180,7 +182,6 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let lastSafeModeHoldNoticeAtMs = 0
   let lastRiskDeniedSignature = ''
   let lastRiskDeniedNoticeAtMs = 0
-  let lastRiskDeniedGlobalNoticeAtMs = 0
   let lastRiskAutoMitigationAtMs = 0
   let lastRiskAutoMitigationSignature = ''
 
@@ -678,15 +679,16 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         const reasonMessage = risk.reasons.length
           ? risk.reasons.map((entry) => `${entry.code}: ${entry.message}`).join(' | ')
           : 'no risk reasons provided'
-        const denialSignature = (risk.reasons.length ? risk.reasons.map((entry) => entry.code).join('|') : 'no_reason')
+        const reasonCodes = risk.reasons
+          .map((entry) => String(entry.code).trim().toUpperCase())
+          .filter((entry) => entry.length > 0)
+        const denialSignature = [...new Set(reasonCodes)].sort().join('|') || 'no_reason'
         const shouldPublishDenialNotice =
-          nowMs - lastRiskDeniedNoticeAtMs >= 60_000 ||
-          nowMs - lastRiskDeniedGlobalNoticeAtMs >= 30_000 ||
+          nowMs - lastRiskDeniedNoticeAtMs >= RISK_DENIAL_NOTICE_COOLDOWN_MS ||
           lastRiskDeniedSignature !== denialSignature
         if (shouldPublishDenialNotice) {
           lastRiskDeniedSignature = denialSignature
           lastRiskDeniedNoticeAtMs = nowMs
-          lastRiskDeniedGlobalNoticeAtMs = nowMs
           await publishStateUpdate(proposal.proposalId, `risk denied (${reasonMessage})`)
         }
 
@@ -960,14 +962,28 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       return false
     }
 
-    const mitigationCodes = new Set(['DRAWDOWN', 'EXPOSURE', 'LEVERAGE', 'SAFE_MODE', 'DEPENDENCY_FAILURE'])
-    if (!reasons.some((entry) => mitigationCodes.has(entry.code))) {
+    const mitigationCodes = new Set([
+      'DRAWDOWN',
+      'EXPOSURE',
+      'LEVERAGE',
+      'SAFE_MODE',
+      'DEPENDENCY_FAILURE',
+      'NOTIONAL_PARITY',
+      'STALE_DATA',
+      'LIQUIDITY',
+      'SLIPPAGE_BREACH',
+      'SYSTEM_GATED'
+    ])
+    if (!reasons.some((entry) => mitigationCodes.has(String(entry.code).toUpperCase()))) {
       return false
     }
 
-    const reasonSignature = reasons.map((entry) => entry.code).sort().join('|') || 'no_reason'
+    const reasonSignature = [...new Set(reasons
+      .map((entry) => String(entry.code).trim().toUpperCase())
+      .filter((entry) => entry.length > 0)
+    )].sort().join('|') || 'no_reason'
     const nowMs = Date.now()
-    if (reasonSignature === lastRiskAutoMitigationSignature && nowMs - lastRiskAutoMitigationAtMs < 60_000) {
+    if (reasonSignature === lastRiskAutoMitigationSignature && nowMs - lastRiskAutoMitigationAtMs < RISK_AUTO_MITIGATION_COOLDOWN_MS) {
       return false
     }
 
@@ -1163,7 +1179,12 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         resultingPositions: state.positions.length
       }, 'runtime.command')
 
-      await setMode(state.mode === 'HALT' ? 'HALT' : 'READY', reason)
+      const restoreMode: TradeState = state.mode === 'HALT'
+        ? 'HALT'
+        : state.mode === 'SAFE_MODE'
+          ? 'SAFE_MODE'
+          : 'READY'
+      await setMode(restoreMode, reason)
       runtimeCommandCounter.inc({ command, result: 'executed' })
       return { ok: true, message: `flatten executed (${closeOrders.length} close legs)` }
     }

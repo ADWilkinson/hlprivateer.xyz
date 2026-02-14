@@ -1,5 +1,5 @@
 import { AsciiBadge } from './ascii-kit'
-import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, statusCellClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, statusCellClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -19,6 +19,7 @@ type StatusStripProps = {
   snapshotAgeMs: number
   deckFeedAgeMs: number
   deckMissing: number
+  isLoading?: boolean
 }
 
 const LED_CLASS_BY_STATE = {
@@ -38,6 +39,7 @@ export function StatusStrip({
   snapshotAgeMs,
   deckFeedAgeMs,
   deckMissing,
+  isLoading = false,
 }: StatusStripProps) {
   const health = badgeVariantForHealth(snapshot.healthCode)
   const drift = badgeVariantForDrift(snapshot.driftState)
@@ -53,68 +55,111 @@ export function StatusStrip({
       </div>
 
       <div className='grid grid-cols-1 border-x border-b border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface dark:bg-hlpSurfaceDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
-        <div className={statusCellClass}>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</span>
-          <span className='text-[11px] font-bold'>{snapshot.mode}</span>
-        </div>
-        <div className={statusCellClass}>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>WS</span>
-          <span
-            className={`text-[11px] font-bold ${
-              wsState === 'OPEN' ? 'text-hlpPositive dark:text-hlpPositiveDark' : 'text-hlpNegative dark:text-hlpNegativeDark'
-            }`}
-          >
-            {wsState}
-          </span>
-        </div>
-        <div className={statusCellClass}>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>HEALTH</span>
-          <span className='flex items-center gap-2'>
-            <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
-            <span className='text-[11px] font-bold'>{snapshot.healthCode}</span>
-          </span>
-        </div>
-        <div className={statusCellClass}>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DRIFT</span>
-          <span className='flex items-center gap-2'>
-            <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[drift]}`} />
-            <span className='text-[11px] font-bold'>{snapshot.driftState}</span>
-          </span>
-        </div>
-        <div className={statusCellClass}>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>FEED AGE</span>
-          <span className={`text-[11px] font-bold ${isFeedStale ? 'text-hlpNegative dark:text-hlpNegativeDark' : ''}`}>
-            {formatAge(Math.max(0, snapshotAgeMs))}
-          </span>
-        </div>
-        <div className={statusCellClass}>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DECK HEARTBEAT</span>
-          <span className='text-[11px] font-bold'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
-        </div>
+        {isLoading ? (
+          <>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</span>
+              <span className={`h-3 w-20 rounded-sm ${skeletonPulseClass}`} />
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>WS</span>
+              <span className={`h-3 w-16 rounded-sm ${skeletonPulseClass}`} />
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>HEALTH</span>
+              <span className={`h-3 w-14 rounded-sm ${skeletonPulseClass}`} />
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DRIFT</span>
+              <span className={`h-3 w-14 rounded-sm ${skeletonPulseClass}`} />
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>FEED AGE</span>
+              <span className={`h-3 w-14 rounded-sm ${skeletonPulseClass}`} />
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DECK HEARTBEAT</span>
+              <span className={`h-3 w-24 rounded-sm ${skeletonPulseClass}`} />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</span>
+              <span className='text-[11px] font-bold'>{snapshot.mode}</span>
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>WS</span>
+              <span
+                className={`text-[11px] font-bold ${
+                  wsState === 'OPEN' ? 'text-hlpPositive dark:text-hlpPositiveDark' : 'text-hlpNegative dark:text-hlpNegativeDark'
+                }`}
+              >
+                {wsState}
+              </span>
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>HEALTH</span>
+              <span className='flex items-center gap-2'>
+                <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
+                <span className='text-[11px] font-bold'>{snapshot.healthCode}</span>
+              </span>
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DRIFT</span>
+              <span className='flex items-center gap-2'>
+                <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[drift]}`} />
+                <span className='text-[11px] font-bold'>{snapshot.driftState}</span>
+              </span>
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>FEED AGE</span>
+              <span className={`text-[11px] font-bold ${isFeedStale ? 'text-hlpNegative dark:text-hlpNegativeDark' : ''}`}>
+                {formatAge(Math.max(0, snapshotAgeMs))}
+              </span>
+            </div>
+            <div className={statusCellClass}>
+              <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DECK HEARTBEAT</span>
+              <span className='text-[11px] font-bold'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className={sectionStripClass}>
-        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark flex items-center gap-1'>
-          <span>ops stream:</span>
-          <span className='h-1.5 w-1.5 rounded-full bg-hlpPositive/80 dark:bg-hlpPositiveDark/80 animate-hlp-led' />
-        </span>
-        <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
-        <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
-        <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
-        {riskDeniedSuppressed > 0 ? <span className={inlineBadgeClass}>riskDeniedSuppressed={riskDeniedSuppressed}</span> : null}
-        <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
-        <span className={inlineBadgeClass}>missing={deckMissing}</span>
-        <span className={inlineBadgeClass}>status=LIVE</span>
-        <span className={inlineBadgeClass}>
-          <AsciiBadge
-            tone={isFeedStale ? 'warning' : 'positive'}
-            variant='curly'
-            className={isFeedStale ? 'text-hlpWarning dark:text-hlpWarningDark' : 'text-hlpPositive dark:text-hlpPositiveDark'}
-          >
-            {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
-          </AsciiBadge>
-        </span>
-        {riskDeniedReason ? <span className={inlineBadgeClass}>last risk denial: {riskDeniedReason}</span> : null}
+        {isLoading ? (
+          <>
+            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>reconciling links…</span>
+            <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+            <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+            <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+            <span className={`${skeletonPulseClass} h-5 w-32 rounded-sm`} />
+          </>
+        ) : (
+          <>
+            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark flex items-center gap-1'>
+              <span>ops stream:</span>
+              <span className='h-1.5 w-1.5 rounded-full bg-hlpPositive/80 dark:bg-hlpPositiveDark/80 animate-hlp-led' />
+            </span>
+            <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
+            <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
+            <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
+            {riskDeniedSuppressed > 0 ? <span className={inlineBadgeClass}>riskDeniedSuppressed={riskDeniedSuppressed}</span> : null}
+            <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}ms</span>
+            <span className={inlineBadgeClass}>missing={deckMissing}</span>
+            <span className={inlineBadgeClass}>status=LIVE</span>
+            <span className={inlineBadgeClass}>
+              <AsciiBadge
+                tone={isFeedStale ? 'warning' : 'positive'}
+                variant='curly'
+                className={isFeedStale ? 'text-hlpWarning dark:text-hlpWarningDark' : 'text-hlpPositive dark:text-hlpPositiveDark'}
+              >
+                {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
+              </AsciiBadge>
+            </span>
+            {riskDeniedReason ? <span className={inlineBadgeClass}>last risk denial: {riskDeniedReason}</span> : null}
+          </>
+        )}
       </div>
     </section>
   )
