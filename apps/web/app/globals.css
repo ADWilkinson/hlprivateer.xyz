@@ -274,6 +274,14 @@ body {
   text-overflow: ellipsis;
 }
 
+.strip-value.warn {
+  color: var(--negative);
+}
+
+.strip-value.ok {
+  color: var(--positive);
+}
+
 
 /* ── LED indicator ── */
 
@@ -399,6 +407,49 @@ body {
 }
 
 
+/* ── Floor plan section ── */
+
+.section-floor-plan {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: var(--panel-shadow);
+  transition: background-color 250ms ease, border-color 250ms ease;
+}
+
+.ascii-floor-plan {
+  margin: 0;
+  padding: 10px 12px 2px;
+  white-space: pre;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--fg);
+  overflow-x: auto;
+}
+
+.plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
+  font-size: 9px;
+  color: var(--fg-muted);
+}
+
+.plan-meta-item {
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.plan-meta-item.warn {
+  color: var(--negative);
+  border-color: color-mix(in srgb, var(--negative) 25%, transparent);
+}
+
+
 /* ── Crew section ── */
 
 .crew-section {
@@ -498,11 +549,52 @@ body {
   white-space: nowrap;
 }
 
+.agent-activity {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-activity-bar {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.agent-activity-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--positive) 55%, transparent), color-mix(in srgb, var(--amber) 50%, transparent));
+  transition: width 150ms ease;
+}
+
+.agent-activity-age {
+  font-size: 9px;
+  width: 44px;
+  text-align: right;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
 .agent-ts {
   padding: 3px 10px 4px;
   font-size: 9px;
   color: var(--fg-muted);
   border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-heartbeat-text {
+  color: var(--fg-muted);
+  white-space: nowrap;
 }
 
 

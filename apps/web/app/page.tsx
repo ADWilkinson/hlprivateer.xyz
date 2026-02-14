@@ -30,7 +30,27 @@ type TapeEntry = {
   line: string
 }
 
+type CrewHeartbeat = Record<CrewRole, number>
+type CrewStats = Record<CrewRole, number>
+
 const CREW: CrewRole[] = ['scout', 'research', 'strategist', 'execution', 'risk', 'scribe', 'ops']
+const HEARTBEAT_WINDOW_MS = 90_000
+const SILENCE_REFRESH_MS = 3_000
+
+const EMPTY_HEARTBEAT: CrewHeartbeat = CREW.reduce(
+  (seed, role) => {
+    seed[role] = 0
+    return seed
+  },
+  {} as CrewHeartbeat
+)
+const EMPTY_STATS: CrewStats = CREW.reduce(
+  (seed, role) => {
+    seed[role] = 0
+    return seed
+  },
+  {} as CrewStats
+)
 
 function badgeVariantForHealth(code: string): 'ok' | 'warn' | 'danger' {
   if (code === 'GREEN') return 'ok'
@@ -70,10 +90,64 @@ function formatTime(iso: string): string {
   }
 }
 
+function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '00:00'
+  const totalSeconds = Math.floor(ms / 1000)
+  const mins = Math.floor(totalSeconds / 60)
+  const secs = totalSeconds % 60
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
+function heartbeatLevel(lastPingMs: number, nowMs: number): number {
+  if (!lastPingMs) return 0
+  const age = Math.max(0, nowMs - lastPingMs)
+  if (age <= 5_000) return 100
+  if (age >= HEARTBEAT_WINDOW_MS) return 18
+  return Math.round(100 - ((age - 5_000) * 82) / (HEARTBEAT_WINDOW_MS - 5_000))
+}
+
+function normalizeCrewRole(role: unknown): CrewRole | undefined {
+  if (typeof role !== 'string') return undefined
+  if (!CREW.includes(role as CrewRole)) return undefined
+  return role as CrewRole
+}
+
+function shouldSuppressTapeLine(line: string): boolean {
+  return /(?:^|\b)(no action|no changes)(?:\s|$)/i.test(line)
+}
+
+function parseDeckStatus(line: string): { feedAgeMs: number | undefined; missing: number | undefined } {
+  const feedAgeMatch = /feedAgeMs=(\d+)/.exec(line)
+  const missingMatch = /missing=(\d+)/.exec(line)
+  return {
+    feedAgeMs: feedAgeMatch ? Number(feedAgeMatch[1]) : undefined,
+    missing: missingMatch ? Number(missingMatch[1]) : undefined,
+  }
+}
+
 function asciiLogo(): string {
   return [
     '\u2588 \u2588 \u2588      \u2588\u2580\u2588 \u2588\u2580\u2588  \u2588  \u2588 \u2588 \u2584\u2580\u2584 \u2580\u2588\u2580 \u2588\u2580\u2580 \u2588\u2580\u2580 \u2588\u2580\u2588',
     '\u2588\u2580\u2588 \u2588\u2584\u2584    \u2588\u2580\u2580 \u2588\u2580\u2584  \u2588  \u2580\u2584\u2580 \u2588\u2580\u2588  \u2588  \u2588\u2584\u2584 \u2588\u2584\u2584 \u2588\u2580\u2584',
+  ].join('\n')
+}
+
+function asciiCrewMap(activeByRole: CrewHeartbeat, nowMs: number): string {
+  const marker = (role: CrewRole) => {
+    const lastPing = activeByRole[role]
+    if (!lastPing) return '\u00B7'
+    const age = Math.max(0, nowMs - lastPing)
+    if (age <= 5_000) return '\u25C9'
+    if (age <= HEARTBEAT_WINDOW_MS) return '\u25CB'
+    return '\u25A1'
+  }
+
+  return [
+    '╔═══════════════ TRADING FLOOR ════════════════╗',
+    `║ ${marker('scout')} SCOUT    ${marker('research')} RESEARCH    ${marker('strategist')} STRATEGY ║`,
+    `║            ${marker('ops')} OPS                   ║`,
+    `║ ${marker('risk')} RISK      ${marker('scribe')} SCRIBE    ${marker('execution')} EXECUTE ║`,
+    '╚═══════════════════════════════════════════════╝',
   ].join('\n')
 }
 
@@ -134,6 +208,7 @@ export default function DeckPage() {
     { ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'booting floor' },
   ])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
+  const [nowTick, setNowTick] = useState<number>(Date.now())
   const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
   const [crewLast, setCrewLast] = useState<Record<CrewRole, TapeEntry | null>>(() => ({
     scout: null,
@@ -144,6 +219,12 @@ export default function DeckPage() {
     scribe: null,
     ops: null,
   }))
+  const [crewHeartbeat, setCrewHeartbeat] = useState<CrewHeartbeat>(EMPTY_HEARTBEAT)
+  const [crewSignals, setCrewSignals] = useState<CrewStats>(EMPTY_STATS)
+  const [suppressedNoAction, setSuppressedNoAction] = useState(0)
+  const [deckFeedAgeMs, setDeckFeedAgeMs] = useState<number>(0)
+  const [deckMissing, setDeckMissing] = useState<number>(0)
+  const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(Date.now())
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
 
   const logo = useMemo(() => asciiLogo(), [])
@@ -160,6 +241,11 @@ export default function DeckPage() {
   useEffect(() => {
     const stored = localStorage.getItem('hlp-theme')
     if (stored === 'light') setTheme('light')
+  }, [])
+
+  useEffect(() => {
+    const tick = setInterval(() => setNowTick(Date.now()), SILENCE_REFRESH_MS)
+    return () => clearInterval(tick)
   }, [])
 
   const toggleTheme = () => {
@@ -186,6 +272,30 @@ export default function DeckPage() {
       }
     }
 
+    const touchCrew = (role: CrewRole | undefined, level: TapeLevel, line: string) => {
+      if (!role) return
+      const now = Date.now()
+      setCrewHeartbeat((current) => ({ ...current, [role]: now }))
+      setCrewSignals((current) => ({ ...current, [role]: current[role] + 1 }))
+      setCrewLast((current) => ({
+        ...current,
+        [role]: {
+          ts: new Date(now).toISOString(),
+          role,
+          level,
+          line,
+        },
+      }))
+    }
+
+    const recordDeckStatus = (line: string) => {
+      if (!/^deck status /.test(line)) return
+      const parsed = parseDeckStatus(line)
+      if (parsed.feedAgeMs !== undefined) setDeckFeedAgeMs(parsed.feedAgeMs)
+      if (parsed.missing !== undefined) setDeckMissing(parsed.missing)
+      setDeckHeartbeatMs(Date.now())
+    }
+
     const samplePnl = (payload: { pnlPct?: unknown; lastUpdateAt?: unknown }) => {
       const pnlPct = Number(payload.pnlPct)
       if (!Number.isFinite(pnlPct)) return
@@ -204,6 +314,7 @@ export default function DeckPage() {
         if (res.ok) {
           const next = (await res.json()) as Snapshot
           setSnapshot(next)
+          setDeckHeartbeatMs(Date.now())
           samplePnl(next)
         }
       } catch {
@@ -236,10 +347,16 @@ export default function DeckPage() {
 
             if (payloadType === 'STATE_UPDATE') {
               setSnapshot(payload as Snapshot)
+              setDeckHeartbeatMs(Date.now())
               samplePnl(payload)
               const message = typeof payload.message === 'string' ? payload.message : ''
               if (message) {
-                pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: message })
+                recordDeckStatus(message)
+                if (shouldSuppressTapeLine(message)) {
+                  setSuppressedNoAction((value) => value + 1)
+                } else {
+                  pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: message })
+                }
               }
               return
             }
@@ -250,6 +367,16 @@ export default function DeckPage() {
               const level = payload.level === 'WARN' || payload.level === 'ERROR' ? payload.level : ('INFO' as const)
               const line = typeof payload.line === 'string' ? payload.line : ''
               if (!line) return
+              const parsedRole = normalizeCrewRole(role)
+              const suppressed = shouldSuppressTapeLine(line)
+
+              touchCrew(parsedRole, level, line)
+              recordDeckStatus(line)
+
+              if (suppressed) {
+                setSuppressedNoAction((value) => value + 1)
+                return
+              }
 
               pushTape({ ts, role, level, line })
               return
@@ -296,7 +423,10 @@ export default function DeckPage() {
     }
   }, [])
 
-  const crewNow = Date.now()
+  const crewNow = nowTick
+  const heartbeatMs = Date.now() - deckHeartbeatMs
+  const snapshotAgeMs = Number.isFinite(Date.parse(snapshot.lastUpdateAt)) ? nowTick - Date.parse(snapshot.lastUpdateAt) : 0
+  const isFeedStale = snapshotAgeMs > 12_000
 
   return (
     <main className="floor">
@@ -323,6 +453,11 @@ export default function DeckPage() {
         </div>
         <span className="strip-sep">{'\u2502'}</span>
         <div className="strip-item">
+          <span className="strip-label">WS</span>
+          <span className={`strip-value ${wsState === 'OPEN' ? 'ok' : 'warn'}`}>{wsState}</span>
+        </div>
+        <span className="strip-sep">{'\u2502'}</span>
+        <div className="strip-item">
           <span className="strip-label">HEALTH</span>
           <Led variant={badgeVariantForHealth(snapshot.healthCode)} />
           <span className="strip-value">{snapshot.healthCode}</span>
@@ -332,6 +467,16 @@ export default function DeckPage() {
           <span className="strip-label">DRIFT</span>
           <Led variant={badgeVariantForDrift(snapshot.driftState)} />
           <span className="strip-value">{snapshot.driftState}</span>
+        </div>
+        <span className="strip-sep">{'\u2502'}</span>
+        <div className="strip-item">
+          <span className="strip-label">FEED AGE</span>
+          <span className={`strip-value ${isFeedStale ? 'warn' : ''}`}>{formatAge(Math.max(0, snapshotAgeMs))}</span>
+        </div>
+        <span className="strip-sep">{'\u2502'}</span>
+        <div className="strip-item">
+          <span className="strip-label">OPS QUIET</span>
+          <span className="strip-value">{suppressedNoAction}</span>
         </div>
         <span className="strip-sep">{'\u2502'}</span>
         <div className="strip-item">
@@ -359,6 +504,21 @@ export default function DeckPage() {
         </div>
       </section>
 
+      <section className="section-floor-plan">
+        <div className="section-bar">
+          <div className="section-label">FLOOR PLAN</div>
+          <Badge variant={wsState === 'OPEN' ? 'ok' : 'warn'}>live telemetry</Badge>
+        </div>
+        <pre className="ascii-floor-plan" aria-label="trading floor map">
+          {asciiCrewMap(crewHeartbeat, crewNow)}
+        </pre>
+        <div className="plan-meta">
+          <span className={`plan-meta-item ${deckFeedAgeMs > 0 ? 'warn' : ''}`}>deck status feedAge: {deckFeedAgeMs || '--'}ms</span>
+          <span className="plan-meta-item">missing feeds: {deckMissing}</span>
+          <span className="plan-meta-item">heartbeat: {formatAge(heartbeatMs)}</span>
+        </div>
+      </section>
+
       <section className="crew-section">
         <div className="section-bar">
           <div className="section-label">CREW STATIONS</div>
@@ -368,7 +528,9 @@ export default function DeckPage() {
           {CREW.map((role) => {
             const last = crewLast[role]
             const lastMs = last?.ts ? Date.parse(last.ts) : 0
-            const active = lastMs > 0 && crewNow - lastMs < 90_000
+            const active = lastMs > 0 && crewNow - lastMs < HEARTBEAT_WINDOW_MS
+            const heartbeatMs = crewHeartbeat[role] ? crewNow - crewHeartbeat[role] : Infinity
+            const beatScore = heartbeatLevel(crewHeartbeat[role], crewNow)
             const line = last?.line || '\u2026'
             const level = last?.level ?? 'INFO'
             return (
@@ -379,9 +541,18 @@ export default function DeckPage() {
                 </div>
                 <div className="agent-body">
                   <span className={`agent-level ${level.toLowerCase()}`}>{level}</span>
+                  <div className="agent-activity">
+                    <span className="agent-activity-bar" aria-hidden="true">
+                      <span className="agent-activity-fill" style={{ width: `${beatScore}%` }} />
+                    </span>
+                    <span className="agent-activity-age">{heartbeatMs === Infinity ? 'offline' : formatAge(heartbeatMs)}</span>
+                  </div>
                   <div className="agent-msg">{line}</div>
                 </div>
-                <div className="agent-ts">{last?.ts ? formatTime(last.ts) : '\u2014'}</div>
+                <div className="agent-ts">
+                  <span>{last?.ts ? formatTime(last.ts) : '\u2014'}</span>
+                  <span className="agent-heartbeat-text">events {crewSignals[role]}</span>
+                </div>
               </div>
             )
           })}
