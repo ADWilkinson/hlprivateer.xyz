@@ -235,7 +235,8 @@ function renderTopologyMap(
     const pulseIndex = (pulse + hash(node.id)) % 4
     const pulseGlyph = loading ? nodeStatusPulse(node.status, 0) : nodeStatusPulse(node.status, pulseIndex)
     placeCell(grid, pos.x, pos.y, nodeGlyph[node.status], true)
-    placeCell(grid, clamp(pos.x + ((index % 2 === 0 ? 1 : -1) * 0), pos.y, pulseGlyph, false)
+    const pulseX = clamp(pos.x + (index % 2 === 0 ? 1 : -1), 1, width - 2)
+    placeCell(grid, pulseX, pos.y, pulseGlyph, false)
 
     const label = node.label.slice(0, compact ? 3 : 6).toUpperCase()
     const labelX = clamp(pos.x - Math.floor(label.length / 2), 1, width - 1 - label.length)
