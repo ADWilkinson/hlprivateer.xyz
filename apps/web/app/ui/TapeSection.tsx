@@ -21,9 +21,9 @@ export function TapeSection({ tape, tapeRef, isLoading = false }: TapeSectionPro
 
       <div className={terminalPanelClass} ref={tapeRef} aria-label='event tape'>
         {isLoading
-          ? Array.from({ length: 10 }).map((_, index) => (
+            ? Array.from({ length: 10 }).map((_, index) => (
               <div
-                className={`flex min-w-0 items-baseline gap-1 ${panelBodyPad} text-[10px] leading-[1.45] text-hlpMuted dark:text-hlpMutedDark`}
+                className={`flex min-w-0 items-baseline gap-1 ${panelBodyPad} text-[10px] leading-[1.45] text-hlpMuted`}
                 key={`loading-${index}`}
               >
                 <span className='w-3 shrink-0 text-[10px]'>&nbsp;</span>
@@ -34,7 +34,7 @@ export function TapeSection({ tape, tapeRef, isLoading = false }: TapeSectionPro
                   <span className={`inline-block h-3 w-8 rounded-sm ${skeletonPulseClass}`} />
                 </span>
                 <span className='min-w-0 flex-1'>
-                  <span className='inline-block h-3 w-full rounded-sm bg-hlpSurface/70 dark:bg-hlpSurfaceDark/60' />
+                  <span className='inline-block h-3 w-full rounded-sm bg-hlpSurface/70' />
                 </span>
               </div>
             ))
@@ -42,32 +42,32 @@ export function TapeSection({ tape, tapeRef, isLoading = false }: TapeSectionPro
               const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
               const levelTone =
                 levelClass === 'warn'
-                  ? 'text-hlpWarning dark:text-hlpWarningDark'
+                  ? 'text-hlpWarning'
                   : levelClass === 'error'
-                    ? 'text-hlpNegative dark:text-hlpNegativeDark'
-                    : 'text-hlpMuted dark:text-hlpMutedDark'
+                    ? 'text-hlpNegative'
+                    : 'text-hlpMuted'
 
               return (
                 <div
-                  className={`flex min-w-0 items-baseline gap-1 ${panelBodyPad} text-[10px] leading-[1.45] ${i === 0 ? 'text-hlpFg dark:text-hlpFgDark bg-hlpSurface/75 dark:bg-hlpSurfaceDark/65 animate-hlp-hot' : ''} ${levelTone}`}
+                  className={`flex min-w-0 items-baseline gap-1 ${panelBodyPad} text-[10px] leading-[1.45] ${i === 0 ? 'text-hlpFg bg-hlpSurface/75 animate-hlp-hot' : ''} ${levelTone}`}
                   key={`${i}-${entry.ts}`}
                 >
-                  <span className='w-3 shrink-0 text-[10px] text-hlpFg dark:text-hlpFgDark'>{i === 0 ? '▸' : '\u00A0'}</span>
-                  <span className='w-[66px] shrink-0 text-[10px] text-hlpMuted dark:text-hlpMutedDark'>{formatTime(entry.ts)}</span>
+                  <span className='w-3 shrink-0 text-[10px] text-hlpFg'>{i === 0 ? '▸' : '\u00A0'}</span>
+                  <span className='w-[66px] shrink-0 text-[10px] text-hlpMuted'>{formatTime(entry.ts)}</span>
                   {entry.role && (
-                    <span className='w-[44px] shrink-0 text-[10px] font-bold text-hlpMuted dark:text-hlpMutedDark'>
+                    <span className='w-[44px] shrink-0 text-[10px] font-bold text-hlpMuted'>
                       [{entry.role.slice(0, 3).toUpperCase()}]
                     </span>
                   )}
                   <span className='min-w-0 flex-1 overflow-hidden break-words'>{entry.line}</span>
-                  {i === 0 && <span className='ml-0.5 animate-hlp-cursor text-[10px] text-hlpFg dark:text-hlpFgDark'>█</span>}
+                  {i === 0 && <span className='ml-0.5 animate-hlp-cursor text-[10px] text-hlpFg'>█</span>}
                 </div>
               )
             })}
       </div>
 
       <div className={sectionStripClass}>
-        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>tail stream</span>
+        <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>tail stream</span>
         <span className={inlineBadgeClass}>entries={tape.length}</span>
       </div>
     </section>

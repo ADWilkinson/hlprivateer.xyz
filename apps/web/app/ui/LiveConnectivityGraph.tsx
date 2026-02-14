@@ -24,7 +24,6 @@ type LiveTopologyGraphProps = {
   edges: LiveEdge[]
   width: number
   height: number
-  theme: 'light' | 'dark'
   loading?: boolean
   className?: string
 }
@@ -36,32 +35,32 @@ const HEARTBEAT_MAX_LENGTH = 9
 
 type LiveNodePosition = { id: string; x: number; y: number }
 
-function linkColor(status: EdgeStatus, theme: 'light' | 'dark') {
+function linkColor(status: EdgeStatus) {
   if (status === 'active') {
-    return theme === 'dark' ? 'stroke-hlpPositiveDark' : 'stroke-hlpPositive'
+    return 'stroke-hlpPositive'
   }
 
   if (status === 'warning' || status === 'congested') {
-    return theme === 'dark' ? 'stroke-hlpWarningDark' : 'stroke-hlpWarning'
+    return 'stroke-hlpWarning'
   }
 
   if (status === 'error') {
-    return theme === 'dark' ? 'stroke-hlpNegativeDark' : 'stroke-hlpNegative'
+    return 'stroke-hlpNegative'
   }
 
-  return theme === 'dark' ? 'stroke-hlpMutedDark/50' : 'stroke-hlpMuted/45'
+  return 'stroke-hlpMuted/45'
 }
 
-function nodeStatusColor(status: NodeStatus, theme: 'light' | 'dark') {
+function nodeStatusColor(status: NodeStatus) {
   if (status === 'online') {
-    return theme === 'dark' ? 'fill-hlpPositiveDark' : 'fill-hlpPositive'
+    return 'fill-hlpPositive'
   }
 
   if (status === 'warning') {
-    return theme === 'dark' ? 'fill-hlpWarningDark' : 'fill-hlpWarning'
+    return 'fill-hlpWarning'
   }
 
-  return theme === 'dark' ? 'fill-hlpNegativeDark' : 'fill-hlpNegative'
+  return 'fill-hlpNegative'
 }
 
 function rank(nodeId: string, nodes: LiveNode[]) {
@@ -115,13 +114,12 @@ export function LiveConnectivityGraph({
   edges,
   width,
   height,
-  theme,
   loading = false,
   className = '',
 }: LiveTopologyGraphProps) {
   const safeWidth = Math.max(220, width)
   const safeHeight = Math.max(180, height)
-  const markerId = useMemo(() => `hlp-live-map-${theme}-${safeWidth}-${safeHeight}`, [theme, safeWidth, safeHeight])
+  const markerId = useMemo(() => `hlp-live-map-${safeWidth}-${safeHeight}`, [safeWidth, safeHeight])
   const seeded = useMemo(() => buildSeededPositions(nodes, safeWidth, safeHeight), [nodes, safeWidth, safeHeight])
   const mappedNodes = useMemo(() => {
     const index = new Map(seeded.map((node) => [node.id, node]))
@@ -164,7 +162,7 @@ export function LiveConnectivityGraph({
             const sourceNode = nodePosition(mappedNodes, edge.source)
             const targetNode = nodePosition(mappedNodes, edge.target)
             if (!sourceNode || !targetNode) return null
-            const color = linkColor(edge.status, theme)
+            const color = linkColor(edge.status)
             const active = edge.status === 'active'
             const x1 = sourceNode.x
             const y1 = sourceNode.y
@@ -193,7 +191,7 @@ export function LiveConnectivityGraph({
                   <text
                     x={midX}
                     y={midY - 8}
-                    className={`${theme === 'dark' ? 'fill-hlpFgDark' : 'fill-hlpFg'} tracking-[0.08em]`}
+                    className='fill-hlpFg tracking-[0.08em]'
                     fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                     fontSize={8}
                     textAnchor='middle'
@@ -208,7 +206,7 @@ export function LiveConnectivityGraph({
         {mappedNodes.map((node) => {
           const x = clamp(node.x, PADDING, safeWidth - PADDING)
           const y = clamp(node.y, PADDING, safeHeight - PADDING)
-            const status = nodeStatusColor(node.status, theme)
+            const status = nodeStatusColor(node.status)
             const heartbeat = truncateLabel(String(node.metadata?.heartbeat ?? '--'), HEARTBEAT_MAX_LENGTH)
 
           return (
@@ -217,7 +215,7 @@ export function LiveConnectivityGraph({
                 cx={0}
                 cy={0}
                 r={NODE_BASE_SIZE + 2}
-                className={theme === 'dark' ? 'fill-hlpSurfaceDark/40' : 'fill-hlpSurface/35'}
+                className='fill-hlpSurface/35'
               />
               <circle
                 cx={0}
@@ -228,7 +226,7 @@ export function LiveConnectivityGraph({
               <text
                 x={0}
                 y={-12}
-                className={theme === 'dark' ? 'fill-hlpFgDark' : 'fill-hlpFg'}
+                className='fill-hlpFg'
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                 fontSize={9}
                 textAnchor='middle'
@@ -240,7 +238,7 @@ export function LiveConnectivityGraph({
               <text
                 x={0}
                 y={16}
-                className={theme === 'dark' ? 'fill-hlpMutedDark' : 'fill-hlpMuted'}
+                className='fill-hlpMuted'
                 fontFamily='var(--font-hlp-mono), "IBM Plex Mono", monospace'
                 fontSize={8}
                 textAnchor='middle'

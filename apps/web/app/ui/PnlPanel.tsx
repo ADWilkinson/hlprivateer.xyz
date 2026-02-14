@@ -48,9 +48,9 @@ function toSigned(value: number): string {
 }
 
 function safePnlClass(value: number): string {
-  if (value > 0) return 'text-hlpPositive dark:text-hlpPositiveDark'
-  if (value < 0) return 'text-hlpNegative dark:text-hlpNegativeDark'
-  return 'text-hlpMuted dark:text-hlpMutedDark'
+  if (value > 0) return 'text-hlpPositive'
+  if (value < 0) return 'text-hlpNegative'
+  return 'text-hlpMuted'
 }
 
 function buildSquareWavePath(points: Array<{ x: number; y: number }>): { path: string; areaPath: string; minY: number } {
@@ -148,7 +148,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
-        <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
+        <AsciiBadge tone='positive' className='text-hlpPositive'>
           alpha stream
         </AsciiBadge>
       </div>
@@ -158,7 +158,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
           <div className={`flex min-h-[88px] flex-col gap-2 ${panelBodyPad}`}>
             <div className='flex flex-wrap items-start justify-between gap-2'>
               <div className='min-w-0'>
-                <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted dark:text-hlpMutedDark'>MARKET PNL</div>
+                <div className='mb-1 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>MARKET PNL</div>
                 <div className={`text-2xl font-bold tracking-[0.14em] ${safePnlClass(snapshot.pnlPct)}`}>{toSigned(snapshot.pnlPct)}</div>
               </div>
               <div className='flex flex-wrap gap-1'>
@@ -178,8 +178,8 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
               </div>
             </div>
             <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
-              <div className='rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpSurface/65 dark:bg-hlpSurfaceDark/60 px-2 py-1'>
-                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</div>
+              <div className='rounded-sm border border-hlpBorder bg-hlpSurface/65 px-2 py-1'>
+                <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</div>
                 <div className='text-[11px] font-semibold'>{isLoading ? 'WARMUP' : snapshot.mode}</div>
               </div>
             </div>
@@ -188,26 +188,26 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
 
         <article className={monitorClass}>
           <div
-            className={`flex items-center justify-between border-b border-hlpBorder dark:border-hlpBorderDark ${panelBodyPad} ${panelHeaderPad}`}
+            className={`flex items-center justify-between border-b border-hlpBorder ${panelBodyPad} ${panelHeaderPad}`}
           >
-            <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted dark:text-hlpMutedDark'>TRAJECTORY</span>
+            <span className='text-[9px] uppercase tracking-[0.24em] text-hlpMuted'>TRAJECTORY</span>
             <AsciiBadge tone='neutral' variant='angle' className='text-[8px] tracking-[0.16em]'>
               live sparkline
             </AsciiBadge>
           </div>
           <div className='px-3 pb-3 pt-2'>
             {isLoading || pnlStats.samples < 1 ? (
-              <div className='grid min-h-[190px] items-center gap-3 rounded-sm border border-hlpBorder/70 dark:border-hlpBorderDark/70 bg-hlpSurface/80 dark:bg-hlpSurfaceDark/75 p-3 text-[11px] text-hlpMuted dark:text-hlpMutedDark'>
+              <div className='grid min-h-[190px] items-center gap-3 rounded-sm border border-hlpBorder/70 bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
                 <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
                 <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-                <span className='inline-block h-32 w-full rounded-sm bg-hlpSurface/85 dark:bg-hlpSurfaceDark/80 animate-pulse' />
+                <span className='inline-block h-32 w-full rounded-sm bg-hlpSurface/85 animate-pulse' />
               </div>
             ) : (
-              <div className='relative h-[220px] w-full overflow-hidden rounded-sm border border-hlpBorder dark:border-hlpBorderDark bg-hlpPanel/90 dark:bg-hlpPanelDark/70'>
+              <div className='relative h-[220px] w-full overflow-hidden rounded-sm border border-hlpBorder bg-hlpPanel/90'>
                 <svg
                   viewBox={`0 0 ${pnlStats.width} ${pnlStats.height}`}
                   preserveAspectRatio='none'
-                  className='h-full w-full text-hlpPositive dark:text-hlpPositiveDark'
+                  className='h-full w-full text-hlpPositive'
                 >
                   <defs>
                     <linearGradient id='pnl-spark-gradient' x1='0' y1='0' x2='0' y2='1'>
@@ -226,7 +226,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                         x2={String(pnlStats.width)}
                         y1={top}
                         y2={top}
-                        className='stroke-hlpBorder/40 dark:stroke-hlpBorderDark/50'
+                        className='stroke-hlpBorder/40'
                         strokeWidth='0.2'
                       />
                     )
@@ -241,7 +241,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                         x2={x}
                         y1='0'
                         y2={String(pnlStats.height)}
-                        className='stroke-hlpBorder/30 dark:stroke-hlpBorderDark/35'
+                        className='stroke-hlpBorder/30'
                         strokeWidth='0.2'
                       />
                     )
@@ -253,7 +253,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                       x2={String(pnlStats.width)}
                       y1={pnlStats.zeroY}
                       y2={pnlStats.zeroY}
-                      className='stroke-hlpWarning/45 dark:stroke-hlpWarningDark/45'
+                      className='stroke-hlpWarning/45'
                       strokeWidth='0.15'
                       strokeDasharray='2 1'
                     />
@@ -263,7 +263,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
                   <path
                     d={pnlStats.path}
                     fill='none'
-                    className='stroke-hlpPositive dark:stroke-hlpPositiveDark'
+                    className='stroke-hlpPositive'
                     strokeWidth='0.7'
                     strokeLinecap='square'
                     strokeLinejoin='miter'
@@ -273,7 +273,7 @@ export function PnlPanel({ snapshot, trajectory = [], isLoading = false }: PnlPa
             )}
           </div>
           <div className={sectionStripClass}>
-            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>range</span>
+            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>range</span>
             <span className={inlineBadgeClass}>min={toSigned(pnlStats.min)}</span>
             <span className={inlineBadgeClass}>max={toSigned(pnlStats.max)}</span>
             <span className={inlineBadgeClass}>first={toSigned(pnlStats.first)}</span>

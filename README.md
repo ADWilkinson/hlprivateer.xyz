@@ -36,6 +36,7 @@ packages/
   plugin-sdk/
   agent-sdk/
 infra/
+  docker/
   systemd/
   cloudflared/
 config/
@@ -49,50 +50,71 @@ docs/
 1. Install Bun 1.2+.
 2. Copy env template:
    - `cp config/.env.example config/.env`
-3. Start Redis (or set `REDIS_URL` to an existing instance):
-   - `docker run -d --name hlprivateer-redis --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine`
-4. Install deps + run the workspace:
+3. Start compose stack:
+   - `npm run deploy:docker`
+4. Install deps + run local developer tools:
    - `bun install`
    - `bun run dev`
 5. Open the UI:
    - `http://127.0.0.1:3000`
+
+## Full stack deploy (Docker Compose, recommended)
+
+Deploy the full stack (redis, postgres, runtime, api, ws-gateway, agent-runner, web):
+
+- `npm run deploy:docker`
+
+Optional compose env:
+- `POSTGRES_PASSWORD` (required for postgres and DB URL if you keep DB auth)
+- `HOST_PROJECT_PATH` if your containerized secret path should not match `/home/dappnode/projects/hlprivateer.xyz`
+- `NODE_ENV=production` + `X402_PROVIDER=facilitator` for production behavior
+
+To deploy from scratch:
+- set `NUKE_ON_START=1` before running (optional, useful for rebuilds)
+- `NUKE_ON_START=1 npm run deploy:docker`
+- set `NUKE_LEGACY=1` to remove old systemd units before startup
+- `NUKE_LEGACY=1 npm run deploy:docker`
+- full hard reset + legacy cleanup:
+- `npm run deploy:docker:full`
+
+Useful follow-ups:
+- tail logs: `npm run compose:logs`
+- list services: `npm run compose:ps`
+- stop everything: `npm run compose:down`
+- restart one service: `docker compose -f infra/docker-compose.yml --env-file config/.env restart <service>`
+- clean legacy systemd units only: `npm run deploy:legacy-clean`
+
+The compose stack uses:
+- `infra/docker-compose.yml`
+- image build from `infra/docker/Dockerfile`
+
+One-command smoke check is automatically run after `deploy:docker` by default.
 
 Optional Cloudflare Pages web:
 - `bun run deploy:web:cloudflare` builds a static Next output and deploys to Cloudflare Pages.
 - Requires `wrangler` auth (`npx wrangler login`) and a Pages project named `hlprivateer-xyz`.
 - DNS can be synced via `CF_API_TOKEN=<token with Zone:DNS:Edit> bash scripts/cloudflare/sync-dns.sh hlprivateer.xyz`.
 
-## Full server redeploy (systemd)
+## Legacy deployment path (deprecated)
 
-Use this one command for a full backend/service redeploy after pulling latest code:
+The active deployment path is Docker Compose.
 
-- `sudo bun run deploy:systemd`
-
-What it does:
-- pulls latest `main`,
-- rebuilds the workspace,
-- copies systemd units from `infra/systemd/` to `/etc/systemd/system/`,
-- reloads systemd, restarts runtime/API/WS/agent-runner (+ optional web and Cloudflare tunnel services),
-- runs `scripts/readiness/smoke.sh` locally.
-
-Optional overrides:
-- `DEPLOY_ROOT=/path/to/repo`
-- `DEPLOY_BRANCH=main`
-- `RUN_LOCAL_SMOKE=0` (skip smoke check)
-- `RESTART_WEB_SERVICE=0` (if web is Pages-only)
-- `RESTART_CLOUDFLARED=0` (skip tunnel restart)
+- Optional legacy cleanup:
+  - `npm run deploy:legacy-clean`
+  - `NUKE_LEGACY=1 npm run deploy:docker:full`
 
 ## Go Live (Hyperliquid mainnet + x402 + Postgres)
 See `docs/GO_LIVE.md` (wallet creation, Postgres bootstrap, live trading gates, x402 facilitator config, and verification steps).
 
 ## Deployment model
-- Single Linux home server.
-- Services supervised by systemd.
-- Web UI served by Cloudflare Pages.
-- API + WebSocket ingress through Cloudflare Tunnel.
+- Recommended: single Linux host with Docker Compose.
+- Compose stack includes service isolation, restart policy, and dependency ordering.
+- Optional: Cloudflare Tunnel/Pages remain available as legacy egress paths.
 
 See:
-- `infra/systemd/`
+- `infra/docker-compose.yml`
+- `infra/docker/Dockerfile`
+- `infra/systemd/` (historical reference)
 - `infra/cloudflared/config.yml.example`
 - `RUNBOOK.md`
 

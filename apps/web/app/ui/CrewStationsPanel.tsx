@@ -65,7 +65,7 @@ export function CrewStationsPanel({
     <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span className={sectionTitleClass}>CREW STATIONS</span>
-        <AsciiBadge tone='positive' className='text-hlpPositive dark:text-hlpPositiveDark'>
+        <AsciiBadge tone='positive' className='text-hlpPositive'>
           {isLoading ? 'BOOTING' : '7 AGENTS'}
         </AsciiBadge>
       </div>
@@ -90,62 +90,62 @@ export function CrewStationsPanel({
             <article
               className={`${monitorClass} min-h-[202px] transition-colors ${
                 active
-                  ? 'border-hlpPositive/70 dark:border-hlpPositiveDark/70 bg-hlpPanel/95 dark:bg-hlpPanelDark/95'
-                  : 'border-hlpBorder dark:border-hlpBorderDark'
-              }`}
+              ? 'border-hlpPositive/70 bg-hlpPanel/95'
+              : 'border-hlpBorder'
+            }`}
               key={role}
             >
-              <div className={`border-b border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad} space-y-1`}>
+              <div className={`border-b border-hlpBorder ${panelInsetPad} space-y-1`}>
                 <div className='flex items-start justify-between gap-2'>
                   <div className='min-w-0'>
                     <div className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</div>
                     {isLoading ? (
-                      <span className='mt-1 inline-block h-3 w-24 rounded-sm bg-hlpSurface/80 dark:bg-hlpSurfaceDark/80' />
+                      <span className='mt-1 inline-block h-3 w-24 rounded-sm bg-hlpSurface/80' />
                     ) : (
-                      <div className='mt-1 text-[8px] uppercase tracking-[0.18em] break-words text-hlpMuted dark:text-hlpMutedDark'>{lane}</div>
+                      <div className='mt-1 text-[8px] uppercase tracking-[0.18em] break-words text-hlpMuted'>{lane}</div>
                     )}
                   </div>
                   <span
                     className={`h-2 w-2 rounded-full ${
                       isLoading
-                        ? 'bg-hlpMuted dark:bg-hlpMutedDark'
+                        ? 'bg-hlpMuted'
                         : active
-                          ? 'bg-hlpPositive dark:bg-hlpPositiveDark animate-hlp-led'
-                          : 'bg-hlpMuted dark:bg-hlpMutedDark'
+                          ? 'bg-hlpPositive animate-hlp-led'
+                          : 'bg-hlpMuted'
                     }`}
                   />
                 </div>
-                <div className='text-[8px] uppercase tracking-[0.16em] text-hlpMuted dark:text-hlpMutedDark'>{isLoading ? 'booting' : statusLabel}</div>
+                <div className='text-[8px] uppercase tracking-[0.16em] text-hlpMuted'>{isLoading ? 'booting' : statusLabel}</div>
               </div>
 
               <div className={`${panelBodyPad} space-y-1.5`}>
                 {isLoading ? (
-                  <span className='inline-block h-3 w-20 rounded-sm bg-hlpSurface/80 dark:bg-hlpSurfaceDark/80' />
+                  <span className='inline-block h-3 w-20 rounded-sm bg-hlpSurface/80' />
                 ) : (
                   <span
                     className={`text-[8px] uppercase tracking-[0.12em] ${
                       normalizedLevel === 'warn'
-                        ? 'text-hlpWarning dark:text-hlpWarningDark'
+                        ? 'text-hlpWarning'
                         : normalizedLevel === 'error'
-                          ? 'text-hlpNegative dark:text-hlpNegativeDark'
-                          : 'text-hlpMuted dark:text-hlpMutedDark'
+                          ? 'text-hlpNegative'
+                          : 'text-hlpMuted'
                     }`}
                   >
                     {level}
                   </span>
                 )}
 
-                <div className='h-1.5 w-full rounded-sm border border-hlpBorder dark:border-hlpBorderDark overflow-hidden' aria-hidden='true'>
+                <div className='h-1.5 w-full rounded-sm border border-hlpBorder overflow-hidden' aria-hidden='true'>
                   {isLoading ? <span className={`block h-full rounded-sm ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
                   {!isLoading ? (
                     <span
-                      className='block h-full rounded-sm bg-gradient-to-r from-hlpPositive dark:from-hlpPositiveDark to-hlpPositive/60 dark:to-hlpPositiveDark/60'
+                      className='block h-full rounded-sm bg-gradient-to-r from-hlpPositive to-hlpPositive/60'
                       style={{ width: getActivityWidth(beatScore) }}
                     />
                   ) : null}
                 </div>
 
-                <div className='flex flex-wrap items-center justify-between gap-1 text-[9px] tracking-[0.15em] text-hlpMuted dark:text-hlpMutedDark'>
+                <div className='flex flex-wrap items-center justify-between gap-1 text-[9px] tracking-[0.15em] text-hlpMuted'>
                   <span className='font-mono text-[9px]'>{heartbeatPulse}</span>
                   <span>{isLoading ? 'heartbeat booting' : heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
                 </div>
@@ -154,12 +154,12 @@ export function CrewStationsPanel({
                   {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{line}</span>}
                 </div>
 
-                <div className='text-[8px] uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted dark:text-hlpMutedDark'>
+                <div className='text-[8px] uppercase leading-snug tracking-[0.14em] break-words text-hlpMuted'>
                   {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{nextGateLabel}</span>}
                 </div>
               </div>
 
-              <div className={`flex flex-wrap items-center justify-between border-t border-hlpBorder dark:border-hlpBorderDark ${panelInsetPad} text-[9px] text-hlpMuted dark:text-hlpMutedDark`}>
+              <div className={`flex flex-wrap items-center justify-between border-t border-hlpBorder ${panelInsetPad} text-[9px] text-hlpMuted`}>
                 <span>{isLoading ? <span className={`inline-block h-3 w-24 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '—'}</span>
                 <span>events {isLoading ? '—' : crewSignals[role]}/max {maxSignals}</span>
               </div>
