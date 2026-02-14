@@ -8,7 +8,6 @@ import {
   type Snapshot,
   type TapeEntry,
   type WsState,
-  asciiLogo,
   normalizeCrewRole,
   parseDeckStatus,
   renderAsciiChart,
@@ -66,7 +65,6 @@ export default function DeckPage() {
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
 
-  const logo = useMemo(() => asciiLogo(), [])
   const tapeRef = useRef<HTMLDivElement | null>(null)
   const lastPnlSampleAtRef = useRef<number>(0)
 
@@ -105,8 +103,14 @@ export default function DeckPage() {
       const lowered = entry.line.toLowerCase()
       const isRiskDenial = lowered.startsWith('risk denied')
       if (isRiskDenial) {
-        const match = entry.line.match(/risk denied\s*\(([^)]*)\)/i)
-        const signature = match?.[1] ? match[1].trim() : 'no reason'
+        const rawReason = entry.line.replace(/^risk denied\s*:?\s*/i, '').trim()
+        const signature = rawReason
+          ? rawReason
+              .replace(/\b[a-f0-9]{10,}\b/gi, '<id>')
+              .replace(/\d+/g, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+          : 'no reason'
         const now = Date.now()
         const shouldSurfaceRiskDenial =
           now - riskDenialRef.current.atMs >= 60_000 || riskDenialRef.current.signature !== signature
@@ -280,7 +284,7 @@ export default function DeckPage() {
 
   return (
     <main className='floor'>
-      <FloorHeader logo={logo} theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
+      <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
       <StatusStrip
         snapshot={snapshot}
         wsState={wsState}
