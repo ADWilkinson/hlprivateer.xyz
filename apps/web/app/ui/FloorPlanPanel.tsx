@@ -22,13 +22,16 @@ export function FloorPlanPanel({
         <div className='section-label'>FLOOR PLAN</div>
         <AsciiBadge color='success'>live telemetry</AsciiBadge>
       </div>
-      <pre className='ascii-floor-plan' aria-label='trading floor map'>
-        {asciiCrewMap(crewHeartbeat, nowMs)}
-      </pre>
+      <div className='ascii-floor-plan-wrap'>
+        <pre className='ascii-floor-plan' aria-label='trading floor map'>
+          {asciiCrewMap(crewHeartbeat, nowMs)}
+        </pre>
+      </div>
       <div className='plan-meta'>
         <span className={`plan-meta-item ${deckFeedAgeMs > 0 ? 'warn' : ''}`}>deck status feedAge: {deckFeedAgeMs || '--'}ms</span>
         <span className='plan-meta-item'>missing feeds: {deckMissing}</span>
         <span className='plan-meta-item'>heartbeat: {formatAge(Date.now() - deckHeartbeatMs)}</span>
+        <span className='plan-meta-item'>topology: {Object.keys(crewHeartbeat).length} stations</span>
       </div>
     </AsciiCard>
   )

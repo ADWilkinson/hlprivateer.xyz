@@ -27,6 +27,8 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
           const line = last?.line || '…'
           const level = last?.level ?? 'INFO'
           const heartbeatGlyph = floorHeartbeatGlyph(beatScore)
+          const heartbeatBeat = Math.max(0, Math.round((beatScore / 20)))
+          const pulse = `${'◉'.repeat(Math.min(heartbeatBeat, 5)).padEnd(5, '◌')}`
 
           return (
             <div className={`agent-term ${active ? 'active' : ''}`} key={role}>
@@ -43,6 +45,12 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
                   <span className='agent-activity-age'>{heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
                 </div>
                 <div className='agent-msg'>{heartbeatGlyph} {line}</div>
+                <div className='crew-body-pulse'>
+                  <span className='agent-heat'>
+                    <span className='agent-heat-bulb'>{active ? '◉' : '◌'}</span>
+                    heartbeat {pulse}
+                  </span>
+                </div>
               </div>
               <div className='agent-ts'>
                 <span>{last?.ts ? formatTime(last.ts) : '—'}</span>
