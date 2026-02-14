@@ -259,6 +259,15 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       driftState: state.driftState,
       healthCode: 'GREEN',
       lastUpdateAt: state.lastUpdateAt,
+      riskPolicy: {
+        maxLeverage: env.RISK_MAX_LEVERAGE,
+        maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
+        maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
+        maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
+        staleDataMs: env.RISK_STALE_DATA_MS,
+        liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+        notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+      },
       message: 'runtime boot'
     }
   })
@@ -425,6 +434,16 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     })
   }
 
+  const runtimeRiskPolicyContext = (): Record<string, number> => ({
+    maxLeverage: env.RISK_MAX_LEVERAGE,
+    maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
+    maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
+    maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
+    staleDataMs: env.RISK_STALE_DATA_MS,
+    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+  })
+
   const publishStateUpdate = async (correlationId: string, message: string) => {
     await bus.publish('hlp.ui.events', {
       type: 'STATE_UPDATE',
@@ -440,6 +459,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         driftState: state.driftState,
         healthCode: state.mode === 'SAFE_MODE' || state.mode === 'HALT' ? 'RED' : 'GREEN',
         lastUpdateAt: state.lastUpdateAt,
+        riskPolicy: runtimeRiskPolicyContext(),
         message
       }
     })
