@@ -1,4 +1,3 @@
-import { AsciiCard } from 'react-ascii-ui'
 import { buttonClass, cardClass, cardHeaderClass, mutedTextClass, sectionTitleClass } from './ascii-style'
 
 type FloorHeaderProps = {
@@ -9,7 +8,7 @@ type FloorHeaderProps = {
 
 export function FloorHeader({ theme, apiBase, onToggleTheme }: FloorHeaderProps) {
   return (
-    <AsciiCard className={cardClass}>
+    <section className={cardClass}>
       <header className='flex flex-wrap items-start justify-between gap-2 border-b border-hlpBorder dark:border-hlpBorderDark px-4 py-3 sm:px-4 sm:py-3'>
         <div className='min-w-0 space-y-1'>
           <div className={sectionTitleClass}>LIVE TRADING FLOOR</div>
@@ -27,6 +26,6 @@ export function FloorHeader({ theme, apiBase, onToggleTheme }: FloorHeaderProps)
         <span>fleet status</span>
         <span>ascii mode active</span>
       </div>
-    </AsciiCard>
+    </section>
   )
 }

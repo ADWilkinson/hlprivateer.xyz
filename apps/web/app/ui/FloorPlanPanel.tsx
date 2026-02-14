@@ -1,4 +1,4 @@
-import { AsciiBadge, AsciiCard, AsciiNetworkVisualizer, AsciiTable } from 'react-ascii-ui'
+import { AsciiBadge, AsciiNetworkVisualizer, AsciiTable } from 'react-ascii-ui'
 import { ASCII_NETWORK_THEMES } from 'react-ascii-ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -184,7 +184,7 @@ export function FloorPlanPanel({
   )
 
   return (
-    <AsciiCard className={cardClass}>
+    <section className={cardClass}>
       <div className={cardHeaderClass}>
         <div>
           <div className={sectionTitleClass}>FLOOR PLAN</div>
@@ -243,6 +243,6 @@ export function FloorPlanPanel({
           </div>
         </div>
       </div>
-    </AsciiCard>
+    </section>
   )
 }

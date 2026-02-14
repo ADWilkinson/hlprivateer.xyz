@@ -1,4 +1,4 @@
-import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
+import { AsciiBadge } from 'react-ascii-ui'
 import { cardClass, cardHeaderClass, inlineBadgeClass, mutedPanelClass, statusCellClass } from './ascii-style'
 import {
   badgeVariantForDrift,
@@ -44,7 +44,7 @@ export function StatusStrip({
   const isFeedStale = snapshotAgeMs > 12_000
 
   return (
-    <AsciiCard className={cardClass}>
+    <section className={cardClass}>
       <div className={cardHeaderClass}>FLOOR STATUS</div>
 
       <div className='grid grid-cols-1 border border-hlpBorder dark:border-hlpBorderDark bg-hlpBorder dark:bg-hlpBorderDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
@@ -106,6 +106,6 @@ export function StatusStrip({
         </span>
         {riskDeniedReason ? <span className={inlineBadgeClass}>last risk denial: {riskDeniedReason}</span> : null}
       </div>
-    </AsciiCard>
+    </section>
   )
 }
