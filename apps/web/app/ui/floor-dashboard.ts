@@ -249,12 +249,12 @@ export function renderAsciiChart(values: number[], width: number, height: number
   const trimmed = values.filter((v) => Number.isFinite(v)).slice(-Math.max(width, 2))
   if (trimmed.length < 2) {
     const pad = Math.floor((width - 12) / 2)
-    const empty = Array.from({ length: height }, () => '\u2502' + ' '.repeat(width) + '\u2502')
+    const empty = Array.from({ length: height }, () => '|' + ' '.repeat(width) + '|')
     const mid = Math.floor(height / 2)
     const msg = ' warming up '
-    empty[mid] = '\u2502' + ' '.repeat(pad) + msg + ' '.repeat(width - pad - msg.length) + '\u2502'
+    empty[mid] = '|' + ' '.repeat(pad) + msg + ' '.repeat(width - pad - msg.length) + '|'
     return {
-      chart: ['\u250C' + '\u2500'.repeat(width) + '\u2510', ...empty, '\u2514' + '\u2500'.repeat(width) + '\u2518'].join('\n'),
+      chart: ['+' + '-'.repeat(width) + '+', ...empty, '+' + '-'.repeat(width) + '+'].join('\n'),
       min: 0,
       max: 0,
     }
@@ -274,7 +274,7 @@ export function renderAsciiChart(values: number[], width: number, height: number
     const t = (v - min) / (max - min)
     const y = height - 1 - Math.round(t * (height - 1))
     if (grid[y] && grid[y]![x] !== undefined) {
-      grid[y]![x] = '\u25CF'
+      grid[y]![x] = '*'
     }
   }
 
@@ -282,7 +282,7 @@ export function renderAsciiChart(values: number[], width: number, height: number
   if (zeroLine !== null) {
     for (let x = 0; x < width; x += 1) {
       if (grid[zeroLine]![x] === ' ') {
-        grid[zeroLine]![x] = '·'
+        grid[zeroLine]![x] = '.'
       }
     }
   }
@@ -290,9 +290,9 @@ export function renderAsciiChart(values: number[], width: number, height: number
   const lines = grid.map((row) => row.join(''))
   return {
     chart: [
-      `\u250C${'\u2500'.repeat(width)}\u2510 ${max.toFixed(3)}%`,
-      ...lines.map((line) => `\u2502${line}\u2502`),
-      `\u2514${'\u2500'.repeat(width)}\u2518 ${min.toFixed(3)}%`,
+      `+${'-'.repeat(width)}+ ${max.toFixed(3)}%`,
+      ...lines.map((line) => `|${line}|`),
+      `+${'-'.repeat(width)}+ ${min.toFixed(3)}%`,
     ].join('\n'),
     min,
     max,
@@ -300,9 +300,9 @@ export function renderAsciiChart(values: number[], width: number, height: number
 }
 
 export function floorHeartbeatGlyph(level: number): string {
-  if (level >= 75) return '\u25CF\u25CF\u25CF\u25CF\u25CF'
-  if (level >= 40) return '\u25D8\u25D8\u25D8\u25D8\u25D8'
-  if (level >= 20) return '\u25D0\u25D0\u25D0\u25D0\u25D0'
-  if (level > 0) return '\u25D5\u25D5\u25D5\u25D5'
-  return '\u25A1\u25A1\u25A1\u25A1\u25A1'
+  if (level >= 75) return '*****'
+  if (level >= 40) return '====='
+  if (level >= 20) return '-----'
+  if (level > 0) return '.....'
+  return '_____'
 }

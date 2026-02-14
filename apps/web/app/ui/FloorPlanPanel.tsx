@@ -84,13 +84,13 @@ const EDGE_WARNING_MS = HEARTBEAT_WINDOW_MS
 
 function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 'stale' | 'silent'; pulse: string; label: string } {
   if (!lastMs) {
-    return { status: 'silent', pulse: '◌◌◌◌◌', label: 'silent' }
+    return { status: 'silent', pulse: '-----', label: 'silent' }
   }
 
   const age = nowMs - lastMs
-  if (age <= NODE_ONLINE_MS) return { status: 'active', pulse: '◉◉◉◉◉', label: 'active' }
-  if (age <= NODE_STALE_MS) return { status: 'stale', pulse: '◍◍◍◌◌', label: 'stale' }
-  return { status: 'silent', pulse: '◌◌◌◌◌', label: 'silent' }
+  if (age <= NODE_ONLINE_MS) return { status: 'active', pulse: '*****', label: 'active' }
+  if (age <= NODE_STALE_MS) return { status: 'stale', pulse: '===--', label: 'stale' }
+  return { status: 'silent', pulse: '-----', label: 'silent' }
 }
 
 function linkStatusFromHeartbeat(lastMs: number, nowMs: number): TopologyEdge['status'] {
@@ -111,7 +111,7 @@ function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number, isLoading: b
       role,
       ageText: 'pending',
       status: 'stale',
-      pulse: '◌◌◉◌◌',
+      pulse: '--*--',
       route: roleRoute[role],
     }))
   }
@@ -141,7 +141,7 @@ function loadingTopologyNodeRow(): LiveNode[] {
     metadata: {
       role,
       heartbeat: 'pending',
-      pulse: '◌◌◉◌◌',
+      pulse: '--*--',
     },
   }))
 }

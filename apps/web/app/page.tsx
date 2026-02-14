@@ -82,7 +82,7 @@ function truncate(value: unknown, max = 180): string {
     next = String(value)
   }
   if (next.length <= max) return next
-  return `${next.slice(0, max)}…`
+  return `${next.slice(0, max)}...`
 }
 
 function logInfo(message: string, details?: unknown): void {
