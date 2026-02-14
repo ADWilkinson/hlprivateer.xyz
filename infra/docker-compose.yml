@@ -155,12 +155,17 @@ services:
       APP: agent-runner
       NODE_ENV: ${NODE_ENV:-production}
       REDIS_URL: redis://redis:6379
-      HOME: /home/hlp
+      HOME: /home/bun
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY_FILE: ${OPENAI_API_KEY_FILE:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       OPENAI_ORG_ID: ${OPENAI_ORG_ID:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_FILE: ${ANTHROPIC_API_KEY_FILE:-}
       CLAUDE_CODE_API_KEY: ${CLAUDE_CODE_API_KEY:-}
+      CLAUDE_CODE_API_KEY_FILE: ${CLAUDE_CODE_API_KEY_FILE:-}
+      CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-/usr/local/bin/claude}
+      CODEX_CLI_PATH: ${CODEX_CLI_PATH:-/usr/local/bin/codex}
       AGENT_RUNNER_CLAUDE_DIR: ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}
       AGENT_RUNNER_CODEX_DIR: ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}
       AGENT_RUNNER_CLAUDE_CFG_DIR: ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}
@@ -171,9 +176,9 @@ services:
         condition: service_started
     volumes:
       - ../secrets:${HOST_PROJECT_PATH:-/opt/hlprivateer.xyz}/secrets:ro
-      - ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}:/home/hlp/.claude:ro
-      - ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}:/home/hlp/.codex:ro
-      - ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}:/home/hlp/.config/claude:ro
+      - ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}:/home/bun/.claude:ro
+      - ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}:/home/bun/.codex:ro
+      - ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}:/home/bun/.config/claude:ro
     restart: unless-stopped
     networks:
       - hlprivateer

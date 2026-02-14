@@ -58,9 +58,11 @@ Legacy / seed:
 
 LLM:
 - Docker auth mounts (required for non-interactive Claude/Codex):
-  - `AGENT_RUNNER_CLAUDE_DIR=/home/dappnode/.claude`
-  - `AGENT_RUNNER_CODEX_DIR=/home/dappnode/.codex`
-  - `AGENT_RUNNER_CLAUDE_CFG_DIR=/home/dappnode/.config/claude`
+  - `AGENT_RUNNER_CLAUDE_DIR=/home/bun/.claude`
+  - `AGENT_RUNNER_CODEX_DIR=/home/bun/.codex`
+  - `AGENT_RUNNER_CLAUDE_CFG_DIR=/home/bun/.config/claude`
+  - `CLAUDE_CLI_PATH=/usr/local/bin/claude`
+  - `CODEX_CLI_PATH=/usr/local/bin/codex`
 - Optional API keys for non-mounted CLI auth:
   - `OPENAI_API_KEY`
   - `OPENAI_API_KEY_FILE`

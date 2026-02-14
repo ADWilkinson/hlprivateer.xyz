@@ -38,35 +38,99 @@ async function runCommand(cmd: string, args: string[], timeoutMs: number): Promi
   })
 }
 
-const commandAvailabilityCache = new Map<string, boolean>()
-const commandAvailabilityPending = new Map<string, Promise<boolean>>()
+const commandPathCache = new Map<string, string | null>()
+const commandPathPending = new Map<string, Promise<string | null>>()
 
-export async function isCommandAvailable(cmd: string): Promise<boolean> {
-  const cached = commandAvailabilityCache.get(cmd)
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values) {
+    const next = value.trim()
+    if (!next || seen.has(next)) {
+      continue
+    }
+    seen.add(next)
+    out.push(next)
+  }
+  return out
+}
+
+function candidateCommandPaths(cmd: string): string[] {
+  const baseHome = process.env.HOME?.trim()
+
+  const envCandidates = [
+    cmd === 'claude' ? process.env.CLAUDE_CLI_PATH : process.env.CODEX_CLI_PATH,
+    cmd === 'claude' ? process.env.CLAUDE_CLI_BIN : process.env.CODEX_CLI_BIN,
+    cmd === 'claude' ? process.env.CLI_CLAUDE_PATH : process.env.CLI_CODEX_PATH
+  ]
+
+  const homeCandidates = baseHome
+    ? [path.join(baseHome, '.bun', 'bin', cmd), path.join(baseHome, 'bin', cmd)]
+    : []
+
+  const pathDirCandidates = (process.env.PATH || '')
+    .split(':')
+    .map((dir) => dir.trim())
+    .filter(Boolean)
+    .map((dir) => path.join(dir, cmd))
+
+  const commonCandidates = [`/usr/local/bin/${cmd}`, `/usr/bin/${cmd}`, `/bin/${cmd}`]
+
+  return uniqueStrings([
+    ...envCandidates.filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
+    ...homeCandidates,
+    ...pathDirCandidates,
+    ...commonCandidates
+  ])
+}
+
+async function resolveCommandPath(cmd: string): Promise<string | null> {
+  const cached = commandPathCache.get(cmd)
   if (cached !== undefined) {
     return cached
   }
 
-  const pending = commandAvailabilityPending.get(cmd)
+  const pending = commandPathPending.get(cmd)
   if (pending) {
     return pending
   }
 
-  const probe = (async () => {
-    try {
-      await runCommand('which', [cmd], 2_500)
-      commandAvailabilityCache.set(cmd, true)
-      return true
-    } catch {
-      commandAvailabilityCache.set(cmd, false)
-      return false
-    } finally {
-      commandAvailabilityPending.delete(cmd)
+  const search = (async (): Promise<string | null> => {
+    const candidates = candidateCommandPaths(cmd)
+    for (const candidate of candidates) {
+      try {
+        await runCommand('test', ['-x', candidate], 2_500)
+        commandPathCache.set(cmd, candidate)
+        return candidate
+      } catch {
+        continue
+      }
     }
+
+    // Last fallback for PATH-style binaries in this shell.
+    try {
+      const whichPath = await runCommand('which', [cmd], 2_500)
+      const resolved = whichPath.stdout.trim()
+      if (resolved) {
+        commandPathCache.set(cmd, resolved)
+        return resolved
+      }
+    } catch {
+      // intentionally ignore
+    }
+
+    commandPathCache.set(cmd, null)
+    return null
   })()
 
-  commandAvailabilityPending.set(cmd, probe)
-  return probe
+  commandPathPending.set(cmd, search)
+  const resolved = await search
+  commandPathPending.delete(cmd)
+  return resolved
+}
+
+export async function isCommandAvailable(cmd: string): Promise<boolean> {
+  return (await resolveCommandPath(cmd)) !== null
 }
 
 export async function runClaudeStructured<T>(params: {
@@ -75,14 +139,15 @@ export async function runClaudeStructured<T>(params: {
   model: string
   timeoutMs?: number
 }): Promise<T> {
-  const available = await isCommandAvailable('claude')
+  const command = await resolveCommandPath('claude')
+  const available = command !== null
   if (!available) {
-    throw new Error('Executable not found in $PATH: "claude"')
+    throw new Error('Executable not found in $PATH: "claude". Set CLAUDE_CLI_PATH or install CLI for this container.')
   }
 
   const timeoutMs = params.timeoutMs ?? 90_000
   const { stdout } = await runCommand(
-    'claude',
+    command,
     [
       '-p',
       '--no-session-persistence',
@@ -114,9 +179,10 @@ export async function runCodexStructured<T>(params: {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   timeoutMs?: number
 }): Promise<T> {
-  const available = await isCommandAvailable('codex')
+  const command = await resolveCommandPath('codex')
+  const available = command !== null
   if (!available) {
-    throw new Error('Executable not found in $PATH: "codex"')
+    throw new Error('Executable not found in $PATH: "codex". Set CODEX_CLI_PATH or install CLI for this container.')
   }
 
   const timeoutMs = params.timeoutMs ?? 120_000
@@ -130,12 +196,13 @@ export async function runCodexStructured<T>(params: {
       ? [`model_reasoning_effort="${params.reasoningEffort}"`]
       : []
     await runCommand(
-      'codex',
+    command,
       [
         'exec',
         '--ephemeral',
         '--sandbox',
         'read-only',
+        '--skip-git-repo-check',
         '--model',
         params.model,
         ...(reasoningConfigArg.length ? ['-c', ...reasoningConfigArg] : []),
