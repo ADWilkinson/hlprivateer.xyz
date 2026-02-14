@@ -75,15 +75,32 @@ const EDGE_LEGEND = [
   { key: 'inactive', label: 'IDLE', dotClass: 'stroke-hlpMuted', detail: 'waiting' },
 ] as const
 
+const NODE_ONLINE_MS = 5_000
+const NODE_WEAK_MS = Math.round(HEARTBEAT_WINDOW_MS * 0.45)
+const NODE_STALE_MS = NODE_WEAK_MS
+const EDGE_ACTIVE_MS = NODE_WEAK_MS
+const EDGE_CONGESTED_MS = Math.round(HEARTBEAT_WINDOW_MS * 0.65)
+const EDGE_WARNING_MS = HEARTBEAT_WINDOW_MS
+
 function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 'stale' | 'silent'; pulse: string; label: string } {
   if (!lastMs) {
     return { status: 'silent', pulse: '◌◌◌◌◌', label: 'silent' }
   }
 
   const age = nowMs - lastMs
-  if (age <= 5_000) return { status: 'active', pulse: '◉◉◉◉◉', label: 'active' }
-  if (age <= HEARTBEAT_WINDOW_MS * 0.45) return { status: 'stale', pulse: '◍◍◍◌◌', label: 'stale' }
+  if (age <= NODE_ONLINE_MS) return { status: 'active', pulse: '◉◉◉◉◉', label: 'active' }
+  if (age <= NODE_STALE_MS) return { status: 'stale', pulse: '◍◍◍◌◌', label: 'stale' }
   return { status: 'silent', pulse: '◌◌◌◌◌', label: 'silent' }
+}
+
+function linkStatusFromHeartbeat(lastMs: number, nowMs: number): TopologyEdge['status'] {
+  if (!lastMs) return 'inactive'
+
+  const age = nowMs - lastMs
+  if (age <= EDGE_ACTIVE_MS) return 'active'
+  if (age <= EDGE_CONGESTED_MS) return 'congested'
+  if (age <= EDGE_WARNING_MS) return 'warning'
+  return 'error'
 }
 
 function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number, isLoading: boolean): CrewNode[] {
@@ -195,13 +212,7 @@ export function FloorPlanPanel({
         id: `ops-${row.role}`,
         source: 'ops',
         target: row.id,
-        status: isLoading
-          ? 'warning'
-          : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.45
-            ? 'active'
-            : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.8
-              ? 'warning'
-              : 'error',
+        status: isLoading ? 'warning' : linkStatusFromHeartbeat(crewHeartbeat[row.role], nowMs),
         label: `link:${row.label}`,
       } satisfies TopologyEdge),
       )
@@ -214,13 +225,7 @@ export function FloorPlanPanel({
               id: `mesh-${row.role}-${next.role}`,
               source: row.id,
               target: next.id,
-              status: isLoading
-                ? 'inactive'
-                : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS * 0.55
-                  ? 'congested'
-                  : crewHeartbeat[row.role] && nowMs - crewHeartbeat[row.role] <= HEARTBEAT_WINDOW_MS
-                    ? 'warning'
-                    : 'error',
+              status: isLoading ? 'inactive' : linkStatusFromHeartbeat(crewHeartbeat[row.role], nowMs),
               label: `mesh:${row.label}`,
             } satisfies TopologyEdge
           })
