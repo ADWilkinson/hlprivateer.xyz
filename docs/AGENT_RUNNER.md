@@ -41,9 +41,18 @@ Core:
 - `OPS_AUTO_HALT` (default false; when true, ops-agent may publish `/halt` on severe stale data)
 
 Strategy knobs (shared with runtime):
-- `BASKET_SYMBOLS` (CSV)
 - `BASKET_TARGET_NOTIONAL_USD`
 - `DRY_RUN`, `ENABLE_LIVE_OMS` (used by the agent-runner to mark proposals as `requestedMode=LIVE` when live is enabled)
+
+Basket selection (dynamic short basket vs HYPE):
+- `AGENT_BASKET_SIZE`
+- `AGENT_BASKET_CANDIDATE_LIMIT`
+- `AGENT_BASKET_REFRESH_MS` (basket can only refresh when flat)
+- `AGENT_FEATURE_WINDOW_MIN`, `AGENT_FEATURE_CONCURRENCY`
+- Optional spot/sector enrichment: `COINGECKO_API_KEY`, `COINGECKO_BASE_URL`, `COINGECKO_TIMEOUT_MS`
+
+Legacy / seed:
+- `BASKET_SYMBOLS` (CSV) is a seed only; runtime trade entry is agent-driven and will not open new exposure from this env var.
 
 LLM:
 - `AGENT_LLM=claude|codex|none`

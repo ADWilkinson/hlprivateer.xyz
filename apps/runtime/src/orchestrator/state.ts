@@ -447,7 +447,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
       }
 
-      const basketSymbols = env.BASKET_SYMBOLS
+      // Note: `BASKET_SYMBOLS` is treated as a market-data seed only.
+      // Trade entry is agent-driven; runtime will not open new exposure from this env var.
+      const seedBasketSymbols = env.BASKET_SYMBOLS
         .split(',')
         .map((symbol) => symbol.trim())
         .filter(Boolean)
@@ -455,7 +457,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       // Pull latest ticks for any symbol we might touch this cycle.
       const tickSymbols = new Set<string>([
         'HYPE',
-        ...basketSymbols,
+        ...seedBasketSymbols,
         ...agentWatchlistSymbols,
         ...state.positions.map((position) => position.symbol)
       ])
@@ -547,12 +549,27 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         pendingAgentProposalReceivedAt = 0
         origin = 'agent'
       } else {
-        proposalCandidate = buildProposal(state, targetNotional, env.BASKET_SYMBOLS, recentSignals)
+        // Deterministic proposals are REBALANCE-only. We never ENTER a new trade from env BASKET_SYMBOLS
+        // because the short basket must be thesis-driven (agent selected) and can change over time.
+        if (state.positions.length === 0) {
+          proposalCandidate = null
+        } else {
+          const heldBasketSymbols = [...new Set(state.positions.map((position) => position.symbol))]
+            .map((symbol) => symbol.trim())
+            .filter((symbol) => symbol && symbol.toUpperCase() !== 'HYPE')
+          proposalCandidate = buildProposal(state, targetNotional, heldBasketSymbols.join(','), recentSignals)
+        }
       }
 
       if (!proposalCandidate) {
-        runtimeProposalCounter.inc({ status: 'no_action' })
-        await publishStateUpdate(cycleCorrelationId, urgency ? 'no action (urgent)' : 'no action')
+        runtimeProposalCounter.inc({ status: state.positions.length === 0 ? 'awaiting_agent_proposal' : 'no_action' })
+        const message =
+          state.positions.length === 0
+            ? 'awaiting agent proposal (entry is agent-driven)'
+            : urgency
+              ? 'no action (urgent)'
+              : 'no action'
+        await publishStateUpdate(cycleCorrelationId, message)
         return
       }
 

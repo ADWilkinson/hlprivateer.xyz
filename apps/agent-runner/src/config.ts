@@ -55,7 +55,8 @@ export const env = z
     OPS_AUTO_HALT: booleanFromEnv.default(false),
 
     // Reuse the runtime's strategy config knobs when present.
-    BASKET_SYMBOLS: z.string().default('BTC,ETH'),
+    // Legacy seed only (basket selection is dynamic; see AGENT_BASKET_*).
+    BASKET_SYMBOLS: z.string().default(''),
     BASKET_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(1000),
 
     // Hyperliquid info endpoint for universe selection.
