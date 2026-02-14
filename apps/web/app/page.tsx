@@ -753,12 +753,8 @@ export default function DeckPage() {
             isLoading={isBootstrapping}
             snapshot={snapshot}
             wsState={wsState}
-            suppressedNoAction={suppressedNoAction}
-            riskDeniedCount={riskDeniedCount}
             heartbeatAgeMs={heartbeatMs}
             snapshotAgeMs={snapshotAgeMs}
-            deckFeedAgeMs={deckFeedAgeMs}
-            deckMissing={deckMissing}
             isCollapsed={collapsedSections.status}
             onToggle={() => toggleSection('status')}
             sectionId='status'

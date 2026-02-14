@@ -140,7 +140,7 @@ cd "$REPO_ROOT"
 # Requires an EVM private key funded for x402 payments on the selected network.
 X402_PAYER_PRIVATE_KEY=0x... \\
 API_BASE_URL=https://api.hlprivateer.xyz \\
-X402_ROUTE=/v1/agent/analysis/latest \\
+X402_ROUTE=/v1/agent/analysis?latest=true \\
 bun scripts/x402/facilitator-demo.ts
 ```
 

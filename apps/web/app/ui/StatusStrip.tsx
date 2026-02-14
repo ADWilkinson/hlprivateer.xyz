@@ -1,5 +1,5 @@
 import { AsciiBadge } from './ascii-kit'
-import { cardClass, collapsibleHeaderClass, inverseControlClass, inlineBadgeClass, sectionStripClass, skeletonPulseClass, statusCellClass, panelRadiusSubtle } from './ascii-style'
+import { cardClass, collapsibleHeaderClass, inverseControlClass, skeletonPulseClass, statusCellClass, panelRadiusSubtle } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -13,12 +13,8 @@ import {
 type StatusStripProps = {
   snapshot: Snapshot
   wsState: WsState
-  suppressedNoAction: number
-  riskDeniedCount: number
   heartbeatAgeMs: number
   snapshotAgeMs: number
-  deckFeedAgeMs: number
-  deckMissing: number
   isLoading?: boolean
   isCollapsed?: boolean
   onToggle?: () => void
@@ -40,12 +36,8 @@ const LED_TEXT_BY_STATE = {
 export function StatusStrip({
   snapshot,
   wsState,
-  suppressedNoAction,
-  riskDeniedCount,
   heartbeatAgeMs,
   snapshotAgeMs,
-  deckFeedAgeMs,
-  deckMissing,
   isLoading = false,
   isCollapsed = false,
   onToggle,
@@ -136,23 +128,6 @@ export function StatusStrip({
             )}
           </div>
 
-          <div className={sectionStripClass}>
-            {isLoading ? (
-              <>
-                <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>reconciling\u2026</span>
-                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
-                <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
-              </>
-            ) : (
-              <>
-                <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>live stream</span>
-                <span className={inlineBadgeClass}>risk denied {riskDeniedCount}</span>
-                <span className={inlineBadgeClass}>suppressed {suppressedNoAction}</span>
-                <span className={inlineBadgeClass}>status {isFeedStale ? 'DEGRADED' : 'LIVE'}</span>
-                <span className={inlineBadgeClass}>missing={deckMissing}</span>
-              </>
-            )}
-          </div>
         </>
       )}
     </section>
