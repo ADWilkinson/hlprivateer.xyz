@@ -10,6 +10,80 @@ export type CrewRole =
   | 'scribe'
   | 'ops'
 
+function toFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const next = Number(value.trim())
+    if (Number.isFinite(next)) return next
+  }
+  return undefined
+}
+
+export interface OpenPosition extends Record<string, unknown> {
+  id?: string
+  symbol: string
+  side?: string
+  size?: number
+  entryPrice?: number
+  markPrice?: number
+  pnlUsd?: number
+  pnlPct?: number
+  notionalUsd?: number
+}
+
+function normalizeSide(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  return value.trim().toUpperCase()
+}
+
+function normalizePositionRecord(raw: unknown): OpenPosition | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const input = raw as Record<string, unknown>
+
+  const symbol =
+    typeof input.symbol === 'string'
+      ? input.symbol
+      : typeof input.instrument === 'string'
+        ? input.instrument
+        : typeof input.market === 'string'
+          ? input.market
+          : ''
+
+  const trimmedSymbol = symbol.trim()
+  if (!trimmedSymbol) return null
+
+  const entryPrice = toFiniteNumber(input.entryPrice ?? input.entry_price ?? input.entry)
+  const markPrice = toFiniteNumber(input.markPrice ?? input.mark_price ?? input.mark)
+  const pnlUsd = toFiniteNumber(input.pnlUsd ?? input.pnl_usd ?? input.pnl ?? input.unrealizedPnl ?? input.unrealized)
+  const pnlPct = toFiniteNumber(input.pnlPct ?? input.pnl_pct ?? input.pnlPercent ?? input.pnl_percent)
+  const notionalUsd = toFiniteNumber(input.notionalUsd ?? input.notional_usd ?? input.notional)
+  const size = toFiniteNumber(input.size ?? input.qty ?? input.amount ?? input.quantity)
+
+  return {
+    id:
+      typeof input.id === 'string'
+        ? input.id
+        : typeof input.positionId === 'string'
+          ? input.positionId
+          : typeof input.positionId === 'number'
+            ? String(input.positionId)
+            : undefined,
+    symbol: trimmedSymbol,
+    side: normalizeSide(input.side ?? input.direction),
+    size,
+    entryPrice,
+    markPrice,
+    pnlUsd,
+    pnlPct,
+    notionalUsd,
+  }
+}
+
+export function normalizeOpenPositions(raw: unknown): OpenPosition[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(normalizePositionRecord).filter((position): position is OpenPosition => position !== null).slice(0, 200)
+}
+
 export interface Snapshot {
   mode: string
   pnlPct: number
@@ -17,6 +91,9 @@ export interface Snapshot {
   driftState: string
   lastUpdateAt: string
   message?: string
+  openPositions?: OpenPosition[]
+  openPositionCount?: number
+  openPositionNotionalUsd?: number
 }
 
 export type TapeEntry = {
@@ -155,6 +232,15 @@ export function renderAsciiChart(values: number[], width: number, height: number
     const y = height - 1 - Math.round(t * (height - 1))
     if (grid[y] && grid[y]![x] !== undefined) {
       grid[y]![x] = '\u2588'
+    }
+  }
+
+  const zeroLine = min < 0 && max > 0 ? height - 1 - Math.round(((0 - min) / (max - min)) * (height - 1)) : null
+  if (zeroLine !== null) {
+    for (let x = 0; x < width; x += 1) {
+      if (grid[zeroLine]![x] === ' ') {
+        grid[zeroLine]![x] = '·'
+      }
     }
   }
 

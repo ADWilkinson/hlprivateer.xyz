@@ -5,6 +5,7 @@ import { apiUrl, wsUrl } from '../lib/endpoints'
 import {
   type CrewHeartbeat,
   type CrewStats,
+  normalizeOpenPositions,
   type Snapshot,
   TAPE_DISPLAY_LIMIT,
   type TapeEntry,
@@ -30,10 +31,79 @@ type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
-const chartWidth = 64
+const chartWidth = 78
 const chartHeight = 12
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
+const MAX_TRAJECTORY_POINTS = 240
+const TRAJECTORY_REFRESH_MS = 8000
+
+type PnLPayload = { pnlPct?: unknown; lastUpdateAt?: unknown }
+type SnapshotPayload = {
+  type?: string
+  ts?: unknown
+  mode?: unknown
+  healthCode?: unknown
+  driftState?: unknown
+  lastUpdateAt?: unknown
+  message?: unknown
+  pnlPct?: unknown
+  openPositions?: unknown
+  openPositionCount?: unknown
+  openPositionNotionalUsd?: unknown
+  open_position_count?: unknown
+  openPositionNotional?: unknown
+  open_position_notional?: unknown
+  [key: string]: unknown
+}
+
+type TrajectoryStats = {
+  min: number
+  max: number
+  first: number
+  last: number
+  delta: number
+  deltaPct: number
+  samples: number
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const next = Number(value.trim())
+    return Number.isFinite(next) ? next : undefined
+  }
+  return undefined
+}
+
+function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapshot {
+  const rawOpenPositions = payload.openPositions
+  const nextPnl = toFiniteNumber(payload.pnlPct)
+  const nextOpenPositionCount = toFiniteNumber(payload.openPositionCount ?? payload.open_position_count)
+  const nextOpenPositionNotionalUsd = toFiniteNumber(
+    payload.openPositionNotionalUsd ?? payload.openPositionNotional ?? payload.open_position_notional,
+  )
+
+  return {
+    ...fallback,
+    mode: typeof payload.mode === 'string' ? payload.mode : fallback.mode,
+    healthCode: typeof payload.healthCode === 'string' ? payload.healthCode : fallback.healthCode,
+    driftState: typeof payload.driftState === 'string' ? payload.driftState : fallback.driftState,
+    lastUpdateAt:
+      typeof payload.lastUpdateAt === 'string' && payload.lastUpdateAt
+        ? payload.lastUpdateAt
+        : fallback.lastUpdateAt,
+    message: typeof payload.message === 'string' ? payload.message : undefined,
+    pnlPct: nextPnl !== undefined ? nextPnl : fallback.pnlPct,
+    openPositions: 'openPositions' in payload ? normalizeOpenPositions(rawOpenPositions) : fallback.openPositions,
+    openPositionCount:
+      'openPositionCount' in payload ? (nextOpenPositionCount ?? fallback.openPositionCount) : fallback.openPositionCount,
+    openPositionNotionalUsd:
+      'openPositionNotionalUsd' in payload
+        ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
+        : fallback.openPositionNotionalUsd,
+  }
+}
 
 function normalizeTapePrefix(line: string): string {
   return normalizeTapeLinePrefix(line.trim())
@@ -88,6 +158,7 @@ export default function DeckPage() {
     healthCode: 'GREEN',
     driftState: 'IN_TOLERANCE',
     lastUpdateAt: new Date().toISOString(),
+    openPositions: [],
   }))
   const [tape, setTape] = useState<TapeEntry[]>([
     { ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'booting floor' },
@@ -147,10 +218,39 @@ export default function DeckPage() {
     document.documentElement.classList.toggle('dark', next === 'dark')
   }
 
-  const chart = useMemo(() => {
-    const values = pnlSeries.map((point) => point.pnlPct)
-    return renderAsciiChart(values, chartWidth, chartHeight).chart
-  }, [pnlSeries])
+  const pnlValues = useMemo(() => pnlSeries.map((point) => point.pnlPct), [pnlSeries])
+  const chart = useMemo(() => renderAsciiChart(pnlValues, chartWidth, chartHeight), [pnlValues])
+  const trajectoryStats = useMemo<TrajectoryStats>(() => {
+    if (pnlValues.length === 0) {
+      return {
+        min: 0,
+        max: 0,
+        first: 0,
+        last: 0,
+        delta: 0,
+        deltaPct: 0,
+        samples: 0,
+      }
+    }
+
+    const min = Math.min(...pnlValues)
+    const max = Math.max(...pnlValues)
+    const first = pnlValues[0] ?? 0
+    const last = pnlValues[pnlValues.length - 1] ?? 0
+    const delta = last - first
+    const base = Math.abs(first) > 0 ? Math.abs(first) : 1
+    const deltaPct = (delta / base) * 100
+
+    return {
+      min,
+      max,
+      first,
+      last,
+      delta,
+      deltaPct,
+      samples: pnlValues.length,
+    }
+  }, [pnlValues])
 
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
@@ -242,14 +342,14 @@ export default function DeckPage() {
       return true
     }
 
-    const samplePnl = (payload: { pnlPct?: unknown; lastUpdateAt?: unknown }) => {
-      const pnlPct = Number(payload.pnlPct)
-      if (!Number.isFinite(pnlPct)) return
+    const samplePnl = (payload: PnLPayload) => {
+      const nextPnlPct = toFiniteNumber(payload.pnlPct)
+      if (nextPnlPct === undefined) return
       const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
       const now = Date.now()
-      if (now - lastPnlSampleAtRef.current < 8000) return
+      if (now - lastPnlSampleAtRef.current < TRAJECTORY_REFRESH_MS) return
       lastPnlSampleAtRef.current = now
-      setPnlSeries((current) => [...current, { ts, pnlPct }].slice(-240))
+      setPnlSeries((current) => [...current, { ts, pnlPct: nextPnlPct }].slice(-MAX_TRAJECTORY_POINTS))
     }
 
     const load = async () => {
@@ -260,10 +360,10 @@ export default function DeckPage() {
         ])
 
         if (snapshotResponse.ok) {
-          const next = (await snapshotResponse.json()) as Snapshot
-          setSnapshot(next)
+          const rawSnapshot = (await snapshotResponse.json()) as SnapshotPayload
+          setSnapshot((current) => normalizeSnapshot(rawSnapshot, current))
           setDeckHeartbeatMs(Date.now())
-          samplePnl(next)
+          samplePnl(rawSnapshot)
         }
 
         if (tapeResponse.ok) {
@@ -316,11 +416,11 @@ export default function DeckPage() {
           try {
             const parsed = JSON.parse(event.data as string) as { type: string; payload: unknown; channel?: string }
             if (parsed.type !== 'event' || parsed.channel !== 'public') return
-            const payload = parsed.payload as { type?: string; ts?: unknown; role?: unknown; level?: unknown; line?: unknown; message?: unknown; pnlPct?: unknown; lastUpdateAt?: unknown }
+            const payload = parsed.payload as SnapshotPayload
             const payloadType = payload?.type
 
             if (payloadType === 'STATE_UPDATE') {
-              setSnapshot(payload as Snapshot)
+              setSnapshot((current) => normalizeSnapshot(payload, current))
               setDeckHeartbeatMs(Date.now())
               samplePnl(payload)
               const message = typeof payload.message === 'string' ? payload.message : ''
@@ -425,7 +525,7 @@ export default function DeckPage() {
           deckFeedAgeMs={deckFeedAgeMs}
           deckMissing={deckMissing}
         />
-        <PnlPanel snapshot={snapshot} chart={chart} isLoading={isBootstrapping} />
+        <PnlPanel snapshot={snapshot} chart={chart.chart} trajectory={trajectoryStats} isLoading={isBootstrapping} />
         <FloorPlanPanel
           isLoading={isBootstrapping}
           crewHeartbeat={crewHeartbeat}
