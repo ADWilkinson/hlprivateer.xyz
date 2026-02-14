@@ -53,7 +53,7 @@ services:
     environment:
       <<: *hlp-base-env
       APP: api
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL_FILE: ""
       API_HOST: 0.0.0.0
       PORT: 4000
@@ -89,7 +89,7 @@ services:
     environment:
       <<: *hlp-base-env
       APP: ws-gateway
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       WS_PORT: 4100
       REDIS_URL: redis://redis:6379
       PORT: 4100
@@ -118,7 +118,7 @@ services:
     environment:
       <<: *hlp-base-env
       APP: runtime
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       DRY_RUN: ${DRY_RUN:-false}
       ENABLE_LIVE_OMS: false
       LIVE_MODE_APPROVED: false
@@ -153,7 +153,7 @@ services:
     environment:
       <<: *hlp-base-env
       APP: agent-runner
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       REDIS_URL: redis://redis:6379
       HOME: /home/bun
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -197,7 +197,7 @@ services:
     environment:
       <<: *hlp-base-env
       APP: web
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:4000}
       NEXT_PUBLIC_WS_BASE_URL: ${NEXT_PUBLIC_WS_BASE_URL:-ws://localhost:4100}

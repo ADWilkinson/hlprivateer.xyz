@@ -85,8 +85,32 @@ const parsed = envSchema.parse({
   X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET')
 })
 
+const DEFAULT_JWT_SECRET = "replace-me"
+const DEFAULT_X402_VERIFIER_SECRET = "x402-secret"
+
+function assertSafeProductionSecrets(env: Env) {
+  if (env.NODE_ENV !== "production") return
+
+  const jwt = env.JWT_SECRET?.trim()
+  if (!jwt || jwt === DEFAULT_JWT_SECRET) {
+    throw new Error("production requires JWT_SECRET (do not use default \"replace-me\")")
+  }
+
+  const operatorLogin = env.OPERATOR_LOGIN_SECRET?.trim()
+  if (!operatorLogin || operatorLogin === DEFAULT_JWT_SECRET) {
+    throw new Error("production requires OPERATOR_LOGIN_SECRET (do not use default/empty)")
+  }
+
+  const x402Verifier = env.X402_VERIFIER_SECRET?.trim()
+  if (!x402Verifier || x402Verifier === DEFAULT_X402_VERIFIER_SECRET) {
+    throw new Error("production requires X402_VERIFIER_SECRET (do not use default \"x402-secret\")")
+  }
+}
+
 // Keep x402 "mock" as a dev-only mode. Production should always run real facilitator-backed payments.
 if (parsed.NODE_ENV === 'production') {
+  assertSafeProductionSecrets(parsed)
+
   if (!parsed.X402_ENABLED) {
     throw new Error('production requires X402_ENABLED=true')
   }
