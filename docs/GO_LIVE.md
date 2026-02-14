@@ -18,7 +18,8 @@ HL uses an EVM private key for signing. This project stores secrets via the `*_F
 
 Generate a new trading wallet + XOR shards:
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 bun scripts/ops/generate-trading-wallet.ts
 ```
 
@@ -37,7 +38,8 @@ In LIVE (`DRY_RUN=false`), Postgres is a hard dependency (audit + state must be 
 
 Bootstrap the local Postgres container + apply migrations (if Postgres is not yet provisioned):
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 docker compose -f infra/docker-compose.yml --env-file config/.env up -d postgres
 ```
 
@@ -49,7 +51,8 @@ This will:
 ## 3) Configure LIVE + x402 (config/.env)
 Edit `config/.env` to point at secret files and enable LIVE:
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
 # Core secret file refs
 rg -n \"^(HL_PRIVATE_KEY|DATABASE_URL)_FILE=\" -S config/.env || true
@@ -78,13 +81,15 @@ curl -fsS https://facilitator.payai.network/supported | head -c 400 && echo
 
 ## 4) Build + Restart Services
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 npm run deploy:docker
 ```
 
 Run the local+public smoke:
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 LOCAL=1 bash scripts/readiness/smoke.sh
 ```
 
@@ -109,7 +114,8 @@ If this returns `"unifiedAccount"` (most common):
 If this returns `"disabled"` (non-unified / legacy mode):
 - Fund Spot USDC, then transfer Spot -> Perp using `usdClassTransfer`:
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 set -a; source config/.env; set +a
 
 # Example: move $1000 from Spot -> Perp (only works when abstraction mode is disabled)
@@ -128,7 +134,8 @@ If anything looks wrong:
 ## 7) Verify x402 End-to-End
 Use the facilitator demo client (payer key is separate from the trading wallet):
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
 # Requires an EVM private key funded for x402 payments on the selected network.
 X402_PAYER_PRIVATE_KEY=0x... \\
@@ -146,7 +153,8 @@ The burn-in repeatedly runs `scripts/readiness/smoke.sh` for 24h to catch DNS/TL
 
 Run it as a background process and capture logs:
 ```bash
-cd /home/dappnode/projects/hlprivateer.xyz
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 nohup bash scripts/readiness/burnin.sh LOCAL=1 > "burnin-${TS}.log" 2>&1 &
 ```

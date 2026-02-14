@@ -66,7 +66,7 @@ Deploy the full stack (redis, postgres, runtime, api, ws-gateway, agent-runner, 
 
 Optional compose env:
 - `POSTGRES_PASSWORD` (required for postgres and DB URL if you keep DB auth)
-- `HOST_PROJECT_PATH` if your containerized secret path should not match `/home/dappnode/projects/hlprivateer.xyz`
+- `HOST_PROJECT_PATH` if your containerized secret path should not match your repository root
 - `NODE_ENV=production` + `X402_PROVIDER=facilitator` for production behavior
 
 To deploy from scratch:

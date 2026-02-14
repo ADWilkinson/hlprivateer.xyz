@@ -72,7 +72,7 @@ case "$COMMAND" in
   up|deploy)
     log "starting compose stack: $ROOT_DIR/$COMPOSE_FILE"
 
-    nuke_legacy_systemd || true
+    nuke_legacy_systemd
 
     if [[ "${NUKE_ON_START:-0}" == "1" ]]; then
       log "NUKE_ON_START=1, tearing down existing stack before restart"
