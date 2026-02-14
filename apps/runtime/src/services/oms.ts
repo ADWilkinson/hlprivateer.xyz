@@ -1,5 +1,7 @@
 import { OperatorOrderSchema, OperatorOrder, OperatorPosition } from '@hl/privateer-contracts'
 import { NormalizedTick } from '@hl/privateer-contracts'
+import { fetchJsonWithRetry, withRetry } from "@hl/privateer-plugin-sdk"
+
 import { createHash } from 'node:crypto'
 import { ulid } from 'ulid'
 import { ExchangeClient, HttpTransport, InfoClient } from '@nktkas/hyperliquid'
@@ -304,22 +306,19 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
   }
 
   async function postInfo<T>(body: unknown): Promise<T> {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), env.HL_REQUEST_TIMEOUT_MS)
-    try {
-      const response = await fetch(infoUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      })
-      if (!response.ok) {
-        throw new Error(`hyperliquid info http ${response.status}`)
+    return await fetchJsonWithRetry<T>(
+      infoUrl,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      },
+      {
+        timeoutMs: env.HL_REQUEST_TIMEOUT_MS,
+        maxRetries: 3,
+        retryOnStatus: (status) => status === 429 || status >= 500
       }
-      return (await response.json()) as T
-    } finally {
-      clearTimeout(timeout)
-    }
+    )
   }
 
   async function userAbstractionCached(nowMs: number): Promise<string> {
@@ -348,7 +347,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     const cloid = cloidFromIdempotencyKey(input.idempotencyKey)
 
     // Idempotency across restarts: check the exchange by cloid first.
-    const existing = await info.orderStatus({ user: wallet.address, oid: cloid })
+    const existing = await withRetry(() => info.orderStatus({ user: wallet.address, oid: cloid }), { maxRetries: 3 })
     if (existing.status === 'order') {
       const mapped = mapOrderStatusToPlaced(existing.order, nowIso)
       idempotencyMap.set(input.idempotencyKey, mapped.orderId)
@@ -399,7 +398,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
 
     if (typeof status === 'string') {
       // Some exchange responses are indirect; resolve by querying status via cloid.
-      const resolved = await info.orderStatus({ user: wallet.address, oid: cloid })
+      const resolved = await withRetry(() => info.orderStatus({ user: wallet.address, oid: cloid }), { maxRetries: 3 })
       if (resolved.status === 'order') {
         const mapped = mapOrderStatusToPlaced(resolved.order, nowIso)
         idempotencyMap.set(input.idempotencyKey, mapped.orderId)
@@ -458,7 +457,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
       throw new Error('invalid orderId')
     }
 
-    const status = await info.orderStatus({ user: wallet.address, oid })
+    const status = await withRetry(() => info.orderStatus({ user: wallet.address, oid }), { maxRetries: 3 })
     if (status.status !== 'order') {
       return
     }
@@ -488,7 +487,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
       throw new Error('invalid notional')
     }
 
-    const status = await info.orderStatus({ user: wallet.address, oid })
+    const status = await withRetry(() => info.orderStatus({ user: wallet.address, oid }), { maxRetries: 3 })
     if (status.status !== 'order') {
       throw new Error('order not found')
     }

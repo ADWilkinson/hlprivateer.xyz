@@ -114,3 +114,5 @@ class LocalPluginManager {
 export function createPluginManager(context: PluginContext): PluginLoader {
   return new LocalPluginManager(context)
 }
+
+export * from './http-retry'
