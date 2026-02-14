@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AsciiBadge } from './ascii-kit'
-import { AsciiTopology, type AsciiTopologyNode } from './ascii-topology'
+import { LiveConnectivityGraph, type LiveNode } from './LiveConnectivityGraph'
 import {
   CREW,
   HEARTBEAT_WINDOW_MS,
@@ -99,7 +99,7 @@ function crewTableRows(crewHeartbeat: CrewHeartbeat, nowMs: number, isLoading: b
   })
 }
 
-function loadingTopologyNodeRow(): AsciiTopologyNode[] {
+function loadingTopologyNodeRow(): LiveNode[] {
   return CREW.map((role) => ({
     id: role,
     label: crewLabel(role),
@@ -112,7 +112,7 @@ function loadingTopologyNodeRow(): AsciiTopologyNode[] {
   }))
 }
 
-const nodeStatusByCrewState: Record<CrewNode['status'], AsciiTopologyNode['status']> = {
+const nodeStatusByCrewState: Record<CrewNode['status'], LiveNode['status']> = {
   active: 'online',
   stale: 'warning',
   silent: 'offline',
@@ -226,13 +226,13 @@ export function FloorPlanPanel({
             <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
           <div ref={mapRef} className='min-h-[300px] w-full flex-1 overflow-hidden px-1 py-1'>
-            <AsciiTopology
+            <LiveConnectivityGraph
               nodes={topology.nodes}
               edges={topology.edges}
               width={networkWidth}
+              height={300}
               theme={theme}
-              pulseMs={nowMs}
-              className='text-[9px] leading-none text-hlpFg dark:text-hlpFgDark sm:text-[10px]'
+              className='text-hlpFg dark:text-hlpFgDark'
               loading={isLoading}
             />
           </div>
