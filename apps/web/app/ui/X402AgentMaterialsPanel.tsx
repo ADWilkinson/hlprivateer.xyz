@@ -9,9 +9,12 @@ type AgentRouteRow = {
   purpose: string
 }
 
-type PriceRow = {
+type AgentRoutePricingRow = {
   id: string
+  method: string
   route: string
+  capability: string
+  purpose: string
   price: string
   notes: string
 }
@@ -82,27 +85,27 @@ const paywallRoutes: AgentRouteRow[] = [
   },
 ]
 
-const x402Pricing: PriceRow[] = [
-  { id: 'pricing-stream', route: '/v1/agent/stream/snapshot', price: '$0.001', notes: 'entry + heartbeat feed snapshots' },
-  { id: 'pricing-analysis-latest', route: '/v1/agent/analysis/latest', price: '$0.005', notes: 'single latest decision payload' },
-  { id: 'pricing-analysis-history', route: '/v1/agent/analysis', price: '$0.01', notes: 'historical analysis page cache slice' },
-  { id: 'pricing-positions', route: '/v1/agent/positions', price: '$0.01', notes: 'position stream for copy consumers' },
-  { id: 'pricing-orders', route: '/v1/agent/orders', price: '$0.01', notes: 'order tape and lifecycle summary' },
-  { id: 'pricing-market-data', route: '/v1/agent/data/overview', price: '$0.02', notes: 'risk policy + market map + tape digest' },
-  { id: 'pricing-insights', route: '/v1/agent/insights', price: '$0.02', notes: 'AI/agent insight package with risk posture' },
-  {
-    id: 'pricing-copy-signals',
-    route: '/v1/agent/copy-trade/signals',
-    price: '$0.03',
-    notes: 'signal export for copy-trading partners',
-  },
-  {
-    id: 'pricing-copy-positions',
-    route: '/v1/agent/copy-trade/positions',
-    price: '$0.03',
-    notes: 'copy-focused execution/position summary',
-  },
-]
+const x402PricingByRoute: Record<string, { price: string; notes: string }> = {
+  '/v1/agent/stream/snapshot': { price: '$0.001', notes: 'entry + heartbeat feed snapshots' },
+  '/v1/agent/analysis/latest': { price: '$0.005', notes: 'single latest decision payload' },
+  '/v1/agent/analysis': { price: '$0.01', notes: 'historical analysis page cache slice' },
+  '/v1/agent/positions': { price: '$0.01', notes: 'position stream for copy consumers' },
+  '/v1/agent/orders': { price: '$0.01', notes: 'order tape and lifecycle summary' },
+  '/v1/agent/data/overview': { price: '$0.02', notes: 'risk policy + market map + tape digest' },
+  '/v1/agent/insights': { price: '$0.02', notes: 'AI/agent insight package with risk posture' },
+  '/v1/agent/copy-trade/signals': { price: '$0.03', notes: 'signal export for copy-trading partners' },
+  '/v1/agent/copy-trade/positions': { price: '$0.03', notes: 'copy-focused execution/position summary' },
+}
+
+const x402Catalog: Array<AgentRoutePricingRow> = paywallRoutes.map((routeRow) => {
+  const pricing = x402PricingByRoute[routeRow.route]
+  return {
+    ...routeRow,
+    id: routeRow.id,
+    price: pricing?.price ?? '--',
+    notes: pricing?.notes ?? 'price configuration unavailable',
+  }
+})
 
 type X402AgentMaterialsPanelProps = {
   isCollapsed?: boolean
@@ -187,32 +190,23 @@ export function X402AgentMaterialsPanel({
           </div>
 
           <AsciiTable
-            caption='pay-gated agent routes'
+            caption='pay-gated routes + x402 pricing'
             columns={[
               {
                 key: 'method',
                 header: 'METHOD',
                 align: 'left',
-                width: '10%',
+                width: '8%',
                 render: (value) => String(value),
               },
-              { key: 'route', header: 'ROUTE', align: 'left', width: '35%' },
-              { key: 'capability', header: 'CAPABILITY', align: 'left', width: '20%' },
-              { key: 'purpose', header: 'PURPOSE', align: 'left', width: '35%' },
+              { key: 'route', header: 'ROUTE', align: 'left', width: '30%' },
+              { key: 'capability', header: 'CAPABILITY', align: 'left', width: '16%' },
+              { key: 'purpose', header: 'PURPOSE', align: 'left', width: '24%' },
+              { key: 'price', header: 'PRICE', align: 'right', width: '10%' },
+              { key: 'notes', header: 'NOTES', align: 'left', width: '12%' },
             ]}
-            data={paywallRoutes}
+            data={x402Catalog}
             emptyText='no routes'
-          />
-
-          <AsciiTable
-            caption='x402 route pricing'
-            columns={[
-              { key: 'route', header: 'ROUTE', align: 'left', width: '58%' },
-              { key: 'price', header: 'PRICE', align: 'right', width: '12%' },
-              { key: 'notes', header: 'NOTES', align: 'left', width: '30%' },
-            ]}
-            data={x402Pricing}
-            emptyText='no pricing data'
           />
         </div>
       )}
