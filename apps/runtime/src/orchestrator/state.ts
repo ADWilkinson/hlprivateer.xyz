@@ -181,6 +181,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   let lastRiskDeniedSignature = ''
   let lastRiskDeniedNoticeAtMs = 0
   let lastRiskDeniedGlobalNoticeAtMs = 0
+  let lastRiskAutoMitigationAtMs = 0
+  let lastRiskAutoMitigationSignature = ''
 
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
@@ -687,6 +689,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           lastRiskDeniedGlobalNoticeAtMs = nowMs
           await publishStateUpdate(proposal.proposalId, `risk denied (${reasonMessage})`)
         }
+
+        const autoMitigated = await attemptRiskAutoMitigation(proposal.proposalId, reasonMessage, risk.reasons)
+        if (autoMitigated) {
+          return
+        }
         runtimeProposalCounter.inc({ status: 'risk_denied' })
         if (risk.reasons.some((entry) => entry.code === 'DEPENDENCY_FAILURE')) {
           await setMode('SAFE_MODE', 'risk dependency failure')
@@ -942,6 +949,47 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       decisionId: risk.decisionId,
       proposalCorrelation: correlationId
     }, 'runtime.risk')
+  }
+
+  const attemptRiskAutoMitigation = async (
+    proposalId: string,
+    reasonMessage: string,
+    reasons: Array<{ code: string; message: string; details?: Record<string, unknown> }>
+  ): Promise<boolean> => {
+    if (state.positions.length === 0) {
+      return false
+    }
+
+    const mitigationCodes = new Set(['DRAWDOWN', 'EXPOSURE', 'LEVERAGE', 'SAFE_MODE', 'DEPENDENCY_FAILURE'])
+    if (!reasons.some((entry) => mitigationCodes.has(entry.code))) {
+      return false
+    }
+
+    const reasonSignature = reasons.map((entry) => entry.code).sort().join('|') || 'no_reason'
+    const nowMs = Date.now()
+    if (reasonSignature === lastRiskAutoMitigationSignature && nowMs - lastRiskAutoMitigationAtMs < 60_000) {
+      return false
+    }
+
+    lastRiskAutoMitigationSignature = reasonSignature
+    lastRiskAutoMitigationAtMs = nowMs
+
+    await setMode('SAFE_MODE', `risk auto-mitigation (${reasonSignature})`)
+    await publishStateUpdate(
+      proposalId,
+      `risk denied (${reasonMessage}); auto-mitigation started for ${reasonSignature}, flatten requested`
+    )
+    await handleCommand(
+      '/flatten',
+      'internal_agent',
+      'runtime-autofix',
+      [],
+      'risk auto-mitigation',
+      OPERATOR_ADMIN_ROLE,
+      ['command.execute']
+    )
+    runtimeProposalCounter.inc({ status: 'risk_auto_mitigated' })
+    return true
   }
 
   async function handleCommand(
