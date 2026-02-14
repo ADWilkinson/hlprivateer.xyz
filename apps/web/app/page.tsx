@@ -360,11 +360,11 @@ export default function DeckPage() {
         typeof raw !== 'object' ||
         typeof (raw as { ts?: unknown }).ts !== 'string' ||
         typeof (raw as { pnlPct?: unknown }).pnlPct !== 'number' ||
-        !Number.isFinite((raw as { pnlPct: number }).pnlPct
+        !Number.isFinite((raw as { pnlPct: number }).pnlPct)
       ) {
         return undefined
       }
-      return { ts: raw.ts, pnlPct: raw.pnlPct }
+      return { ts: (raw as { ts: string }).ts, pnlPct: (raw as { pnlPct: number }).pnlPct }
     }),
   )
   const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>(() =>
@@ -380,7 +380,10 @@ export default function DeckPage() {
         ) {
           return undefined
         }
-        return { ts: raw.ts, accountValueUsd: raw.accountValueUsd }
+        return {
+          ts: (raw as { ts: string }).ts,
+          accountValueUsd: (raw as { accountValueUsd: number }).accountValueUsd,
+        }
       },
     ),
   )

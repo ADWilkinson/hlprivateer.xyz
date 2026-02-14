@@ -179,6 +179,7 @@ function buildSparkline(
 
   const points = ordered.map((point, index) => ({ x: getX(index), y: getY(point.value), value: point.value }))
   const path = buildSquareWavePath(points)
+  const last = ordered[pointCount - 1]?.value ?? 0
   const zeroY = 0 <= max && 0 >= min ? getY(0) : null
   const currentSample = points[points.length - 1]
 

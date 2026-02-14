@@ -121,6 +121,7 @@ const RISK_POLICY_MIN_STALE_DATA_MS = 300
 const RISK_POLICY_MIN_LIQUIDITY_BUFFER = 1
 const RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE = 0
 const RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE = 1
+const MIN_MEANINGFUL_POSITION_USD = 50
 
 const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
   maxLeverage: 'maxLeverage',
@@ -380,14 +381,24 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   const minLiveAccountValueUsd = (): number =>
     Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, readRuntimeRiskPolicy().maxLeverage))
 
+  const minimumFlatExposureUsd = Math.max(MIN_MEANINGFUL_POSITION_USD, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
   const exposureUsd = (positions: readonly OperatorPosition[]): number =>
     positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
 
-  const minimumFlatExposureUsd = Math.max(0, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
+  const isMeaningfulPosition = (position: OperatorPosition): boolean => {
+    const absNotionalUsd = Math.abs(position.notionalUsd)
+    return Number.isFinite(absNotionalUsd) && absNotionalUsd >= minimumFlatExposureUsd && absNotionalUsd > 0
+  }
+
+  const meaningfulPositions = (positions: readonly OperatorPosition[] = state.positions): OperatorPosition[] =>
+    positions.filter(isMeaningfulPosition)
+
   const hasMeaningfulExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
-    exposureUsd(positions) >= minimumFlatExposureUsd
+    meaningfulPositions(positions).length > 0
   const hasAnyExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
     hasMeaningfulExposure(positions)
+  const driftFromMeaningful = (positions: readonly OperatorPosition[] = state.positions): ReturnType<typeof driftFrom> =>
+    driftFrom({ ...state, positions: meaningfulPositions(positions) })
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
@@ -480,7 +491,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     const previousMode = state.mode
     state.mode = mode
     state.lastUpdateAt = new Date().toISOString()
-    state.driftState = driftFrom(state)
+    state.driftState = driftFromMeaningful()
     setModeGauge(mode)
     await store.saveSystemState(mode, reason).catch(() => {
       void bus.publish('hlp.audit.events', {
@@ -741,7 +752,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const totalPnlUsd = state.realizedPnlUsd + mark.unrealizedPnlUsd
       const pnlDenominatorUsd = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsd > 0 ? Number(((totalPnlUsd / pnlDenominatorUsd) * 100).toFixed(3)) : 0
-      state.driftState = driftFrom(state)
+      state.driftState = driftFromMeaningful()
 
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)
@@ -838,7 +849,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
             targetNotional,
             heldBasketSymbols.join(','),
             recentSignals,
-            env.RUNTIME_FLAT_DUST_NOTIONAL_USD
+            env.RUNTIME_FLAT_DUST_NOTIONAL_USD,
+            meaningfulPositions(state.positions)
           )
         }
       }
@@ -934,7 +946,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         actorType: 'system',
         accountValueUsd: resolveRuntimeAccountValueUsd(),
         dependenciesHealthy,
-        openPositions: state.positions,
+        openPositions: meaningfulPositions(state.positions),
         ticks,
         proposal
       })
@@ -989,7 +1001,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const totalAfterUsd = state.realizedPnlUsd + postMark.unrealizedPnlUsd
       const pnlDenominatorUsdAfter = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsdAfter > 0 ? Number(((totalAfterUsd / pnlDenominatorUsdAfter) * 100).toFixed(3)) : 0
-      state.driftState = driftFrom(state)
+      state.driftState = driftFromMeaningful()
       await publishPositionsUpdate(proposal.proposalId)
 
       if (previousMode === 'READY' && hasAnyExposure()) {
@@ -1695,7 +1707,8 @@ function buildProposal(
   targetNotional: number,
   basketSymbolsCsv: string,
   signals: PluginSignal[],
-  minimumMeaningfulNotionalUsd = 0
+  minimumMeaningfulNotionalUsd = 0,
+  currentPositions: readonly OperatorPosition[] = state.positions
 ): StrategyProposal | null {
   const basketSymbols = basketSymbolsCsv
     .split(',')
@@ -1723,7 +1736,7 @@ function buildProposal(
   }
 
   const currentBySymbol = new Map<string, number>()
-  for (const position of state.positions) {
+  for (const position of currentPositions) {
     const signed = position.side === 'LONG' ? Math.abs(position.notionalUsd) : -Math.abs(position.notionalUsd)
     currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
   }
@@ -1754,8 +1767,10 @@ function buildProposal(
     return null
   }
 
-  const exposureUsd = (positions: readonly OperatorPosition[]) => positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
-  const hasMeaningfulExposure = exposureUsd(state.positions) >= Math.max(0, minimumMeaningfulNotionalUsd)
+  const hasMeaningfulExposure = currentPositions.length > 0 && currentPositions.some((position) => {
+    const absNotionalUsd = Math.abs(position.notionalUsd)
+    return Number.isFinite(absNotionalUsd) && absNotionalUsd >= Math.max(0, minimumMeaningfulNotionalUsd) && absNotionalUsd > 0
+  })
 
   const actionType = hasMeaningfulExposure ? 'REBALANCE' : 'ENTER'
   const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
