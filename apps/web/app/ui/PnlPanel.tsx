@@ -1,6 +1,6 @@
 import { AsciiCard, AsciiBadge } from 'react-ascii-ui'
 import { formatTime, type Snapshot } from './floor-dashboard'
-import { cardClass, cardStyle, sectionTitleClass } from './ascii-style'
+import { cardClass, sectionTitleClass } from './ascii-style'
 
 type PnlPanelProps = {
   snapshot: Snapshot
@@ -13,7 +13,6 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
   return (
     <AsciiCard
       className={cardClass}
-      style={cardStyle}
     >
       <div className='px-3.5 py-2 border-b border-[var(--border)]'>
         <div className={sectionTitleClass}>PROFIT / LOSS</div>
@@ -37,11 +36,11 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
           <div className='mt-2.5'>
             <AsciiBadge
               color={snapshot.mode === 'SAFE_MODE' || snapshot.mode === 'HALT' ? 'error' : 'success'}
-              style={{
-                color: snapshot.mode === 'SAFE_MODE' || snapshot.mode === 'HALT'
-                  ? 'var(--negative)'
-                  : 'var(--positive)',
-              }}
+              className={
+                snapshot.mode === 'SAFE_MODE' || snapshot.mode === 'HALT'
+                  ? 'text-[var(--negative)]'
+                  : 'text-[var(--positive)]'
+              }
             >
               {snapshot.mode === 'SAFE_MODE' || snapshot.mode === 'HALT' ? 'RISK MODE' : 'TRADING READY'}
             </AsciiBadge>
