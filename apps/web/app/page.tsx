@@ -565,6 +565,15 @@ export default function DeckPage() {
               return
             }
 
+            if (payloadType === 'heartbeat') {
+              if (typeof payload?.ts === 'string' && Number.isFinite(Date.parse(payload.ts))) {
+                setDeckHeartbeatMs(Date.parse(payload.ts))
+              } else {
+                setDeckHeartbeatMs(Date.now())
+              }
+              return
+            }
+
             if (payloadType === 'FLOOR_TAPE') {
               const entry = normalizeTapeEntry(payload)
               if (!entry) return
