@@ -58,7 +58,7 @@ export const env = z
     AGENT_DIRECTIVE_INTERVAL_MS: z.coerce.number().int().positive().default(15 * 60_000),
     AGENT_NOTIONAL_MULTIPLIER_MIN: z.coerce.number().positive().default(0.25),
     AGENT_NOTIONAL_MULTIPLIER_MAX: z.coerce.number().positive().default(3),
-    AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(0),
+    AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(25),
 
     // Reuse the runtime's strategy config knobs when present.
     // Legacy seed only (basket selection is dynamic; see AGENT_BASKET_*).

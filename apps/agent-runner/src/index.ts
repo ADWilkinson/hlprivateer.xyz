@@ -713,7 +713,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   }
 }
 
-const EXIT_NOTIONAL_EPSILON_USD = 0
+const EXIT_NOTIONAL_EPSILON_USD = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
 
 function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
   if (!decision || !Array.isArray(decision.reasons)) {
@@ -727,7 +727,7 @@ function parseRiskReasonCodes(decision: RuntimeRiskDecision | null): string[] {
 
 function parseRiskStateMessageReasonCodes(message: string): string[] {
   const normalized = message.trim().toUpperCase()
-  if (!normalized.startsWith('RISK DENIED') && !normalized.startsWith('RED:')) {
+  if (!/RISK DENIED/.test(normalized) && !/\bRED:/.test(normalized)) {
     return []
   }
 
@@ -743,7 +743,9 @@ function parseRiskStateMessageReasonCodes(message: string): string[] {
     'SYSTEM_GATED',
     'NOTIONAL_PARITY',
     'SLIPPAGE_BREACH',
-    'ACTOR_NOT_ALLOWED'
+    'ACTOR_NOT_ALLOWED',
+    'FAIL_CLOSED',
+    'FAILSAFE_CLOSED'
   ]
 
   for (const code of knownCodes) {
@@ -783,7 +785,7 @@ function normalizeReasonCodes(reasonCodes: string[]): string[] {
 function parseRiskStateMessage(message: string, observedAtMs: number): RuntimeStateRiskMessage | null {
   const reasonCodes = parseRiskStateMessageReasonCodes(message)
   if (!reasonCodes.length) {
-    if (!message.toUpperCase().startsWith('RISK DENIED')) {
+    if (!/RISK DENIED/.test(message.toUpperCase())) {
       return null
     }
 
@@ -1059,13 +1061,6 @@ type StrategistDirective = {
   decidedAt: string
 }
 
-function defaultBasketFromEnv(): string[] {
-  return env.BASKET_SYMBOLS
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s && s.toUpperCase() !== BASE_LONG_SYMBOL)
-}
-
 function basketFromPositions(positions: OperatorPosition[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -1124,8 +1119,8 @@ function syncActiveBasketFromPositions(positions: OperatorPosition[]): void {
 }
 
 let activeBasket: BasketSelection = {
-  basketSymbols: defaultBasketFromEnv(),
-  rationale: 'seeded from env',
+  basketSymbols: [],
+  rationale: 'seeded from dynamic strategy',
   selectedAt: new Date(0).toISOString()
 }
 let activeDirective: StrategistDirective = {
@@ -1607,6 +1602,20 @@ function buildFlatSignature(positions: OperatorPosition[]): string {
   return rows.map((row) => `${row.symbol}:${row.side}:${row.qtyBucket.toFixed(4)}`).join('|')
 }
 
+function hasDustOnlyExposure(positions: OperatorPosition[], thresholdUsd: number): boolean {
+  if (positions.length === 0) {
+    return false
+  }
+
+  const threshold = Math.max(0, thresholdUsd)
+  const hasMeaningful = positions.some((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) >= threshold)
+  if (hasMeaningful) {
+    return false
+  }
+
+  return positions.some((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) > 1e-9)
+}
+
 function buildTargetProposal(params: {
   createdBy: string
   basketSymbols: string[]
@@ -1720,6 +1729,7 @@ function buildExitProposal(params: {
   executionTactics: { expectedSlippageBps: number; maxSlippageBps: number }
   confidence?: number
   rationale?: string
+  forceFullClose?: boolean
 }): StrategyProposal | null {
   if (params.positions.length === 0) {
     return null
@@ -1727,11 +1737,12 @@ function buildExitProposal(params: {
 
   const currentBySymbol = signedNotionalBySymbol(params.positions)
   const symbols = [...new Set(params.positions.map((position) => position.symbol))].sort((a, b) => a.localeCompare(b))
+  const minLegUsd = params.forceFullClose ? 0 : Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
 
   const legs = symbols
     .map((symbol) => {
       const current = currentBySymbol.get(symbol) ?? 0
-      if (!Number.isFinite(current) || Math.abs(current) < EXIT_NOTIONAL_EPSILON_USD) {
+      if (!Number.isFinite(current) || Math.abs(current) < minLegUsd) {
         return null
       }
       const side: 'BUY' | 'SELL' = current > 0 ? 'SELL' : 'BUY'
@@ -2779,6 +2790,9 @@ async function runStrategistCycle(): Promise<void> {
   const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
   const baseTargetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
   const tactics = computeExecutionTactics({ signals })
+  const nowMs = Date.now()
+  const dustOnlyExposure = hasDustOnlyExposure(lastPositions, EXIT_NOTIONAL_EPSILON_USD)
+  const safeFlatBasket = activeBasket.basketSymbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_BASKET_REFRESH_MS
 
   syncActiveBasketFromPositions(lastPositions)
   await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: baseTargetNotionalUsd, positions: lastPositions })
@@ -2817,6 +2831,26 @@ async function runStrategistCycle(): Promise<void> {
     lastRiskRecoverySignature = ''
   }
 
+  if (lastPositions.length > 0 && dustOnlyExposure) {
+    if (activeDirective.decision !== 'EXIT') {
+      activeDirective = {
+        decision: 'EXIT',
+        targetNotionalMultiplier: 1,
+        rationale: 'dust-only exposure detected: force full flatten',
+        confidence: 1,
+        decidedAt: new Date().toISOString()
+      }
+      lastDirectiveAt = now
+      lastExitProposalSignature = null
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: 'dust-only exposure detected; forcing full flatten'
+      })
+    }
+  }
+
   const scaledTargetNotionalUsd = Number(
     Math.max(
       100,
@@ -2831,7 +2865,7 @@ async function runStrategistCycle(): Promise<void> {
 
   if (activeDirective.decision === 'EXIT') {
     const exitSignature = buildFlatSignature(lastPositions)
-    if (exitSignature === 'FLAT') {
+    if (exitSignature === 'FLAT' && !dustOnlyExposure) {
       const noActionLine = `no action (mode=${lastMode} already flat)`
       const now = Date.now()
       const shouldPublishNoAction =
@@ -2884,12 +2918,32 @@ async function runStrategistCycle(): Promise<void> {
       requestedMode: requestedModeFromEnv(),
       executionTactics: tactics,
       confidence: activeDirective.confidence,
-      rationale: activeDirective.rationale
+      rationale: activeDirective.rationale,
+      forceFullClose: dustOnlyExposure
     })
   } else {
-    // When flat, ensure we have a basket selected before attempting entry.
+    // When flat, ensure we have a fresh basket selected before attempting entry.
     if (lastPositions.length === 0) {
-      await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions })
+      if (!safeFlatBasket) {
+        await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions, force: true })
+      }
+
+      if (!safeFlatBasket && activeBasket.basketSymbols.length === 0) {
+        const noActionLine = `no action (mode=${lastMode} awaiting fresh basket selection)`
+        const now = Date.now()
+        const shouldPublishNoAction =
+          noActionLine !== lastStrategistNoActionSignature || now - lastStrategistNoActionAtMs >= STRATEGIST_NO_ACTION_SUPPRESS_MS
+        if (shouldPublishNoAction) {
+          lastStrategistNoActionAtMs = now
+          lastStrategistNoActionSignature = noActionLine
+          await publishTape({
+            correlationId: ulid(),
+            role: 'scout',
+            line: noActionLine
+          })
+        }
+        return
+      }
     }
 
     let desiredBasketSymbols: string[]

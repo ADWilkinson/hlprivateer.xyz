@@ -60,6 +60,11 @@ function looksLikeCodexDependencyFailure(error: unknown): boolean {
   )
 }
 
+function isMissingCommandError(error: unknown, command: string): boolean {
+  const normalized = String(error).toLowerCase()
+  return normalized.includes(`spawn ${command}`) && normalized.includes('enoent')
+}
+
 async function runCliCommand(
   command: string,
   args: string[],
@@ -68,20 +73,30 @@ async function runCliCommand(
 ): Promise<{ stdout: string; stderr: string }> {
   const bunInstall = process.env.BUN_INSTALL?.trim() || path.join(process.env.HOME || '', '.bun')
   const codexNodePath = path.join(bunInstall, 'install', 'global', 'node_modules')
+  const shellEnv = {
+    NODE_PATH: codexNodePath
+  }
+  const commandEnv = kind === 'claude' ? undefined : shellEnv
 
   if (kind === 'claude') {
-    return runCommand('bun', [command, ...args], timeoutMs)
+    try {
+      return runCommand(command, args, timeoutMs, commandEnv)
+    } catch (error) {
+      if (isMissingCommandError(error, command)) {
+        return runCommand('bun', [command, ...args], timeoutMs, commandEnv)
+      }
+      throw error
+    }
   }
 
   try {
-    return await runCommand('bun', [command, ...args], timeoutMs, {
-      NODE_PATH: codexNodePath
-    })
+    return await runCommand(command, args, timeoutMs, commandEnv)
   } catch (error) {
+    if (isMissingCommandError(error, command)) {
+      return runCommand('bun', [command, ...args], timeoutMs, commandEnv)
+    }
     if (looksLikeCodexDependencyFailure(error)) {
-      return runCommand('bunx', ['--bun', 'codex', ...args], timeoutMs, {
-        NODE_PATH: codexNodePath
-      })
+      return runCommand('bunx', ['--bun', 'codex', ...args], timeoutMs, commandEnv)
     }
     throw error
   }
@@ -238,9 +253,62 @@ function parseJsonFromText(raw: string): unknown | null {
   return null
 }
 
+function parseJsonFromTextCandidates(raw: string): unknown | null {
+  const candidates = Array.from(new Set(raw.split(/\n+/).filter(Boolean)))
+  for (const candidate of candidates) {
+    const parsed = safeJsonParse(candidate)
+    if (parsed !== null) {
+      return parsed
+    }
+  }
+  return null
+}
+
 function extractClaudePayload(payload: unknown): unknown | null {
   if (!isRecord(payload)) {
     return null
+  }
+
+  const contentText = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+    const maybe = parseJsonFromText(trimmed)
+    if (maybe !== null) {
+      return undefined
+    }
+    return trimmed
+  }
+
+  const result = payload.result
+  if (isRecord(result)) {
+    if ('content' in result && Array.isArray(result.content)) {
+      for (const block of result.content) {
+        const text = contentText(block?.text)
+        if (text) {
+          return safeJsonParse(text)
+        }
+      }
+    }
+    const resultPayload = (result as Record<string, unknown>).output
+    if (resultPayload !== undefined && resultPayload !== null) {
+      const parsed = safeJsonParse(String(resultPayload))
+      if (parsed !== null) {
+        return parsed
+      }
+      const candidate = parseJsonFromText(String(resultPayload))
+      if (candidate !== null) {
+        return candidate
+      }
+    }
+  }
+
+  const message = payload.message
+  if (isRecord(message) && typeof message.content === 'string') {
+    const parsed = parseJsonFromText(message.content)
+    if (parsed !== null) {
+      return parsed
+    }
   }
 
   if ('structured_output' in payload) {

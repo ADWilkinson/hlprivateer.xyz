@@ -385,6 +385,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
   const hasMeaningfulExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
     exposureUsd(positions) >= Math.max(0, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
+  const hasAnyExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
+    positions.some((position) => Number.isFinite(position.notionalUsd) && Math.abs(position.notionalUsd) > 1e-9)
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
@@ -750,7 +752,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
 
       if (state.mode === 'SAFE_MODE') {
-        if (hasMeaningfulExposure()) {
+        if (hasAnyExposure()) {
           const flattened = await attemptRiskAutoMitigation(
             cycleCorrelationId,
             'SAFE_MODE active with open exposure',
@@ -773,7 +775,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         const dependencyHealth = await bus.health()
         const databaseHealth = env.DRY_RUN ? true : await store.health()
         const canExitSafeMode = dependencyHealth.ok && databaseHealth
-        if (canExitSafeMode) {
+        if (canExitSafeMode && !hasAnyExposure()) {
           await setMode('READY', 'safe mode auto-resolve: no open exposure')
         } else if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
           lastSafeModeHoldNoticeAtMs = nowMs
@@ -793,7 +795,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
       // to support the configured target notional under the leverage cap.
-      if (env.ENABLE_LIVE_OMS && !hasMeaningfulExposure()) {
+      if (env.ENABLE_LIVE_OMS && !hasAnyExposure()) {
         const minAccountValueUsd = minLiveAccountValueUsd()
         const hasFreshValue = lastLiveAccountValueOkAtMs > 0 && nowMs - lastLiveAccountValueOkAtMs <= 30_000
         const effectiveAccountValueUsd = hasFreshValue ? cachedLiveAccountValueUsd : 0
@@ -822,6 +824,18 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         pendingAgentProposalReceivedAt = 0
         origin = 'agent'
       } else {
+        if (hasAnyExposure() && !hasMeaningfulExposure()) {
+          const flattened = await attemptRiskAutoMitigation(
+            cycleCorrelationId,
+            'dust exposure requires full flatten',
+            [{ code: 'SYSTEM_GATED', message: 'dust exposure present; full liquidation required' }]
+          )
+          if (!flattened) {
+            runtimeProposalCounter.inc({ status: 'risk_auto_mitigated' })
+            return
+          }
+        }
+
         // Deterministic proposals are REBALANCE-only. We never ENTER a new trade from env BASKET_SYMBOLS
         // because the short basket must be thesis-driven (agent selected) and can change over time.
         if (!hasMeaningfulExposure()) {
@@ -841,9 +855,10 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
 
       if (!proposalCandidate) {
-        runtimeProposalCounter.inc({ status: hasMeaningfulExposure() ? 'no_action' : 'awaiting_agent_proposal' })
+        const hasOpenExposure = hasAnyExposure()
+        runtimeProposalCounter.inc({ status: hasOpenExposure ? 'no_action' : 'awaiting_agent_proposal' })
         const message =
-          !hasMeaningfulExposure()
+          !hasOpenExposure
             ? 'awaiting agent proposal (entry is agent-driven)'
             : urgency
               ? 'no action (urgent)'
@@ -988,15 +1003,15 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       state.driftState = driftFrom(state)
       await publishPositionsUpdate(proposal.proposalId)
 
-      if (previousMode === 'READY' && hasMeaningfulExposure()) {
+      if (previousMode === 'READY' && hasAnyExposure()) {
         await setMode('IN_TRADE', 'trade entry')
-      } else if (hasMeaningfulExposure() && (state.mode === 'IN_TRADE' || state.mode === 'REBALANCE')) {
+      } else if (hasAnyExposure() && (state.mode === 'IN_TRADE' || state.mode === 'REBALANCE')) {
         await setMode('REBALANCE', 'rebalance')
-      } else if (!hasMeaningfulExposure() && state.mode !== 'READY') {
+      } else if (!hasAnyExposure() && state.mode !== 'READY') {
         await setMode('READY', 'flat')
       }
 
-      if (state.driftState === 'BREACH' && hasMeaningfulExposure()) {
+      if (state.driftState === 'BREACH' && hasAnyExposure()) {
         await setMode('SAFE_MODE', 'drift breach')
       }
 
@@ -1226,7 +1241,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     reasonMessage: string,
     reasons: Array<{ code: string; message: string; details?: Record<string, unknown> }>
   ): Promise<boolean> => {
-    if (!hasMeaningfulExposure()) {
+    if (!hasAnyExposure()) {
       return false
     }
 
@@ -1392,14 +1407,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
 
       const closeOrders: Array<{ symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number }> = []
-      let skippedTinyOrders = 0
       for (const position of current.positions) {
         const notionalUsd = Math.abs(position.notionalUsd)
         if (notionalUsd <= 0) {
-          continue
-        }
-        if (notionalUsd < env.RUNTIME_FLAT_DUST_NOTIONAL_USD) {
-          skippedTinyOrders += 1
           continue
         }
 
@@ -1480,13 +1490,12 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       await addAudit('flatten.execute', actorId, commandAuditId, {
         closedLegs: closeOrders,
-        skippedTinyOrders,
         resultingPositions: state.positions.length,
         resultingGrossUsd: exposureUsd(state.positions)
       }, 'runtime.command')
 
       if (state.mode !== 'HALT') {
-        if (hasMeaningfulExposure(state.positions)) {
+        if (hasAnyExposure(state.positions)) {
           if (state.mode !== 'SAFE_MODE') {
             await setMode('SAFE_MODE', reason)
           }
