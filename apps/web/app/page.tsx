@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiUrl, wsUrl } from '../lib/endpoints'
 import {
   type CrewHeartbeat,
@@ -13,7 +13,6 @@ import {
   normalizeCrewRole,
   normalizeTapeLinePrefix,
   parseDeckStatus,
-  renderAsciiChart,
   shouldSuppressTapeLine,
   EMPTY_HEARTBEAT,
   EMPTY_STATS,
@@ -31,8 +30,6 @@ type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
-const chartWidth = 78
-const chartHeight = 12
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
 const MAX_TRAJECTORY_POINTS = 240
@@ -60,16 +57,6 @@ type SnapshotPayload = {
   position_notional?: unknown
   positionNotional?: unknown
   [key: string]: unknown
-}
-
-type TrajectoryStats = {
-  min: number
-  max: number
-  first: number
-  last: number
-  delta: number
-  deltaPct: number
-  samples: number
 }
 
 function toFiniteNumber(value: unknown): number | undefined {
@@ -235,39 +222,6 @@ export default function DeckPage() {
     document.documentElement.classList.toggle('dark', next === 'dark')
   }
 
-  const pnlValues = useMemo(() => pnlSeries.map((point) => point.pnlPct), [pnlSeries])
-  const chart = useMemo(() => renderAsciiChart(pnlValues, chartWidth, chartHeight), [pnlValues])
-  const trajectoryStats = useMemo<TrajectoryStats>(() => {
-    if (pnlValues.length === 0) {
-      return {
-        min: 0,
-        max: 0,
-        first: 0,
-        last: 0,
-        delta: 0,
-        deltaPct: 0,
-        samples: 0,
-      }
-    }
-
-    const min = Math.min(...pnlValues)
-    const max = Math.max(...pnlValues)
-    const first = pnlValues[0] ?? 0
-    const last = pnlValues[pnlValues.length - 1] ?? 0
-    const delta = last - first
-    const base = Math.abs(first) > 0 ? Math.abs(first) : 1
-    const deltaPct = (delta / base) * 100
-
-    return {
-      min,
-      max,
-      first,
-      last,
-      delta,
-      deltaPct,
-      samples: pnlValues.length,
-    }
-  }, [pnlValues])
 
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
@@ -542,7 +496,7 @@ export default function DeckPage() {
           deckFeedAgeMs={deckFeedAgeMs}
           deckMissing={deckMissing}
         />
-        <PnlPanel snapshot={snapshot} chart={chart.chart} trajectory={trajectoryStats} isLoading={isBootstrapping} />
+        <PnlPanel snapshot={snapshot} trajectory={pnlSeries} isLoading={isBootstrapping} />
         <FloorPlanPanel
           isLoading={isBootstrapping}
           crewHeartbeat={crewHeartbeat}
