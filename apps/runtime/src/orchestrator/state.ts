@@ -60,6 +60,17 @@ export interface RuntimeHandle {
   stop(): Promise<void>
 }
 
+type RuntimeRiskPolicy = Omit<RiskConfig, 'failClosedOnDependencyError'>
+
+type ParsedRiskPolicyCommand = {
+  patch: Partial<RuntimeRiskPolicy>
+}
+
+type RiskPolicyValidationError = {
+  message: string
+  fields: string[]
+}
+
 const runtimeCycleCounter = new promClient.Counter({
   name: 'hlp_runtime_cycles_total',
   help: 'Total runtime decision cycles'
@@ -102,6 +113,38 @@ const runtimeCommandCounter = new promClient.Counter({
 const RISK_DENIAL_NOTICE_COOLDOWN_MS = 180_000
 const RISK_AUTO_MITIGATION_COOLDOWN_MS = 60_000
 const NO_ACTION_NOTICE_COOLDOWN_MS = 60_000
+const RISK_POLICY_MIN_LEVERAGE = 0.1
+const RISK_POLICY_MIN_DRAWDOWN_PCT = 0.01
+const RISK_POLICY_MIN_EXPOSURE_USD = 25
+const RISK_POLICY_MIN_SLIPPAGE_BPS = 0
+const RISK_POLICY_MIN_STALE_DATA_MS = 300
+const RISK_POLICY_MIN_LIQUIDITY_BUFFER = 1
+const RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE = 0
+const RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE = 1
+
+const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
+  maxLeverage: 'maxLeverage',
+  max_leverage: 'maxLeverage',
+  'max-leverage': 'maxLeverage',
+  maxDrawdownPct: 'maxDrawdownPct',
+  max_drawdown_pct: 'maxDrawdownPct',
+  'max-drawdown-pct': 'maxDrawdownPct',
+  maxExposureUsd: 'maxExposureUsd',
+  max_exposure_usd: 'maxExposureUsd',
+  'max-exposure-usd': 'maxExposureUsd',
+  maxSlippageBps: 'maxSlippageBps',
+  max_slippage_bps: 'maxSlippageBps',
+  'max-slippage-bps': 'maxSlippageBps',
+  staleDataMs: 'staleDataMs',
+  stale_data_ms: 'staleDataMs',
+  'stale-data-ms': 'staleDataMs',
+  liquidityBufferPct: 'liquidityBufferPct',
+  liquidity_buffer_pct: 'liquidityBufferPct',
+  'liquidity-buffer-pct': 'liquidityBufferPct',
+  notionalParityTolerance: 'notionalParityTolerance',
+  notional_parity_tolerance: 'notionalParityTolerance',
+  'notional-parity-tolerance': 'notionalParityTolerance'
+}
 
 void promClient.collectDefaultMetrics()
 
@@ -144,7 +187,21 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     throw new Error('live mode requires DRY_RUN=false')
   }
 
-  const adapter = env.ENABLE_LIVE_OMS ? createLiveAdapter(env) : createSimAdapter(10, 25)
+  let runtimeRiskPolicy: RuntimeRiskPolicy = {
+    maxLeverage: env.RISK_MAX_LEVERAGE,
+    maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
+    maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
+    maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
+    staleDataMs: env.RISK_STALE_DATA_MS,
+    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+  }
+
+  const readRuntimeRiskPolicy = (): RuntimeRiskPolicy => ({ ...runtimeRiskPolicy })
+
+  const adapter = env.ENABLE_LIVE_OMS
+    ? createLiveAdapter(env, () => readRuntimeRiskPolicy().maxSlippageBps)
+    : createSimAdapter(() => readRuntimeRiskPolicy().maxSlippageBps, 25)
   const marketAdapter = await createMarketAdapterLazy(env, bus)
   const pluginManager = await createRuntimePluginManager(bus)
   const l2BookDepthCache = new Map<
@@ -196,8 +253,131 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       .replace(/\b[a-f0-9]{8,}\b/g, '')
       .trim()
 
+  const normalizeRiskPolicy = (
+    current: RuntimeRiskPolicy,
+    patch: Partial<RuntimeRiskPolicy>
+  ): ParsedRiskPolicyCommand | RiskPolicyValidationError => {
+    if (Object.keys(patch).length === 0) {
+      return { message: 'no valid risk policy changes were provided', fields: [] }
+    }
+
+    const normalized: Partial<RuntimeRiskPolicy> = {}
+    const fields: string[] = []
+    const next: RuntimeRiskPolicy = { ...current }
+
+    for (const [key, rawValue] of Object.entries(patch)) {
+      const numericValue = Number(rawValue)
+      if (!Number.isFinite(numericValue)) {
+        fields.push(`${key}: not numeric`)
+        continue
+      }
+
+      if (key === 'maxLeverage') {
+        if (numericValue < RISK_POLICY_MIN_LEVERAGE) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_LEVERAGE}`)
+          continue
+        }
+        normalized.maxLeverage = numericValue
+      }
+
+      if (key === 'maxDrawdownPct') {
+        if (numericValue < RISK_POLICY_MIN_DRAWDOWN_PCT) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_DRAWDOWN_PCT}`)
+          continue
+        }
+        normalized.maxDrawdownPct = numericValue
+      }
+
+      if (key === 'maxExposureUsd') {
+        if (numericValue < RISK_POLICY_MIN_EXPOSURE_USD) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_EXPOSURE_USD}`)
+          continue
+        }
+        normalized.maxExposureUsd = numericValue
+      }
+
+      if (key === 'maxSlippageBps') {
+        if (numericValue < RISK_POLICY_MIN_SLIPPAGE_BPS) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_SLIPPAGE_BPS}`)
+          continue
+        }
+        normalized.maxSlippageBps = numericValue
+      }
+
+      if (key === 'staleDataMs') {
+        if (numericValue < RISK_POLICY_MIN_STALE_DATA_MS) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_STALE_DATA_MS}`)
+          continue
+        }
+        normalized.staleDataMs = numericValue
+      }
+
+      if (key === 'liquidityBufferPct') {
+        if (numericValue < RISK_POLICY_MIN_LIQUIDITY_BUFFER) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_LIQUIDITY_BUFFER}`)
+          continue
+        }
+        normalized.liquidityBufferPct = numericValue
+      }
+
+      if (key === 'notionalParityTolerance') {
+        if (numericValue < RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE || numericValue > RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE) {
+          fields.push(`${key}: range ${RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE}..${RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE}`)
+          continue
+        }
+        normalized.notionalParityTolerance = numericValue
+      }
+    }
+
+    if (fields.length > 0) {
+      return { message: `invalid risk policy value(s): ${fields.join(', ')}`, fields }
+    }
+
+    const nextPolicy: RuntimeRiskPolicy = {
+      ...next,
+      ...normalized
+    }
+
+    return { patch: nextPolicy }
+  }
+
+  const parseRiskPolicyArgs = (args: string[]): ParsedRiskPolicyCommand | RiskPolicyValidationError => {
+    const rawPatch: Record<string, number> = {}
+
+    if (args.length === 1 && args[0].trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(args[0]) as Record<string, unknown>
+        for (const [rawKey, rawValue] of Object.entries(parsed ?? {})) {
+          const canonicalKey = RISK_POLICY_ARG_ALIASES[rawKey]
+          if (!canonicalKey) {
+            continue
+          }
+          rawPatch[canonicalKey] = Number(rawValue)
+        }
+        return normalizeRiskPolicy(readRuntimeRiskPolicy(), rawPatch)
+      } catch {
+        return { message: 'invalid JSON payload', fields: ['json'] }
+      }
+    }
+
+    const rawTokens = args.filter(Boolean)
+    for (const token of rawTokens) {
+      const [rawKeyRaw, rawValueRaw] = token.split('=')
+      if (!rawKeyRaw || rawValueRaw === undefined) {
+        return { message: `invalid token ${token}`, fields: [token] }
+      }
+      const canonicalKey = RISK_POLICY_ARG_ALIASES[rawKeyRaw.trim()]
+      if (!canonicalKey) {
+        return { message: `unknown key ${rawKeyRaw}`, fields: [rawKeyRaw] }
+      }
+      rawPatch[canonicalKey] = Number(rawValueRaw)
+    }
+
+    return normalizeRiskPolicy(readRuntimeRiskPolicy(), rawPatch)
+  }
+
   const minLiveAccountValueUsd = (): number =>
-    Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, env.RISK_MAX_LEVERAGE))
+    Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, readRuntimeRiskPolicy().maxLeverage))
 
   const exposureUsd = (positions: readonly OperatorPosition[]): number =>
     positions.reduce((sum, position) => sum + Math.abs(position.notionalUsd), 0)
@@ -234,25 +414,16 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     }
   }
 
-  const riskConfig: RiskConfig = {
-    maxLeverage: env.RISK_MAX_LEVERAGE,
-    maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
-    maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
-    maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
-    staleDataMs: env.RISK_STALE_DATA_MS,
-    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE,
-    failClosedOnDependencyError: true
+  const buildRiskConfig = (): RiskConfig => {
+    const policy = readRuntimeRiskPolicy()
+    return {
+      ...policy,
+      failClosedOnDependencyError: true
+    }
   }
 
   const runtimeRiskPolicyContext = (): Record<string, number> => ({
-    maxLeverage: env.RISK_MAX_LEVERAGE,
-    maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
-    maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
-    maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
-    staleDataMs: env.RISK_STALE_DATA_MS,
-    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+    ...readRuntimeRiskPolicy()
   })
 
   await bus.publish('hlp.ui.events', {
@@ -438,6 +609,11 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   }
 
   const publishStateUpdate = async (correlationId: string, message: string) => {
+    const openPositionNotionalUsd = state.positions.reduce((seed, position) => {
+      const notionalUsd = typeof position.notionalUsd === 'number' && Number.isFinite(position.notionalUsd) ? position.notionalUsd : 0
+      return seed + Math.abs(notionalUsd)
+    }, 0)
+
     await bus.publish('hlp.ui.events', {
       type: 'STATE_UPDATE',
       stream: 'hlp.ui.events',
@@ -449,6 +625,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         mode: state.mode,
         pnlPct: state.pnlPct,
         realizedPnlUsd: state.realizedPnlUsd,
+        openPositions: state.positions,
+        openPositionCount: state.positions.length,
+        openPositionNotionalUsd,
         driftState: state.driftState,
         healthCode: state.mode === 'SAFE_MODE' || state.mode === 'HALT' ? 'RED' : 'GREEN',
         lastUpdateAt: state.lastUpdateAt,
@@ -731,7 +910,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         cache: l2BookDepthCache
       })
 
-      const risk = evaluateRisk(riskConfig, {
+      const risk = evaluateRisk(buildRiskConfig(), {
         state: state.mode,
         actorType: 'system',
         accountValueUsd: env.ENABLE_LIVE_OMS
@@ -1306,6 +1485,36 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       }
       runtimeCommandCounter.inc({ command, result: 'executed' })
       return { ok: true, message: `flatten executed (${closeOrders.length} close legs)` }
+    }
+
+    if (commandName === '/risk-policy') {
+      const parsed = parseRiskPolicyArgs(args)
+      if ('message' in parsed) {
+        runtimeCommandCounter.inc({ command, result: 'invalid_arguments' })
+        await addAudit('command.invalid', actorId, commandAuditId, {
+          command,
+          args,
+          reason,
+          errors: parsed
+        }, 'runtime.command')
+        return { ok: true, message: `risk-policy rejected: ${parsed.message}` }
+      }
+
+      const nextPolicy = parsed.patch
+      runtimeRiskPolicy = nextPolicy
+      await publishStateUpdate(commandAuditId, `risk policy updated: ${Object.keys(nextPolicy).join(',')}`)
+      await addAudit('risk_policy.update', actorId, commandAuditId, {
+        command,
+        actorType,
+        applied: nextPolicy,
+        reason
+      }, 'runtime.command')
+
+      runtimeCommandCounter.inc({ command, result: 'executed' })
+      return {
+        ok: true,
+        message: `risk policy updated (${Object.entries(nextPolicy).map(([key, value]) => `${key}=${value}`).join(', ')})`
+      }
     }
 
     if (commandName === '/status') {

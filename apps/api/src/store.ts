@@ -21,6 +21,17 @@ export interface ApiRuntimeSnapshot {
   pnlPct: number
   lastUpdateAt: string
   healthCode: 'GREEN' | 'YELLOW' | 'RED'
+  driftState?: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
+  message?: string
+  riskPolicy?: {
+    maxLeverage?: number
+    maxDrawdownPct?: number
+    maxExposureUsd?: number
+    maxSlippageBps?: number
+    staleDataMs?: number
+    liquidityBufferPct?: number
+    notionalParityTolerance?: number
+  }
 }
 
 type EntitlementUpdate = {
@@ -271,4 +282,6 @@ export class ApiStore {
   }
 }
 
-interface ApiSnapshot extends PublicSnapshot {}
+interface ApiSnapshot extends PublicSnapshot {
+  riskPolicy?: ApiRuntimeSnapshot['riskPolicy']
+}

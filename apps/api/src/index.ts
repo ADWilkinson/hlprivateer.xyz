@@ -561,14 +561,35 @@ app.get('/v1/operator/status', { ...routeRateLimit(120, 60_000), preHandler: [ap
     return reply.code(403).send({ error: 'FORBIDDEN', message: 'view role required' })
   }
 
+  const runtimePolicy = store.snapshot.riskPolicy
+  const riskPolicy = typeof runtimePolicy === 'object' && runtimePolicy !== null ? runtimePolicy : null
+  const maxLeverage = Number.isFinite(riskPolicy?.maxLeverage) ? Number(riskPolicy?.maxLeverage) : env.RISK_MAX_LEVERAGE
+  const maxDrawdownPct = Number.isFinite(riskPolicy?.maxDrawdownPct)
+    ? Number(riskPolicy?.maxDrawdownPct)
+    : env.RISK_MAX_DRAWDOWN_PCT
+  const maxNotionalUsd = Number.isFinite(riskPolicy?.maxExposureUsd)
+    ? Number(riskPolicy?.maxExposureUsd)
+    : env.RISK_MAX_NOTIONAL_USD
+
+  const riskConfig = {
+    maxLeverage,
+    maxDrawdownPct,
+    maxNotionalUsd,
+    maxExposureUsd: maxNotionalUsd,
+    maxSlippageBps: Number.isFinite(riskPolicy?.maxSlippageBps) ? Number(riskPolicy?.maxSlippageBps) : env.RISK_MAX_SLIPPAGE_BPS,
+    staleDataMs: Number.isFinite(riskPolicy?.staleDataMs) ? Number(riskPolicy?.staleDataMs) : env.RISK_STALE_DATA_MS,
+    liquidityBufferPct: Number.isFinite(riskPolicy?.liquidityBufferPct)
+      ? Number(riskPolicy.liquidityBufferPct)
+      : env.RISK_LIQUIDITY_BUFFER_PCT,
+    notionalParityTolerance: Number.isFinite(riskPolicy?.notionalParityTolerance)
+      ? Number(riskPolicy.notionalParityTolerance)
+      : env.RISK_NOTIONAL_PARITY_TOLERANCE
+  }
+
   return {
     mode: store.snapshot.mode,
     pnlPct: store.snapshot.pnlPct,
-    riskConfig: {
-      maxLeverage: 2,
-      maxDrawdownPct: 5,
-      maxNotionalUsd: 10000
-    },
+    riskConfig,
     activeAgents: 0,
     timestamp: new Date().toISOString()
   }
