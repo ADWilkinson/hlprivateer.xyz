@@ -23,4 +23,3 @@ config/secrets.*.enc.yaml
 *.tsbuildinfo
 *.lockb
 firebase-debug.log
-.vercel
