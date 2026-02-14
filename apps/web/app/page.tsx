@@ -34,7 +34,6 @@ const RISK_DENIAL_SUPPRESS_MS = 180_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
 
-type PnLPayload = { pnlPct?: unknown; lastUpdateAt?: unknown }
 type SnapshotPayload = {
   type?: string
   ts?: unknown
@@ -44,6 +43,13 @@ type SnapshotPayload = {
   lastUpdateAt?: unknown
   message?: unknown
   pnlPct?: unknown
+  pnl?: unknown
+  pnlPercent?: unknown
+  pnl_percent?: unknown
+  pnlPctCurrent?: unknown
+  pnlPctChange?: unknown
+  pnlChangePct?: unknown
+  deltaPnlPct?: unknown
   openPositions?: unknown
   openPositionCount?: unknown
   openPositionNotionalUsd?: unknown
@@ -55,21 +61,73 @@ type SnapshotPayload = {
   position_count?: unknown
   position_notional?: unknown
   positionNotional?: unknown
+  data?: unknown
   [key: string]: unknown
 }
 
 function toFiniteNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim()) {
-    const next = Number(value.trim())
-    return Number.isFinite(next) ? next : undefined
+    const trimmed = value.trim()
+    const exact = Number(trimmed)
+    if (Number.isFinite(exact)) return exact
+    const parsed = Number.parseFloat(trimmed)
+    return Number.isFinite(parsed) ? parsed : undefined
   }
+  return undefined
+}
+
+function pickPnlPercent(payload: SnapshotPayload): number | undefined {
+  const pickFromRecord = (value: Record<string, unknown>, depth = 0): number | undefined => {
+    const maybe = toFiniteNumber(
+      value.pnlPct ??
+        value.pnl ??
+        value.pnlPercent ??
+        value.pnl_percent ??
+        value.pnlPctCurrent ??
+        value.pnlPctChange ??
+        value.pnlChangePct ??
+        value.deltaPnlPct ??
+        value.value ??
+        value.pct ??
+        value.percent,
+    )
+    if (maybe !== undefined) return maybe
+
+    if (depth >= 2) return undefined
+
+    const nestedValue = value.pnl && typeof value.pnl === 'object' ? (value.pnl as object | undefined) : undefined
+    if (nestedValue && typeof nestedValue === 'object') {
+      const nestedPnl = nestedValue as Record<string, unknown>
+      return pickFromRecord(nestedPnl, depth + 1)
+    }
+
+    return undefined
+  }
+
+  const root = toFiniteNumber(
+    payload.pnlPct ??
+      payload.pnl ??
+      payload.pnlPercent ??
+      payload.pnl_percent ??
+      payload.pnlPctCurrent ??
+      payload.pnlPctChange ??
+      payload.pnlChangePct ??
+      payload.deltaPnlPct,
+  )
+
+  if (root !== undefined) return root
+
+  if (typeof payload.data === 'object' && payload.data !== null && payload.data !== null) {
+    return pickFromRecord(payload.data as Record<string, unknown>)
+  }
+
   return undefined
 }
 
 function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapshot {
   const rawOpenPositions = payload.openPositions ?? payload.open_positions ?? payload.positions
-  const nextPnl = toFiniteNumber(payload.pnlPct)
+  const nextPnl = pickPnlPercent(payload)
   const nextOpenPositionCount = toFiniteNumber(payload.openPositionCount ?? payload.open_position_count)
     ?? toFiniteNumber(payload.position_count)
     ?? toFiniteNumber(payload.positionCount)
@@ -312,8 +370,8 @@ export default function DeckPage() {
       return true
     }
 
-    const samplePnl = (payload: PnLPayload) => {
-      const nextPnlPct = toFiniteNumber(payload.pnlPct)
+    const samplePnl = (payload: SnapshotPayload) => {
+      const nextPnlPct = pickPnlPercent(payload)
       if (nextPnlPct === undefined) return
       const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
       const now = Date.now()

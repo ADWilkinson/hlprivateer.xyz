@@ -2,6 +2,8 @@
 Description=HL Privateer API
 After=network-online.target postgresql.service redis.service
 Wants=network-online.target postgresql.service redis.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -34,8 +36,6 @@ SystemCallArchitectures=native
 UMask=0077
 RestartSteps=3
 RestartMaxDelaySec=30
-StartLimitBurst=5
-StartLimitIntervalSec=60
 
 [Install]
 WantedBy=multi-user.target

@@ -210,6 +210,18 @@ validate_unit_working_dirs() {
   fi
 }
 
+normalize_secret_paths() {
+  local file="$1"
+  local legacy_prefix="/home/dappnode/projects/hlprivateer.xyz/secrets"
+
+  [[ -f "$file" ]] || return 0
+
+  if grep -qF "$legacy_prefix" "$file"; then
+    log "normalizing legacy secret paths in ${file}"
+    sudo sed -i "s#$legacy_prefix#${ROOT_DIR}/secrets#g" "$file"
+  fi
+}
+
 if [[ ! -d "$ROOT_DIR" ]]; then
   echo "deploy root not found: $ROOT_DIR" >&2
   exit 1
@@ -250,6 +262,10 @@ bun run build
 log "installing systemd units"
 sudo cp "$SYSTEMD_SOURCE_DIR"/hlprivateer-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
+
+normalize_secret_paths "$ROOT_DIR/config/.env"
+normalize_secret_paths "$ROOT_DIR/config/.env.bak-20260213T193808Z"
+normalize_secret_paths "/etc/hlprivateer/credentials/hlprivateer.env"
 
 SERVICES=(
   hlprivateer-runtime
