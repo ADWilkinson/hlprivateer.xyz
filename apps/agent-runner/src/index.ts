@@ -79,21 +79,90 @@ function roleActorId(role: FloorRole): string {
   return `${env.AGENT_ID}:${role}`
 }
 
-function llmForRole(role: FloorRole): LlmChoice {
+let codexDisabledUntilMs = 0
+
+function parseCodexUsageLimit(message: string): { summary: string; tryAgainAtMs: number | null } | null {
+  const lines = message
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const usageLine = lines.find((line) => line.includes("You've hit your usage limit for"))
+  if (!usageLine) {
+    return null
+  }
+
+  const normalized = usageLine.replace(/^ERROR:\s*/i, '')
+  const match = normalized.match(/Try again at\s+(.+?)\.?$/i)
+  if (!match) {
+    return { summary: normalized, tryAgainAtMs: null }
+  }
+
+  const raw = match[1] ?? ''
+  // The CLI message uses ordinal suffixes (e.g. "14th"), which Date.parse won't understand.
+  const cleaned = raw.replace(/(\d{1,2})(st|nd|rd|th)/gi, '$1').trim()
+  const parsed = Date.parse(cleaned)
+  const tryAgainAtMs = Number.isFinite(parsed) ? parsed : null
+  return { summary: normalized, tryAgainAtMs }
+}
+
+function summarizeCodexError(error: unknown): string {
+  const message = String(error ?? '')
+  const usage = parseCodexUsageLimit(message)
+  if (usage) {
+    return sanitizeLine(usage.summary, 200)
+  }
+
+  const lines = message
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  // Prefer the most specific failure line, when present.
+  const lastErrorLine = [...lines].reverse().find((line) => line.startsWith('ERROR:'))
+  if (lastErrorLine) {
+    return sanitizeLine(lastErrorLine.replace(/^ERROR:\s*/i, ''), 200)
+  }
+
+  return sanitizeLine(message, 200)
+}
+
+function maybeDisableCodexFromError(error: unknown, nowMs: number): { untilMs: number; reason: string } | null {
+  const message = String(error ?? '')
+  const usage = parseCodexUsageLimit(message)
+  if (!usage) {
+    return null
+  }
+
+  // Fail-closed: if we can't parse the time, back off briefly to avoid hammering the CLI.
+  const untilMs = usage.tryAgainAtMs ?? nowMs + 60_000
+  if (untilMs <= codexDisabledUntilMs) {
+    return null
+  }
+
+  codexDisabledUntilMs = untilMs
+  return { untilMs, reason: usage.summary }
+}
+
+function llmForRole(role: FloorRole, nowMs = Date.now()): LlmChoice {
   const base = env.AGENT_LLM
+  let chosen: LlmChoice = base
   if (role === 'research') {
-    return env.AGENT_RESEARCH_LLM ?? base
+    chosen = env.AGENT_RESEARCH_LLM ?? base
+  } else if (role === 'risk') {
+    chosen = env.AGENT_RISK_LLM ?? base
+  } else if (role === 'strategist' || role === 'execution') {
+    chosen = env.AGENT_STRATEGIST_LLM ?? base
+  } else if (role === 'scribe') {
+    chosen = env.AGENT_SCRIBE_LLM ?? base
   }
-  if (role === 'risk') {
-    return env.AGENT_RISK_LLM ?? base
+
+  // Circuit-break Codex when its CLI reports a usage limit to avoid repeated failures.
+  if (chosen === 'codex' && codexDisabledUntilMs > nowMs) {
+    return 'claude'
   }
-  if (role === 'strategist' || role === 'execution') {
-    return env.AGENT_STRATEGIST_LLM ?? base
-  }
-  if (role === 'scribe') {
-    return env.AGENT_SCRIBE_LLM ?? base
-  }
-  return base
+
+  return chosen
 }
 
 function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
@@ -461,7 +530,7 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
       }
     }
 
-    const llm = llmForRole('strategist')
+    const llm = llmForRole('strategist', nowMs)
     const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
     let chosen: { basketSymbols: string[]; rationale: string }
@@ -471,11 +540,13 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
       if (llm === 'codex') {
         try {
           chosen = await generateBasketSelection({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          const disabled = maybeDisableCodexFromError(primaryError, nowMs)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
             correlationId: ulid(),
             role: 'ops',
             level: 'WARN',
-            line: `basket codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+            line: `basket codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
           })
         } catch (fallbackError) {
           chosen = { basketSymbols: fallback, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}` }
@@ -1083,7 +1154,7 @@ async function runResearchAgent(): Promise<void> {
     inferredRegime: regime
   }
 
-  const llm = llmForRole('research')
+  const llm = llmForRole('research', now)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
   let report: { headline: string; regime: string; recommendation: string; confidence: number }
@@ -1093,11 +1164,13 @@ async function runResearchAgent(): Promise<void> {
     if (llm === 'codex') {
       try {
         report = await generateResearchReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+        const disabled = maybeDisableCodexFromError(primaryError, now)
+        const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
         await publishTape({
           correlationId: ulid(),
           role: 'ops',
           level: 'WARN',
-          line: `research codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+          line: `research codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
         })
       } catch (fallbackError) {
         report = await generateResearchReport({ llm: 'none', model, input })
@@ -1160,7 +1233,7 @@ async function runRiskAgent(): Promise<void> {
     lastRiskDecision
   }
 
-  const llm = llmForRole('risk')
+  const llm = llmForRole('risk', now)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
   let report: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number }
@@ -1170,11 +1243,13 @@ async function runRiskAgent(): Promise<void> {
     if (llm === 'codex') {
       try {
         report = await generateRiskReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+        const disabled = maybeDisableCodexFromError(primaryError, now)
+        const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
         await publishTape({
           correlationId: ulid(),
           role: 'ops',
           level: 'WARN',
-          line: `risk codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+          line: `risk codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
         })
       } catch (fallbackError) {
         report = await generateRiskReport({ llm: 'none', model, input })
@@ -1306,6 +1381,7 @@ async function runStrategistCycle(): Promise<void> {
 }
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { signals: PluginSignal[]; targetNotionalUsd: number }): Promise<void> {
+  const nowMs = Date.now()
   const universe = new Set<string>([BASE_LONG_SYMBOL, ...activeBasket.basketSymbols])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
   const analysisInput = {
@@ -1320,7 +1396,7 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { signals:
     proposal
   }
 
-  const llm = llmForRole('scribe')
+  const llm = llmForRole('scribe', nowMs)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
   let analysis: { headline: string; thesis: string; risks: string[]; confidence: number }
   try {
@@ -1329,11 +1405,13 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { signals:
     if (llm === 'codex') {
       try {
         analysis = await generateAnalysis({ llm: 'claude', model: env.CLAUDE_MODEL, input: analysisInput })
+        const disabled = maybeDisableCodexFromError(primaryError, nowMs)
+        const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
         await publishTape({
           correlationId: proposal.proposalId,
           role: 'ops',
           level: 'WARN',
-          line: `scribe codex failed; using claude ${env.CLAUDE_MODEL}: ${String(primaryError).slice(0, 120)}`
+          line: `scribe codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
         })
       } catch (fallbackError) {
         analysis = await generateAnalysis({ llm: 'none', model, input: analysisInput })
