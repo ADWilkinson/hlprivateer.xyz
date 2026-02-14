@@ -44,12 +44,6 @@ function badgeVariantForDrift(state: string): 'ok' | 'warn' | 'danger' {
   return 'danger'
 }
 
-function badgeVariantForWs(ws: WsState): 'ok' | 'warn' | 'danger' {
-  if (ws === 'OPEN') return 'ok'
-  if (ws === 'CONNECTING') return 'warn'
-  return 'danger'
-}
-
 function Badge({ children, variant }: { children: string; variant: 'ok' | 'warn' | 'danger' }) {
   return <span className={`badge ${variant}`}>{children}</span>
 }
@@ -150,6 +144,7 @@ export default function DeckPage() {
     scribe: null,
     ops: null,
   }))
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
   const logo = useMemo(() => asciiLogo(), [])
   const tapeRef = useRef<HTMLDivElement | null>(null)
@@ -161,6 +156,18 @@ export default function DeckPage() {
     const values = pnlSeries.map((point) => point.pnlPct)
     return renderAsciiChart(values, 64, 12).chart
   }, [pnlSeries])
+
+  useEffect(() => {
+    const stored = localStorage.getItem('hlp-theme')
+    if (stored === 'dark') setTheme('dark')
+  }, [])
+
+  const toggleTheme = () => {
+    const next = theme === 'light' ? 'dark' : 'light'
+    setTheme(next)
+    localStorage.setItem('hlp-theme', next)
+    document.documentElement.setAttribute('data-theme', next)
+  }
 
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
@@ -301,12 +308,11 @@ export default function DeckPage() {
           <div className="header-title-mobile">HL PRIVATEER</div>
         </div>
         <div className="header-right">
-          <div className="header-live">
-            <Led variant={badgeVariantForWs(wsState)} />
-            <span className="header-live-text">{wsState === 'OPEN' ? 'LIVE' : wsState}</span>
-          </div>
           <div className="header-subtitle">TRADING FLOOR</div>
           <div className="header-endpoints">{apiUrl('')}</div>
+          <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
+            {theme === 'light' ? 'DARK' : 'LIGHT'}
+          </button>
         </div>
       </header>
 
