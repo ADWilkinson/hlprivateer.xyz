@@ -1,4 +1,4 @@
-import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
+import { AsciiBadge } from 'react-ascii-ui'
 import { formatTime, type Snapshot } from './floor-dashboard'
 import { cardClass, cardHeaderClass, sectionTitleClass } from './ascii-style'
 
@@ -12,7 +12,7 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
   const isHealthy = snapshot.mode !== 'SAFE_MODE' && snapshot.mode !== 'HALT'
 
   return (
-    <AsciiCard className={cardClass}>
+    <section className={cardClass}>
       <div className={cardHeaderClass}>PROFIT / LOSS</div>
 
       <section className='grid grid-cols-1 gap-2 xl:grid-cols-[minmax(220px,420px)_1fr]'>
@@ -43,6 +43,6 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
           <pre className='m-0 max-h-[168px] overflow-x-auto overflow-y-auto whitespace-pre text-[11px] leading-[1.15] text-hlpMuted dark:text-hlpMutedDark'>{chart}</pre>
         </div>
       </section>
-    </AsciiCard>
+    </section>
   )
 }

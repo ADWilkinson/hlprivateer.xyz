@@ -1,4 +1,4 @@
-import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
+import { AsciiBadge } from 'react-ascii-ui'
 import type { TapeEntry } from './floor-dashboard'
 import { formatTime } from './floor-dashboard'
 import type { RefObject } from 'react'
@@ -11,7 +11,7 @@ type TapeSectionProps = {
 
 export function TapeSection({ tape, tapeRef }: TapeSectionProps) {
   return (
-    <AsciiCard className={cardClass}>
+    <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span>FLOOR TAPE</span>
         <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
@@ -47,6 +47,6 @@ export function TapeSection({ tape, tapeRef }: TapeSectionProps) {
           )
         })}
       </div>
-    </AsciiCard>
+    </section>
   )
 }

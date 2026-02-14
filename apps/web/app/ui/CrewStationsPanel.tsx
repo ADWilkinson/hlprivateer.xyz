@@ -1,4 +1,4 @@
-import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
+import { AsciiBadge } from 'react-ascii-ui'
 import { crewLabel, type CrewHeartbeat, type CrewRole, type CrewStats, formatAge, formatTime, heartbeatLevel, floorHeartbeatGlyph, type TapeEntry } from './floor-dashboard'
 import { cardClass, cardHeaderClass, inlineBadgeClass, sectionTitleClass, statusCellClass } from './ascii-style'
 
@@ -16,7 +16,7 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
   const roles = Object.keys(crewHeartbeat) as CrewRole[]
 
   return (
-    <AsciiCard className={cardClass}>
+    <section className={cardClass}>
       <div className={cardHeaderClass}>
         <span className={sectionTitleClass}>CREW STATIONS</span>
         <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
@@ -103,7 +103,7 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
             </div>
           )
         })}
-      </div>
-    </AsciiCard>
+          </div>
+    </section>
   )
 }
