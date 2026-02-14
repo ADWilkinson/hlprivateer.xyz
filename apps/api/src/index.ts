@@ -5,6 +5,7 @@ import { timingSafeEqual } from 'node:crypto'
 import {
   AuditEvent,
   CommandResultSchema,
+  FloorTapeLineSchema,
   Entitlement,
   parseCommand,
   commandPolicy,
@@ -503,6 +504,10 @@ app.get('/v1/public/pnl', routeRateLimit(180, 60_000), async () => {
 
 app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async () => {
   return PublicSnapshotSchema.parse(store.getPublicSnapshot())
+})
+
+app.get('/v1/public/floor-tape', routeRateLimit(180, 60_000), async () => {
+  return FloorTapeLineSchema.array().parse(store.getPublicSnapshot().recentTape)
 })
 
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
@@ -1446,6 +1451,30 @@ bus.consume('hlp.ui.events', '0-0', (envelope) => {
   if (envelope.type === 'STATE_UPDATE') {
     const payload = envelope.payload as any
     store.setSnapshot(payload)
+
+    if (typeof payload?.message === 'string') {
+      const text = payload.message.trim()
+      if (text) {
+        store.addPublicTapeLine({
+          ts: typeof payload.ts === 'string' ? payload.ts : envelope.ts,
+          role: 'ops',
+          level: 'INFO',
+          line: sanitizeText(text, { maxLength: 240 })
+        })
+      }
+    }
+  }
+
+  if (envelope.type === 'FLOOR_TAPE') {
+    const parsed = FloorTapeLineSchema.safeParse({
+      ts: typeof (envelope.payload as any)?.ts === 'string' ? (envelope.payload as any).ts : envelope.ts,
+      role: typeof (envelope.payload as any)?.role === 'string' ? (envelope.payload as any).role : undefined,
+      level: (envelope.payload as any)?.level === 'WARN' || (envelope.payload as any)?.level === 'ERROR' ? (envelope.payload as any).level : 'INFO',
+      line: typeof (envelope.payload as any)?.line === 'string' ? (envelope.payload as any).line : ''
+    })
+    if (parsed.success) {
+      store.addPublicTapeLine(parsed.data)
+    }
   }
 
   if (envelope.type === 'POSITION_UPDATE') {

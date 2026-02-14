@@ -9,7 +9,7 @@ import {
   type CrewHeartbeat,
   type CrewRole,
 } from './floor-dashboard'
-import { cardClass, inlineBadgeClass, sectionTitleClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, sectionTitleClass } from './ascii-style'
 
 type CrewNode = {
   id: string
@@ -26,28 +26,60 @@ type FloorPlanPanelProps = {
   deckFeedAgeMs: number
   deckMissing: number
   deckHeartbeatMs: number
+  theme: 'light' | 'dark'
 }
 
-const floorNetworkTheme = {
-  ...ASCII_NETWORK_THEMES.green,
-  colors: {
-    ...ASCII_NETWORK_THEMES.green.colors,
-    background: 'var(--bg-surface)',
-    grid: 'color-mix(in_srgb, var(--border) 60%, transparent)',
-    text: 'var(--fg)',
-    border: 'var(--border-active)',
-    nodeOnline: 'var(--positive)',
-    nodeOffline: 'var(--fg-muted)',
-    nodeWarning: 'var(--amber)',
-    nodeError: 'var(--negative)',
-    edgeActive: 'var(--positive)',
-    edgeInactive: 'var(--fg-dim)',
-    edgeCongested: 'var(--amber)',
-    edgeError: 'var(--negative)',
-    selection: 'var(--fg)',
-    hover: 'var(--fg)',
+type NetworkColor = {
+  background: string
+  grid: string
+  text: string
+  border: string
+  nodeOnline: string
+  nodeOffline: string
+  nodeWarning: string
+  nodeError: string
+  edgeActive: string
+  edgeInactive: string
+  edgeCongested: string
+  edgeError: string
+  selection: string
+  hover: string
+}
+
+const networkThemes: Record<'light' | 'dark', NetworkColor> = {
+  light: {
+    background: '#f4f1ec',
+    grid: 'rgba(42, 58, 74, 0.13)',
+    text: '#2f3a4c',
+    border: '#b9b0a2',
+    nodeOnline: '#2f8b67',
+    nodeOffline: '#94a8bf',
+    nodeWarning: '#b48844',
+    nodeError: '#b95d69',
+    edgeActive: '#2f8b67',
+    edgeInactive: '#8a97a6',
+    edgeCongested: '#b48844',
+    edgeError: '#b95d69',
+    selection: '#2f3a4c',
+    hover: '#2f3a4c',
   },
-} as const
+  dark: {
+    background: '#172437',
+    grid: 'rgba(220, 230, 245, 0.08)',
+    text: '#dbe5f3',
+    border: '#435774',
+    nodeOnline: '#56cfad',
+    nodeOffline: '#94a8bf',
+    nodeWarning: '#dfbe70',
+    nodeError: '#e18d98',
+    edgeActive: '#56cfad',
+    edgeInactive: '#7d8aa1',
+    edgeCongested: '#dfbe70',
+    edgeError: '#e18d98',
+    selection: '#dbe5f3',
+    hover: '#dbe5f3',
+  },
+}
 
 function heartbeatStatus(lastMs: number, nowMs: number): { status: 'active' | 'stale' | 'silent'; pulse: string; label: string } {
   if (!lastMs) {
@@ -82,6 +114,7 @@ export function FloorPlanPanel({
   deckFeedAgeMs,
   deckMissing,
   deckHeartbeatMs,
+  theme,
 }: FloorPlanPanelProps) {
   const stationRows = useMemo(() => crewTableRows(crewHeartbeat, nowMs), [crewHeartbeat, nowMs])
   const heartbeatAgeMs = Math.max(0, nowMs - deckHeartbeatMs)
@@ -90,9 +123,9 @@ export function FloorPlanPanel({
 
   useEffect(() => {
     const updateWidth = () => {
-      const fallback = typeof window === 'undefined' ? 480 : Math.min(window.innerWidth - 44, 620)
+      const fallback = typeof window === 'undefined' ? 480 : Math.min(window.innerWidth - 44, 700)
       const measured = mapRef.current?.clientWidth ?? fallback
-      setNetworkWidth(Math.max(260, Math.min(620, measured)))
+      setNetworkWidth(Math.max(260, Math.min(700, measured)))
     }
 
     updateWidth()
@@ -111,19 +144,17 @@ export function FloorPlanPanel({
   }, [])
 
   const topology = useMemo(() => {
-    const nodes = stationRows.map((row) => {
-      return {
-        id: row.id,
-        label: row.label,
-        type: row.role === 'ops' ? 'router' : 'workstation',
-        status: row.status === 'active' ? 'online' : row.status === 'stale' ? 'warning' : 'offline',
-        metadata: {
-          role: row.role,
-          heartbeat: row.ageText,
-          pulse: row.pulse,
-        },
-      }
-    })
+    const nodes = stationRows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      type: row.role === 'ops' ? 'router' : 'workstation',
+      status: row.status === 'active' ? 'online' : row.status === 'stale' ? 'warning' : 'offline',
+      metadata: {
+        role: row.role,
+        heartbeat: row.ageText,
+        pulse: row.pulse,
+      },
+    }))
 
     const edges = stationRows
       .filter((row) => row.role !== 'ops')
@@ -138,31 +169,36 @@ export function FloorPlanPanel({
         label: `link:${row.label}`,
       }))
 
-    return {
-      nodes,
-      edges,
-      metadata: {
-        name: 'HL Trading Floor',
-        description: 'Crew heartbeat topology',
-      },
-    }
+    return { nodes, edges, metadata: { name: 'HL Trading Floor', description: 'Crew heartbeat topology' } }
   }, [crewHeartbeat, stationRows, nowMs])
+
+  const floorNetworkTheme = useMemo(
+    () => ({
+      ...ASCII_NETWORK_THEMES.green,
+      colors: {
+        ...ASCII_NETWORK_THEMES.green.colors,
+        ...networkThemes[theme],
+      },
+    }),
+    [theme],
+  )
 
   return (
     <AsciiCard className={cardClass}>
-      <div className='flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2'>
+      <div className={cardHeaderClass}>
         <div>
           <div className={sectionTitleClass}>FLOOR PLAN</div>
-          <div className='text-[11px] text-[var(--fg-muted)]'>TRADING FLOOR TOPOLOGY</div>
+          <div className='text-[11px] text-hlpMuted dark:text-hlpMutedDark'>TRADING FLOOR TOPOLOGY</div>
         </div>
-        <AsciiBadge color='success' className='text-[var(--positive)]'>
+        <AsciiBadge color='success' className='text-hlpPositive dark:text-hlpPositiveDark'>
           live telemetry
         </AsciiBadge>
       </div>
-      <div className='grid grid-cols-1 gap-2 p-3 md:grid-cols-[minmax(200px,_320px)_1fr]'>
-        <div className='overflow-hidden rounded-[var(--r)] border border-[var(--border)]'>
-          <div className='border-b border-[var(--border)] px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>
-            STATION SIGNALS
+
+      <div className='grid grid-cols-1 gap-2 p-2 md:grid-cols-[minmax(220px,_320px)_1fr]'>
+        <div className='overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+          <div className={cardHeaderClass}>
+            <span className={sectionTitleClass}>STATION SIGNALS</span>
           </div>
           <AsciiTable
             columns={[
@@ -175,11 +211,12 @@ export function FloorPlanPanel({
             className='text-[9px]'
           />
         </div>
-        <div className='overflow-hidden rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg-surface)]'>
-          <div className='border-b border-[var(--border)] px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>
-            LIVE MAP
+
+        <div className='overflow-hidden rounded-hlp border border-hlpBorder dark:border-hlpBorderDark'>
+          <div className={cardHeaderClass}>
+            <span className={sectionTitleClass}>LIVE MAP</span>
           </div>
-          <div ref={mapRef} className='h-[258px] w-full max-w-full overflow-auto px-1'>
+          <div ref={mapRef} className='h-[258px] w-full max-w-full overflow-auto px-1 pb-1'>
             <AsciiNetworkVisualizer
               topology={topology}
               options={{
@@ -197,7 +234,7 @@ export function FloorPlanPanel({
               }}
             />
           </div>
-          <div className='flex flex-wrap gap-1 border-t border-[var(--border)] px-2 py-2 bg-[var(--bg-raised)]'>
+          <div className='flex flex-wrap gap-1 border-t border-hlpBorder dark:border-hlpBorderDark px-2 py-2 bg-hlpSurface dark:bg-hlpSurfaceDark'>
             <span className={inlineBadgeClass}>feedAgeMs={deckFeedAgeMs || '--'}</span>
             <span className={inlineBadgeClass}>missing={deckMissing}</span>
             <span className={inlineBadgeClass}>deck heartbeat={formatAge(heartbeatAgeMs)}</span>

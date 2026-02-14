@@ -1,7 +1,20 @@
 import { createHash } from 'node:crypto'
-import { DEFAULT_TIER_CAPABILITIES, type Entitlement, type AuditEvent, type OperatorOrder, type OperatorPosition, type TierCapabilityMap, PublicSnapshot, PublicPnlResponse, TradeState } from '@hl/privateer-contracts'
+import {
+  type FloorTapeLine,
+  DEFAULT_TIER_CAPABILITIES,
+  type Entitlement,
+  type AuditEvent,
+  type OperatorOrder,
+  type OperatorPosition,
+  type TierCapabilityMap,
+  PublicSnapshot,
+  PublicPnlResponse,
+  TradeState
+} from '@hl/privateer-contracts'
 import { createApiStore, type ApiPersistence } from './db/persistence'
 import { env } from './config'
+
+const PUBLIC_TAPE_HISTORY_LIMIT = 120
 
 export interface ApiRuntimeSnapshot {
   mode: TradeState
@@ -21,6 +34,7 @@ export class ApiStore {
     pnlPct: 0,
     healthCode: 'GREEN',
     driftState: 'IN_TOLERANCE',
+    recentTape: [],
     lastUpdateAt: new Date().toISOString()
   }
   public positions: OperatorPosition[] = []
@@ -112,6 +126,21 @@ export class ApiStore {
 
   public getPublicSnapshot(): PublicSnapshot {
     return this.snapshot
+  }
+
+  public addPublicTapeLine(line: FloorTapeLine): void {
+    const trimmed: FloorTapeLine = {
+      ts: typeof line.ts === 'string' ? line.ts : new Date().toISOString(),
+      role: line.role?.trim() || undefined,
+      level: line.level ?? 'INFO',
+      line: line.line.trim()
+    }
+
+    if (!trimmed.line) {
+      return
+    }
+
+    this.snapshot.recentTape = [...this.snapshot.recentTape, trimmed].slice(-PUBLIC_TAPE_HISTORY_LIMIT)
   }
 
   public setSnapshot(snapshot: Partial<ApiSnapshot>) {

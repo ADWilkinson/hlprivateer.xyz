@@ -1,5 +1,5 @@
 import { AsciiBadge, AsciiCard } from 'react-ascii-ui'
-import { cardClass, inlineBadgeClass, mutedPanelClass } from './ascii-style'
+import { cardClass, cardHeaderClass, inlineBadgeClass, mutedPanelClass, statusCellClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -21,15 +21,11 @@ type StatusStripProps = {
   deckMissing: number
 }
 
-function Led({ variant }: { variant: 'ok' | 'warn' | 'danger' }) {
-  const variantClass = {
-    ok: 'bg-[var(--positive)] shadow-[0_0_6px_color-mix(in_srgb,_var(--positive)_35%,_transparent)] animate-[led-pulse_3s_ease-in-out_infinite]',
-    warn: 'bg-[var(--amber)] shadow-[0_0_6px_color-mix(in_srgb,_var(--amber)_35%,_transparent)] animate-[led-pulse_2s_ease-in-out_infinite]',
-    danger: 'bg-[var(--negative)] shadow-[0_0_6px_color-mix(in_srgb,_var(--negative)_35%,_transparent)] animate-[led-pulse_1s_ease-in-out_infinite]',
-  }[variant]
-
-  return <span className={`inline-block h-1.5 w-1.5 rounded-full flex-shrink-0 ${variantClass}`} />
-}
+const LED_CLASS_BY_STATE = {
+  ok: 'bg-hlpPositive dark:bg-hlpPositiveDark shadow-[0_0_8px_rgba(47,139,103,0.35)] dark:shadow-[0_0_8px_rgba(86,207,173,0.34)] animate-hlp-led',
+  warn: 'bg-hlpWarning dark:bg-hlpWarningDark shadow-[0_0_8px_rgba(180,136,68,0.35)] dark:shadow-[0_0_8px_rgba(223,190,112,0.34)] animate-hlp-led',
+  danger: 'bg-hlpNegative dark:bg-hlpNegativeDark shadow-[0_0_8px_rgba(185,93,105,0.35)] dark:shadow-[0_0_8px_rgba(225,141,152,0.34)] animate-hlp-led',
+} as const
 
 export function StatusStrip({
   snapshot,
@@ -48,39 +44,51 @@ export function StatusStrip({
   const isFeedStale = snapshotAgeMs > 12_000
 
   return (
-    <AsciiCard
-      className={cardClass}
-    >
-      <div className='px-3 py-2 border-b border-[var(--border)] text-[9px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>FLOOR STATUS</div>
-      <div className='grid grid-cols-1 gap-px border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
-        <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>MODE</span>
-          <span className='text-[11px] font-bold text-[var(--fg)]'>{snapshot.mode}</span>
+    <AsciiCard className={cardClass}>
+      <div className={cardHeaderClass}>FLOOR STATUS</div>
+
+      <div className='grid grid-cols-1 border border-hlpBorder dark:border-hlpBorderDark bg-hlpBorder dark:bg-hlpBorderDark gap-px sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'>
+        <div className={statusCellClass}>
+          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>MODE</span>
+          <span className='text-[11px] font-bold'>{snapshot.mode}</span>
         </div>
-        <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>WS</span>
-          <span className={`text-[11px] font-bold ${wsState === 'OPEN' ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}`}>{wsState}</span>
+        <div className={statusCellClass}>
+          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>WS</span>
+          <span
+            className={`text-[11px] font-bold ${
+              wsState === 'OPEN' ? 'text-hlpPositive dark:text-hlpPositiveDark' : 'text-hlpNegative dark:text-hlpNegativeDark'
+            }`}
+          >
+            {wsState}
+          </span>
         </div>
-        <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>HEALTH</span>
-          <Led variant={health} />
-          <span className='text-[11px] font-bold text-[var(--fg)]'>{snapshot.healthCode}</span>
+        <div className={statusCellClass}>
+          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>HEALTH</span>
+          <span className='flex items-center gap-2'>
+            <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
+            <span className='text-[11px] font-bold'>{snapshot.healthCode}</span>
+          </span>
         </div>
-        <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>DRIFT</span>
-          <Led variant={drift} />
-          <span className='text-[11px] font-bold text-[var(--fg)]'>{snapshot.driftState}</span>
+        <div className={statusCellClass}>
+          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DRIFT</span>
+          <span className='flex items-center gap-2'>
+            <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[drift]}`} />
+            <span className='text-[11px] font-bold'>{snapshot.driftState}</span>
+          </span>
         </div>
-        <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>FEED AGE</span>
-          <span className={`text-[11px] font-bold ${isFeedStale ? 'text-[var(--negative)]' : 'text-[var(--fg)]'}`}>{formatAge(Math.max(0, snapshotAgeMs))}</span>
+        <div className={statusCellClass}>
+          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>FEED AGE</span>
+          <span className={`text-[11px] font-bold ${isFeedStale ? 'text-hlpNegative dark:text-hlpNegativeDark' : ''}`}>
+            {formatAge(Math.max(0, snapshotAgeMs))}
+          </span>
         </div>
-        <div className='flex items-center justify-between gap-2 bg-[var(--bg-raised)] px-3 py-2 min-h-[34px]'>
-          <span className='text-[8px] uppercase tracking-[0.2em] text-[var(--fg-muted)]'>DECK HEARTBEAT</span>
-          <span className='text-[11px] font-bold text-[var(--fg)]'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
+        <div className={statusCellClass}>
+          <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted dark:text-hlpMutedDark'>DECK HEARTBEAT</span>
+          <span className='text-[11px] font-bold'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
         </div>
       </div>
-      <div className={`flex flex-wrap gap-1.5 border-t border-[var(--border)] px-3 py-2 ${mutedPanelClass}`}>
+
+      <div className={`flex flex-wrap gap-1.5 border-t border-hlpBorder/80 dark:border-hlpBorderDark/80 px-3 py-2 ${mutedPanelClass}`}>
         <span className={inlineBadgeClass}>exchange=HYPERLIQUID</span>
         <span className={inlineBadgeClass}>quietSignals={suppressedNoAction}</span>
         <span className={inlineBadgeClass}>riskDenied={riskDeniedCount}</span>
@@ -91,7 +99,7 @@ export function StatusStrip({
         <span className={inlineBadgeClass}>
           <AsciiBadge
             color={isFeedStale ? 'warning' : 'success'}
-            className={isFeedStale ? 'text-[var(--amber)]' : 'text-[var(--positive)]'}
+            className={isFeedStale ? 'text-hlpWarning dark:text-hlpWarningDark' : 'text-hlpPositive dark:text-hlpPositiveDark'}
           >
             {isFeedStale ? 'HEARTBEAT DRIFT' : 'HEALTHY'}
           </AsciiBadge>

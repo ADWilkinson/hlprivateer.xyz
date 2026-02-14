@@ -6,9 +6,11 @@ import {
   type CrewHeartbeat,
   type CrewStats,
   type Snapshot,
+  TAPE_DISPLAY_LIMIT,
   type TapeEntry,
   type WsState,
   normalizeCrewRole,
+  normalizeTapeLinePrefix,
   parseDeckStatus,
   renderAsciiChart,
   shouldSuppressTapeLine,
@@ -16,7 +18,6 @@ import {
   EMPTY_STATS,
   SILENCE_REFRESH_MS,
 } from './ui/floor-dashboard'
-import { CREW } from './ui/floor-dashboard'
 import { CrewStationsPanel } from './ui/CrewStationsPanel'
 import { FloorPlanPanel } from './ui/FloorPlanPanel'
 import { FloorFooter } from './ui/FloorFooter'
@@ -24,6 +25,7 @@ import { FloorHeader } from './ui/FloorHeader'
 import { PnlPanel } from './ui/PnlPanel'
 import { StatusStrip } from './ui/StatusStrip'
 import { TapeSection } from './ui/TapeSection'
+import { pageShellClass } from './ui/ascii-style'
 
 type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
@@ -33,8 +35,13 @@ const chartWidth = 64
 const chartHeight = 12
 const RISK_DENIAL_SUPPRESS_MS = 45_000
 
+function normalizeTapePrefix(line: string): string {
+  return normalizeTapeLinePrefix(line.trim())
+}
+
 function normalizeRiskDenial(text: string): { signature: string; display: string } {
-  const reason = text.replace(/^risk denied\s*:?\s*/i, '').trim()
+  const normalizedText = normalizeTapePrefix(text)
+  const reason = normalizedText.replace(/^risk denied\s*:?\s*/i, '').trim()
   const display = reason
     .replace(/\b[a-f0-9]{10,}\b/gi, '<id>')
     .replace(/\d+/g, '')
@@ -53,6 +60,24 @@ function normalizeRiskDenial(text: string): { signature: string; display: string
   return {
     signature: signature || display || 'no reason',
     display: display || 'no reason',
+  }
+}
+
+function parseLevel(level: unknown): TapeEntry['level'] {
+  return level === 'WARN' || level === 'ERROR' ? level : 'INFO'
+}
+
+function normalizeTapeEntry(input: { ts?: unknown; role?: unknown; level?: unknown; line?: unknown }): TapeEntry | null {
+  const line = typeof input.line === 'string' ? input.line.trim() : ''
+  if (!line) {
+    return null
+  }
+
+  return {
+    ts: typeof input.ts === 'string' ? input.ts : new Date().toISOString(),
+    role: typeof input.role === 'string' ? input.role : undefined,
+    level: parseLevel(input.level),
+    line,
   }
 }
 
@@ -90,13 +115,22 @@ export default function DeckPage() {
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
+  const seenTapeRef = useRef<Set<string>>(new Set())
 
   const tapeRef = useRef<HTMLDivElement | null>(null)
   const lastPnlSampleAtRef = useRef<number>(0)
 
   useEffect(() => {
     const stored = localStorage.getItem('hlp-theme')
-    if (stored === 'light') setTheme('light')
+    if (stored === 'light' || stored === 'dark') {
+      setTheme(stored)
+      return
+    }
+
+    const theme = document.documentElement.dataset.theme
+    if (theme === 'light' || theme === 'dark') {
+      setTheme(theme)
+    }
   }, [])
 
   useEffect(() => {
@@ -109,6 +143,7 @@ export default function DeckPage() {
     setTheme(next)
     localStorage.setItem('hlp-theme', next)
     document.documentElement.setAttribute('data-theme', next)
+    document.documentElement.classList.toggle('dark', next === 'dark')
   }
 
   const chart = useMemo(() => {
@@ -124,34 +159,6 @@ export default function DeckPage() {
     let running = true
     let socket: WebSocket | undefined
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
-
-    const pushTape = (entry: TapeEntry) => {
-      const lowered = entry.line.toLowerCase()
-      const isRiskDenial = lowered.startsWith('risk denied')
-      if (isRiskDenial) {
-        const normalized = normalizeRiskDenial(entry.line)
-        const { signature, display } = normalized
-        const now = Date.now()
-        const shouldSurfaceRiskDenial =
-          now - riskDenialRef.current.atMs >= RISK_DENIAL_SUPPRESS_MS || riskDenialRef.current.signature !== signature
-        if (!shouldSurfaceRiskDenial) {
-          setRiskDeniedReason(display)
-          setRiskDeniedSuppressed((value) => value + 1)
-          return
-        }
-
-        riskDenialRef.current = { signature, atMs: now }
-        setRiskDeniedCount((value) => value + 1)
-        setRiskDeniedReason(display)
-      }
-
-      setTape((current) => [entry, ...current].slice(0, 64))
-      if (entry.role && CREW.includes(entry.role as (typeof CREW)[number])) {
-        const role = entry.role as CrewRole
-        setCrewLast((current) => ({ ...current, [role]: entry }))
-      }
-
-    }
 
     const touchCrew = (role: CrewRole | undefined, level: TapeLevel, line: string) => {
       if (!role) return
@@ -177,6 +184,68 @@ export default function DeckPage() {
       setDeckHeartbeatMs(Date.now())
     }
 
+    const trimTapeDedupWindow = () => {
+      if (seenTapeRef.current.size <= 500) return
+      const next = Array.from(seenTapeRef.current)
+      seenTapeRef.current = new Set(next.slice(-250))
+    }
+
+    const shouldRenderTapeLine = (entry: TapeEntry): boolean => {
+      const role = normalizeCrewRole(entry.role)
+      const normalizedLine = normalizeTapePrefix(entry.line)
+      const lowered = normalizedLine.toLowerCase()
+      const isDeckStatus = /^deck status /i.test(lowered)
+      const isRiskDenial = /^risk denied\b/i.test(lowered)
+
+      if (isDeckStatus) {
+        recordDeckStatus(normalizedLine)
+        setSuppressedNoAction((value) => value + 1)
+        return false
+      }
+
+      if (isRiskDenial) {
+        const normalized = normalizeRiskDenial(entry.line)
+        const { signature, display } = normalized
+        const now = Date.now()
+        const shouldSurfaceRiskDenial =
+          now - riskDenialRef.current.atMs >= RISK_DENIAL_SUPPRESS_MS || riskDenialRef.current.signature !== signature
+        if (!shouldSurfaceRiskDenial) {
+          setRiskDeniedReason(display)
+          setRiskDeniedSuppressed((value) => value + 1)
+          return false
+        }
+
+        riskDenialRef.current = { signature, atMs: now }
+        setRiskDeniedCount((value) => value + 1)
+        setRiskDeniedReason(display)
+      }
+
+      if (isRiskDenial) {
+        const signature = `${entry.ts}|${entry.level ?? 'INFO'}|${normalizedLine}`
+        if (seenTapeRef.current.has(signature)) {
+          return false
+        }
+        seenTapeRef.current.add(signature)
+        trimTapeDedupWindow()
+      }
+
+      if (shouldSuppressTapeLine(entry.line)) {
+        setSuppressedNoAction((value) => value + 1)
+        return false
+      }
+
+      touchCrew(role, entry.level || 'INFO', entry.line)
+
+      const signature = `${entry.ts}|${role ?? ''}|${entry.level ?? 'INFO'}|${normalizedLine.toLowerCase()}`
+      if (seenTapeRef.current.has(signature)) {
+        return false
+      }
+
+      seenTapeRef.current.add(signature)
+      trimTapeDedupWindow()
+      return true
+    }
+
     const samplePnl = (payload: { pnlPct?: unknown; lastUpdateAt?: unknown }) => {
       const pnlPct = Number(payload.pnlPct)
       if (!Number.isFinite(pnlPct)) return
@@ -189,12 +258,33 @@ export default function DeckPage() {
 
     const load = async () => {
       try {
-        const res = await fetch(apiUrl('/v1/public/floor-snapshot'))
-        if (res.ok) {
-          const next = (await res.json()) as Snapshot
+        const [snapshotResponse, tapeResponse] = await Promise.all([
+          fetch(apiUrl('/v1/public/floor-snapshot')),
+          fetch(apiUrl('/v1/public/floor-tape')),
+        ])
+
+        if (snapshotResponse.ok) {
+          const next = (await snapshotResponse.json()) as Snapshot
           setSnapshot(next)
           setDeckHeartbeatMs(Date.now())
           samplePnl(next)
+        }
+
+        if (tapeResponse.ok) {
+          const rawTape = await tapeResponse.json()
+          const loadedLines = Array.isArray(rawTape)
+            ? rawTape
+                .map((line) => normalizeTapeEntry(line as Record<string, unknown>))
+                .filter((entry): entry is TapeEntry => entry !== null)
+                .reverse()
+            : []
+          const initialTape = loadedLines
+            .map((entry) => (shouldRenderTapeLine(entry) ? entry : null))
+            .filter((entry): entry is TapeEntry => entry !== null)
+
+          if (initialTape.length > 0) {
+            setTape(initialTape.slice(0, TAPE_DISPLAY_LIMIT))
+          }
         }
       } catch {
         // initial load network issues are non-fatal
@@ -210,7 +300,15 @@ export default function DeckPage() {
         socket.onopen = () => {
           socket?.send(JSON.stringify({ type: 'sub.add', channel: 'public' }))
           setWsState('OPEN')
-          pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'ws connected' })
+          const connectedEntry = normalizeTapeEntry({
+            ts: new Date().toISOString(),
+            role: 'ops',
+            level: 'INFO',
+            line: 'ws connected',
+          })
+          if (connectedEntry && shouldRenderTapeLine(connectedEntry)) {
+            setTape((current) => [connectedEntry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
+          }
         }
 
         socket.onmessage = (event) => {
@@ -227,50 +325,54 @@ export default function DeckPage() {
               samplePnl(payload)
               const message = typeof payload.message === 'string' ? payload.message : ''
               if (message) {
-                recordDeckStatus(message)
-                if (shouldSuppressTapeLine(message)) {
-                  setSuppressedNoAction((value) => value + 1)
-                } else {
-                  pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: message })
+                const parsedMessage = normalizeTapeEntry({
+                  ts: typeof payload.ts === 'string' ? payload.ts : new Date().toISOString(),
+                  role: 'ops',
+                  level: 'INFO',
+                  line: message,
+                })
+                if (parsedMessage && shouldRenderTapeLine(parsedMessage)) {
+                  setTape((current) => [parsedMessage, ...current].slice(0, TAPE_DISPLAY_LIMIT))
                 }
               }
               return
             }
 
             if (payloadType === 'FLOOR_TAPE') {
-              const ts = typeof payload.ts === 'string' ? payload.ts : new Date().toISOString()
-              const role = typeof payload.role === 'string' ? payload.role : undefined
-              const level = payload.level === 'WARN' || payload.level === 'ERROR' ? payload.level : 'INFO'
-              const line = typeof payload.line === 'string' ? payload.line : ''
-              if (!line) return
-              const parsedRole = normalizeCrewRole(role)
-              const suppressed = shouldSuppressTapeLine(line)
-
-              touchCrew(parsedRole, level, line)
-              recordDeckStatus(line)
-
-              if (suppressed) {
-                setSuppressedNoAction((value) => value + 1)
-                return
+              const entry = normalizeTapeEntry(payload)
+              if (!entry) return
+              if (shouldRenderTapeLine(entry)) {
+                setTape((current) => [entry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
               }
-
-              pushTape({ ts, role, level, line })
               return
             }
           } catch (error) {
-            pushTape({
+            const parseError = normalizeTapeEntry({
               ts: new Date().toISOString(),
               role: 'ops',
               level: 'WARN',
               line: `ws parse error: ${String(error).slice(0, 120)}`,
             })
+            if (parseError) {
+              if (shouldRenderTapeLine(parseError)) {
+                setTape((current) => [parseError, ...current].slice(0, TAPE_DISPLAY_LIMIT))
+              }
+            }
           }
         }
 
         socket.onclose = () => {
           if (!running) return
           setWsState('CLOSED')
-          pushTape({ ts: new Date().toISOString(), role: 'ops', level: 'WARN', line: 'ws disconnected, reconnecting' })
+          const disconnectedEntry = normalizeTapeEntry({
+            ts: new Date().toISOString(),
+            role: 'ops',
+            level: 'WARN',
+            line: 'ws disconnected, reconnecting',
+          })
+          if (disconnectedEntry && shouldRenderTapeLine(disconnectedEntry)) {
+            setTape((current) => [disconnectedEntry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
+          }
           reconnectTimer = setTimeout(connect, 1500)
         }
 
@@ -279,12 +381,15 @@ export default function DeckPage() {
         }
       } catch (error) {
         setWsState('CLOSED')
-        pushTape({
+        const connectErrorEntry = normalizeTapeEntry({
           ts: new Date().toISOString(),
           role: 'ops',
           level: 'WARN',
           line: `ws connect failed: ${String(error).slice(0, 120)}`,
         })
+        if (connectErrorEntry && shouldRenderTapeLine(connectErrorEntry)) {
+          setTape((current) => [connectErrorEntry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
+        }
         reconnectTimer = setTimeout(connect, 1500)
       }
     }
@@ -304,7 +409,7 @@ export default function DeckPage() {
   const snapshotAgeMs = Number.isFinite(Date.parse(snapshot.lastUpdateAt)) ? nowTick - Date.parse(snapshot.lastUpdateAt) : 0
 
   return (
-    <main className='floor'>
+    <main className={pageShellClass}>
       <FloorHeader theme={theme} apiBase={apiUrl('')} onToggleTheme={toggleTheme} />
       <StatusStrip
         snapshot={snapshot}
@@ -324,6 +429,7 @@ export default function DeckPage() {
         deckFeedAgeMs={deckFeedAgeMs}
         deckMissing={deckMissing}
         deckHeartbeatMs={deckHeartbeatMs}
+        theme={theme}
       />
       <PnlPanel snapshot={snapshot} chart={chart} />
       <CrewStationsPanel crewLast={crewLast} crewHeartbeat={crewHeartbeat} crewSignals={crewSignals} nowMs={crewNow} />
