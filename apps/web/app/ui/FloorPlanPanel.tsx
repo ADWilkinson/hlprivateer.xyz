@@ -92,9 +92,9 @@ export function FloorPlanPanel({
 
   useEffect(() => {
     const updateWidth = () => {
-      const fallback = typeof window === 'undefined' ? 480 : Math.min(window.innerWidth - 44, 700)
+      const fallback = typeof window === 'undefined' ? 620 : window.innerWidth - 44
       const measured = mapRef.current?.clientWidth ?? fallback
-      setNetworkWidth(Math.max(260, Math.min(700, measured)))
+      setNetworkWidth(Math.max(260, measured))
     }
 
     updateWidth()

@@ -15,7 +15,7 @@ export function FloorHeader({ theme, apiBase, onToggleTheme }: FloorHeaderProps)
           <div className={sectionTitleClass}>LIVE TRADING FLOOR</div>
           <div className='text-[17px] leading-none font-bold tracking-[0.22em]'>[HL] PRIVATEER</div>
           <div className={mutedTextClass}>access lane: x402</div>
-          <div className='max-w-[280px] truncate text-[9px] text-hlpMuted dark:text-hlpMutedDark'>{apiBase}</div>
+          <div className='max-w-full truncate text-[9px] text-hlpMuted dark:text-hlpMutedDark'>{apiBase}</div>
         </div>
         <div className='flex w-full sm:w-auto items-center'>
           <AsciiBadge tone='neutral' variant='angle' className='mr-2 tracking-[0.2em]'>
