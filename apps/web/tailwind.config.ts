@@ -18,6 +18,7 @@ const config: Config = {
         hlpFg: '#27272A',
         hlpMuted: '#27272A',
         hlpDim: '#27272A',
+        hlpHealthy: '#3D5A45',
         hlpPositive: '#0072B5',
         hlpWarning: '#DC7F5A',
         hlpNegative: '#9E4445',

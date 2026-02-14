@@ -23,9 +23,15 @@ type StatusStripProps = {
 }
 
 const LED_CLASS_BY_STATE = {
-  ok: 'bg-hlpPositive shadow-[0_0_8px_rgba(0,114,181,0.35)] animate-hlp-led',
-  warn: 'bg-hlpWarning shadow-[0_0_8px_rgba(39,39,42,0.25)] animate-hlp-led',
-  danger: 'bg-hlpNegative shadow-[0_0_8px_rgba(158,68,69,0.25)] animate-hlp-led',
+  ok: 'bg-hlpHealthy animate-hlp-led',
+  warn: 'bg-hlpWarning animate-hlp-led',
+  danger: 'bg-hlpNegative animate-hlp-led',
+} as const
+
+const LED_TEXT_BY_STATE = {
+  ok: 'text-hlpHealthy',
+  warn: 'text-hlpWarning',
+  danger: 'text-hlpNegative',
 } as const
 
 export function StatusStrip({
@@ -92,7 +98,7 @@ export function StatusStrip({
               <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>WS</span>
               <span
                 className={`text-[11px] font-bold ${
-                  wsState === 'OPEN' ? 'text-hlpPositive' : 'text-hlpNegative'
+                  wsState === 'OPEN' ? 'text-hlpHealthy' : 'text-hlpNegative'
                 }`}
               >
                 {wsState}
@@ -102,7 +108,7 @@ export function StatusStrip({
               <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEALTH</span>
               <span className='flex items-center gap-2'>
                 <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
-                <span className='text-[11px] font-bold'>{healthLabel}</span>
+                <span className={`text-[11px] font-bold ${LED_TEXT_BY_STATE[health]}`}>{healthLabel}</span>
               </span>
             </div>
             <div className={statusCellClass}>

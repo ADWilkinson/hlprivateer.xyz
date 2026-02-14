@@ -1,6 +1,6 @@
 export const pageShellClass = 'mx-auto w-full max-w-[1400px] flex flex-col gap-2 px-2 py-3 sm:px-4 sm:py-4 lg:px-6 2xl:px-8'
-export const panelRadius = 'rounded-sm'
-export const panelRadiusSubtle = 'rounded-[2px]'
+export const panelRadius = 'rounded-[6px]'
+export const panelRadiusSubtle = 'rounded-[3px]'
 export const panelGap = 'gap-2'
 export const panelBalancedPad = 'p-3'
 export const panelBodyPad = 'px-2 py-2'
@@ -33,7 +33,7 @@ export const terminalPanelClass =
 export const statusCellClass =
   'flex items-center justify-between gap-2 border-b border-hlpBorder/80 bg-hlpPanel/95 px-3 py-2 min-h-[34px]'
 
-export const monitorClass = 'overflow-hidden rounded-[2px] border border-hlpBorder/55 bg-hlpSurface'
+export const monitorClass = 'overflow-hidden rounded-[4px] bg-hlpSurface'
 
 export const sectionStripClass =
   `flex flex-wrap ${panelGap} border-t border-hlpBorder/85 ${panelBodyPad}`

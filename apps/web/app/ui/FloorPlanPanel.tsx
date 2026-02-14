@@ -58,13 +58,13 @@ const roleRoute: Record<CrewRole, string> = {
 }
 
 const NODE_LEGEND = [
-  { key: 'online', label: 'ONLINE', dotClass: 'bg-hlpPositive', detail: 'steady' },
-  { key: 'warning', label: 'WEAK', dotClass: 'bg-hlpWarning', detail: 'aging' },
-  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-hlpNegative', detail: 'silent' },
+  { key: 'online', label: 'ONLINE', dotClass: 'bg-hlpHealthy', detail: 'steady node' },
+  { key: 'warning', label: 'WEAK', dotClass: 'bg-hlpWarning', detail: 'aging signal' },
+  { key: 'offline', label: 'OFFLINE', dotClass: 'bg-hlpNegative', detail: 'no pulse' },
 ] as const
 
 const EDGE_LEGEND = [
-  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-hlpPositive', detail: 'full health' },
+  { key: 'active', label: 'ACTIVE LINK', dotClass: 'stroke-hlpHealthy', detail: 'full health' },
   { key: 'congested', label: 'CONGESTED', dotClass: 'stroke-hlpWarning', detail: 'slow lane' },
   { key: 'warning', label: 'WARN LINK', dotClass: 'stroke-hlpWarning', detail: 'unstable' },
   { key: 'error', label: 'ERROR', dotClass: 'stroke-hlpNegative', detail: 'broken' },

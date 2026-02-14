@@ -9,7 +9,26 @@ This repo currently has:
 3. A **canonical x402 v2 facilitator-backed gate** (optional, enabled by config):
    - `apps/api/src/x402-facilitator.ts`
    - `X402_PROVIDER=facilitator` to enforce canonical `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` / `PAYMENT-RESPONSE`
-   - Paid routes (currently): `GET /v1/agent/stream/snapshot`, `GET /v1/agent/analysis/latest`, `GET /v1/agent/analysis`, `GET /v1/agent/positions`, `GET /v1/agent/orders`
+   - Paid routes (currently):
+     - `GET /v1/agent/stream/snapshot`
+     - `GET /v1/agent/analysis/latest`
+     - `GET /v1/agent/analysis`
+     - `GET /v1/agent/positions`
+     - `GET /v1/agent/orders`
+     - `GET /v1/agent/data/overview`
+     - `GET /v1/agent/insights`
+     - `GET /v1/agent/copy-trade/signals`
+     - `GET /v1/agent/copy-trade/positions`
+   - Route pricing env (defaults):
+     - `X402_PRICE_STREAM_SNAPSHOT=$0.001`
+     - `X402_PRICE_ANALYSIS_LATEST=$0.005`
+     - `X402_PRICE_ANALYSIS_HISTORY=$0.01`
+     - `X402_PRICE_POSITIONS=$0.01`
+     - `X402_PRICE_ORDERS=$0.01`
+     - `X402_PRICE_MARKET_DATA=$0.02`
+     - `X402_PRICE_AGENT_INSIGHTS=$0.02`
+     - `X402_PRICE_COPY_TRADE_SIGNALS=$0.03`
+     - `X402_PRICE_COPY_TRADE_POSITIONS=$0.03`
 
 If you need actual x402 v2 interoperability (buyers retry with `PAYMENT-SIGNATURE`, sellers return `PAYMENT-REQUIRED` + `PAYMENT-RESPONSE`), follow the canonical flow below.
 

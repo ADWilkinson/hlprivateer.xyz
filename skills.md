@@ -69,15 +69,23 @@ Capabilities:
 ### 2.2 premium-agent
 Tier: 1+
 Capabilities:
+- `stream.read.public`
 - `stream.read.obfuscated.realtime`
 - `command.status`
 - `command.explain.redacted`
+- `analysis.read`
 
 ### 2.3 integration-agent
 Tier: 2+ and whitelist
 Capabilities:
 - `plugin.submit`
 - `plugin.health.read`
+- `market.data.read`
+- `agent.insights.read`
+- `copy.positions.read`
+- `copy.signals.read`
+- `analysis.read`
+- `command.positions`
 
 ## 3. Shared schemas
 
