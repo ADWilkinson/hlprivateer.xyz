@@ -12,7 +12,7 @@ type CrewStationsPanelProps = {
 
 export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs }: CrewStationsPanelProps) {
   return (
-    <AsciiCard title='CREW STATIONS' className='panel-card' style={{ padding: 0, backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)' }}>
+    <AsciiCard title='CREW STATIONS' className='panel-shell'>
       <div className='section-bar'>
         <div className='section-label'>CREW STATIONS</div>
         <AsciiBadge color='success'>7 AGENTS</AsciiBadge>
@@ -40,7 +40,7 @@ export function CrewStationsPanel({ crewLast, crewHeartbeat, crewSignals, nowMs 
                 <span className={`agent-level ${level.toLowerCase()}`}>{level}</span>
                 <div className='agent-activity'>
                   <span className='agent-activity-bar' aria-hidden='true'>
-                    <span className='agent-activity-fill' style={{ width: `${beatScore}%` }} />
+                    <span className={`agent-activity-fill agent-fill-${Math.round(beatScore / 10) * 10}`} />
                   </span>
                   <span className='agent-activity-age'>{heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
                 </div>

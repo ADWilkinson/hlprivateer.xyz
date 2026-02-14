@@ -10,7 +10,7 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
   const pnl = Number.isFinite(snapshot.pnlPct) ? snapshot.pnlPct : 0
 
   return (
-    <AsciiCard title='PROFIT / LOSS' className='panel-card' style={{ padding: 0, backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)' }}>
+    <AsciiCard title='PROFIT / LOSS' className='panel-shell'>
       <section className='pnl-row'>
         <div className='pnl-hero'>
           <div className='pnl-label'>PORTFOLIO P&L</div>
@@ -23,7 +23,7 @@ export function PnlPanel({ snapshot, chart }: PnlPanelProps) {
             <span className='pnl-dot'>·</span>
             <span>{formatTime(snapshot.lastUpdateAt)}</span>
           </div>
-          <div className='plan-meta-item' style={{ marginTop: '10px' }}>
+          <div className='plan-meta-item mt-2.5'>
             <AsciiBadge color={snapshot.mode === 'SAFE_MODE' || snapshot.mode === 'HALT' ? 'error' : 'success'}>
               {snapshot.mode === 'SAFE_MODE' || snapshot.mode === 'HALT' ? 'RISK MODE' : 'TRADING READY'}
             </AsciiBadge>

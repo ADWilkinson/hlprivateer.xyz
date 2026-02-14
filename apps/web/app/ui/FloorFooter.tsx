@@ -6,7 +6,7 @@ type FloorFooterProps = {
 
 export function FloorFooter({ apiEndpoint }: FloorFooterProps) {
   return (
-    <AsciiCard title='ACCESS LANE' className='floor-footer' style={{ padding: '10px 14px', backgroundColor: 'var(--bg-raised)', borderColor: 'var(--border)' }}>
+    <AsciiCard title='ACCESS LANE' className='floor-footer panel-shell'>
       <div className='footer-line'>
         <span className='footer-sep'>───</span>
         <span className='footer-text'>x402 agent access</span>
