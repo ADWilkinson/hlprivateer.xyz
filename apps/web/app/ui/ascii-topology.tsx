@@ -169,8 +169,9 @@ function renderTopologyMap(
   pulseMs = 0,
   loading = false,
 ): string {
-  const width = Math.max(84, Math.min(230, Math.floor(widthPx / 4)))
-  const height = Math.max(30, Math.min(72, Math.floor(width * 0.4)))
+  const widthPxSafe = Math.max(1, Math.floor(widthPx))
+  const width = Math.max(32, Math.min(220, Math.floor(widthPxSafe / 7)))
+  const height = Math.max(28, Math.min(68, Math.floor(width * 0.5)))
   const compact = width < 112
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '))
 
@@ -290,7 +291,7 @@ export function AsciiTopology({
 }: AsciiTopologyProps) {
   const map = useMemo(() => renderTopologyMap(nodes, edges, theme, width, pulseMs, loading), [nodes, edges, theme, width, pulseMs, loading])
 
-  return <pre className={`overflow-auto whitespace-pre ${className}`}>{map}</pre>
+  return <pre className={`overflow-hidden whitespace-pre ${className} max-w-full`}>{map}</pre>
 }
 
 export type { EdgeStatus, NodeStatus }
