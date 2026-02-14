@@ -249,6 +249,16 @@ type BasketSelection = {
   }
 }
 
+type StrategistDirectiveDecision = 'MAINTAIN' | 'ROTATE' | 'EXIT'
+
+type StrategistDirective = {
+  decision: StrategistDirectiveDecision
+  targetNotionalMultiplier: number
+  rationale: string
+  confidence: number
+  decidedAt: string
+}
+
 function defaultBasketFromEnv(): string[] {
   return env.BASKET_SYMBOLS
     .split(',')
@@ -289,6 +299,14 @@ function syncActiveBasketFromPositions(positions: OperatorPosition[]): void {
     return
   }
 
+  if (basketPivot) {
+    const nowMs = Date.now()
+    if (nowMs < basketPivot.expiresAtMs) {
+      return
+    }
+    basketPivot = null
+  }
+
   const heldBasket = basketFromPositions(positions)
   if (heldBasket.length === 0) {
     return
@@ -310,8 +328,17 @@ let activeBasket: BasketSelection = {
   rationale: 'seeded from env',
   selectedAt: new Date(0).toISOString()
 }
+let activeDirective: StrategistDirective = {
+  decision: 'MAINTAIN',
+  targetNotionalMultiplier: 1,
+  rationale: 'default directive',
+  confidence: 0.3,
+  decidedAt: new Date(0).toISOString()
+}
 let basketSelectInFlight = false
+let directiveInFlight = false
 let cachedUniverse: { assets: HyperliquidUniverseAsset[]; fetchedAtMs: number } = { assets: [], fetchedAtMs: 0 }
+let basketPivot: { basketSymbols: string[]; startedAtMs: number; expiresAtMs: number } | null = null
 
 async function fetchUniverseAssetsCached(nowMs: number): Promise<HyperliquidUniverseAsset[]> {
   // Keep a short cache to avoid hammering the info endpoint.
@@ -447,16 +474,22 @@ function validateBasketSelection(params: { requested: string[]; allowed: BasketC
   return picked
 }
 
-async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: PluginSignal[]; positions: OperatorPosition[] }): Promise<void> {
+async function maybeSelectBasket(params: {
+  targetNotionalUsd: number
+  signals: PluginSignal[]
+  positions: OperatorPosition[]
+  force?: boolean
+}): Promise<void> {
   const nowMs = Date.now()
   if (basketSelectInFlight) {
     return
   }
-  if (params.positions.length > 0) {
+  if (params.positions.length > 0 && !params.force) {
     return
   }
 
   const needsRefresh =
+    params.force ||
     activeBasket.basketSymbols.length !== env.AGENT_BASKET_SIZE ||
     nowMs - Date.parse(activeBasket.selectedAt) > env.AGENT_BASKET_REFRESH_MS
   if (!needsRefresh) {
@@ -698,19 +731,30 @@ async function maybeSelectBasket(params: { targetNotionalUsd: number; signals: P
   }
 }
 
-function buildDeltaProposal(params: {
+function signedNotionalBySymbol(positions: OperatorPosition[]): Map<string, number> {
+  const currentBySymbol = new Map<string, number>()
+  for (const position of positions) {
+    const signed = position.side === 'LONG' ? Math.abs(position.notionalUsd) : -Math.abs(position.notionalUsd)
+    currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
+  }
+  return currentBySymbol
+}
+
+function buildTargetProposal(params: {
   createdBy: string
-  basketSymbolsCsv: string
+  basketSymbols: string[]
   targetNotionalUsd: number
   positions: OperatorPosition[]
   signals: PluginSignal[]
   requestedMode: 'SIM' | 'LIVE'
   executionTactics: { expectedSlippageBps: number; maxSlippageBps: number }
+  confidence?: number
+  rationale?: string
+  summaryPrefix?: string
 }): StrategyProposal | null {
-  const basketSymbols = params.basketSymbolsCsv
-    .split(',')
+  const basketSymbols = params.basketSymbols
     .map((s) => s.trim())
-    .filter(Boolean)
+    .filter((s) => s && s.toUpperCase() !== BASE_LONG_SYMBOL)
 
   if (basketSymbols.length === 0) {
     return null
@@ -723,26 +767,105 @@ function buildDeltaProposal(params: {
     desiredBySymbol.set(symbol, -perBasket)
   }
 
-  const currentBySymbol = new Map<string, number>()
+  // Any currently-held symbols not in the desired set must be closed (target=0),
+  // enabling mid-trade basket pivots without leaving dangling legs.
   for (const position of params.positions) {
-    const signed = position.side === 'LONG' ? Math.abs(position.notionalUsd) : -Math.abs(position.notionalUsd)
-    currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
+    if (!desiredBySymbol.has(position.symbol)) {
+      desiredBySymbol.set(position.symbol, 0)
+    }
   }
 
+  const currentBySymbol = signedNotionalBySymbol(params.positions)
   const minLegUsd = Math.max(25, params.targetNotionalUsd * 0.01)
-  const legs = [...desiredBySymbol.entries()]
+  const deltas = [...desiredBySymbol.entries()]
     .map(([symbol, desiredNotional]) => {
       const current = currentBySymbol.get(symbol) ?? 0
       const delta = desiredNotional - current
       if (!Number.isFinite(delta) || Math.abs(delta) < minLegUsd) {
         return null
       }
+      const side: 'BUY' | 'SELL' = delta > 0 ? 'BUY' : 'SELL'
+      const notionalUsd = Number(Math.abs(delta).toFixed(2))
+      const reduces =
+        (current > 0 && side === 'SELL') ||
+        (current < 0 && side === 'BUY')
+      return { symbol, side, notionalUsd, reduces }
+    })
+    .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number; reduces: boolean } => Boolean(leg))
 
-      return {
-        symbol,
-        side: delta > 0 ? ('BUY' as const) : ('SELL' as const),
-        notionalUsd: Number(Math.abs(delta).toFixed(2))
+  if (deltas.length === 0) {
+    return null
+  }
+
+  // Place reducing legs first to minimize transient gross exposure and to work well under reduce-only risk mode.
+  deltas.sort((a, b) => {
+    if (a.reduces !== b.reduces) return a.reduces ? -1 : 1
+    return a.symbol.localeCompare(b.symbol)
+  })
+
+  const legs = deltas.map(({ symbol, side, notionalUsd }) => ({ symbol, side, notionalUsd }))
+
+  const latestVolatility = [...params.signals].reverse().find((signal) => signal.signalType === 'volatility')
+  const latestCorrelation = [...params.signals].reverse().find((signal) => signal.signalType === 'correlation')
+  const latestFunding = [...params.signals].reverse().find((signal) => signal.signalType === 'funding')
+  const signalSummary = [
+    latestVolatility ? `vol=${latestVolatility.value.toFixed(3)}` : 'vol=na',
+    latestCorrelation ? `corr=${latestCorrelation.value.toFixed(3)}` : 'corr=na',
+    latestFunding ? `funding=${latestFunding.value.toFixed(6)}` : 'funding=na'
+  ].join(' ')
+
+  const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
+  const proposalId = ulid()
+
+  const actionType = params.positions.length > 0 ? 'REBALANCE' : 'ENTER'
+  const summaryPrefix = params.summaryPrefix ?? 'agent delta-to-target'
+  const confidence = typeof params.confidence === 'number' ? clamp(params.confidence, 0, 1) : 0.65
+  const rationale = params.rationale ?? 'agent-driven rebalance to target exposure (HYPE vs basket)'
+
+  return {
+    proposalId,
+    cycleId: ulid(),
+    summary: `${summaryPrefix} (${signalSummary})`,
+    confidence,
+    requestedMode: params.requestedMode,
+    createdBy: params.createdBy,
+    actions: [
+      {
+        type: actionType,
+        rationale,
+        notionalUsd: Number(actionNotionalUsd.toFixed(2)),
+        expectedSlippageBps: params.executionTactics.expectedSlippageBps,
+        maxSlippageBps: params.executionTactics.maxSlippageBps,
+        legs
       }
+    ]
+  }
+}
+
+function buildExitProposal(params: {
+  createdBy: string
+  positions: OperatorPosition[]
+  signals: PluginSignal[]
+  requestedMode: 'SIM' | 'LIVE'
+  executionTactics: { expectedSlippageBps: number; maxSlippageBps: number }
+  confidence?: number
+  rationale?: string
+}): StrategyProposal | null {
+  if (params.positions.length === 0) {
+    return null
+  }
+
+  const currentBySymbol = signedNotionalBySymbol(params.positions)
+  const symbols = [...new Set(params.positions.map((position) => position.symbol))].sort((a, b) => a.localeCompare(b))
+
+  const legs = symbols
+    .map((symbol) => {
+      const current = currentBySymbol.get(symbol) ?? 0
+      if (!Number.isFinite(current) || Math.abs(current) < 5) {
+        return null
+      }
+      const side: 'BUY' | 'SELL' = current > 0 ? 'SELL' : 'BUY'
+      return { symbol, side, notionalUsd: Number(Math.abs(current).toFixed(2)) }
     })
     .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number } => Boolean(leg))
 
@@ -761,17 +884,20 @@ function buildDeltaProposal(params: {
 
   const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
   const proposalId = ulid()
+  const confidence = typeof params.confidence === 'number' ? clamp(params.confidence, 0, 1) : 0.6
+  const rationale = params.rationale ?? 'risk-off: exit to flat'
+
   return {
     proposalId,
     cycleId: ulid(),
-    summary: `agent delta-to-target (${signalSummary})`,
-    confidence: 0.65,
+    summary: `agent exit to flat (${signalSummary})`,
+    confidence,
     requestedMode: params.requestedMode,
     createdBy: params.createdBy,
     actions: [
       {
-        type: params.positions.length > 0 ? 'REBALANCE' : 'ENTER',
-        rationale: 'agent-driven rebalance to target exposure (HYPE vs basket)',
+        type: 'EXIT',
+        rationale,
         notionalUsd: Number(actionNotionalUsd.toFixed(2)),
         expectedSlippageBps: params.executionTactics.expectedSlippageBps,
         maxSlippageBps: params.executionTactics.maxSlippageBps,
@@ -954,6 +1080,76 @@ async function generateRiskReport(params: {
   }
 }
 
+async function generateStrategistDirective(params: {
+  llm: LlmChoice
+  model: string
+  input: Record<string, unknown>
+}): Promise<{ decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }> {
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      decision: { type: 'string', enum: ['MAINTAIN', 'ROTATE', 'EXIT'] },
+      targetNotionalMultiplier: { type: 'number' },
+      rationale: { type: 'string' },
+      confidence: { type: 'number' }
+    },
+    required: ['decision', 'targetNotionalMultiplier', 'rationale', 'confidence']
+  } as const
+
+  if (params.llm === 'none') {
+    return {
+      decision: 'MAINTAIN',
+      targetNotionalMultiplier: 1,
+      rationale: 'llm disabled',
+      confidence: 0.25
+    }
+  }
+
+  const prompt = [
+    'You are HL Privateer strategist-directive agent.',
+    'You control the autonomous pair-trade strategy: LONG HYPE vs SHORT basket.',
+    'You may choose:',
+    '- MAINTAIN: keep the current basket and keep rebalancing to target.',
+    '- ROTATE: rotate the short basket (the system will close removed shorts and open new ones).',
+    '- EXIT: close all positions and go flat (risk-off).',
+    '',
+    'You may also adjust targetNotionalMultiplier within the allowed min/max in the context JSON.',
+    'Guidelines:',
+    '- Prefer MAINTAIN by default; avoid churn.',
+    '- Choose ROTATE only if thesis changed, correlation structure shifted, or better hedge/liquidity set exists.',
+    '- Choose EXIT if hedge is breaking, risk posture is RED, dependencies are unhealthy, or drawdown risk is unacceptable.',
+    '- Never propose leverage growth during SAFE_MODE.',
+    'Return only JSON that matches the provided schema.',
+    '',
+    `CONTEXT_JSON=${JSON.stringify(params.input)}`
+  ].join('\n')
+
+  const raw =
+    params.llm === 'claude'
+      ? await runClaudeStructured<{ decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }>({
+        prompt,
+        jsonSchema: schema as unknown as Record<string, unknown>,
+        model: params.model
+      })
+      : await runCodexStructured<{ decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }>({
+        prompt,
+        jsonSchema: schema as unknown as Record<string, unknown>,
+        model: params.model,
+        reasoningEffort: env.CODEX_REASONING_EFFORT
+      })
+
+  const decision: StrategistDirectiveDecision =
+    raw.decision === 'EXIT' || raw.decision === 'ROTATE' || raw.decision === 'MAINTAIN' ? raw.decision : 'MAINTAIN'
+
+  return {
+    decision,
+    targetNotionalMultiplier: Number(raw.targetNotionalMultiplier),
+    rationale: String(raw.rationale ?? '').slice(0, 600),
+    confidence: clamp(Number(raw.confidence), 0, 1)
+  }
+}
+
 const bus = env.REDIS_URL
   ? new RedisEventBus(env.REDIS_URL, env.REDIS_STREAM_PREFIX, 'agent-runner')
   : new InMemoryEventBus()
@@ -967,8 +1163,24 @@ let lastAnalysisAt = 0
 let lastResearchAt = 0
 let lastRiskAt = 0
 let lastOpsAt = 0
+let lastDirectiveAt = 0
 let lastProposal: StrategyProposal | null = null
 let lastRiskDecision: { decision?: string; computedAt?: string } | null = null
+let lastStateUpdate:
+  | {
+    mode?: string
+    pnlPct?: number
+    realizedPnlUsd?: number
+    driftState?: string
+    lastUpdateAt?: string
+    message?: string
+  }
+  | null = null
+let lastResearchReport: { headline: string; regime: string; recommendation: string; confidence: number; computedAt: string } | null = null
+let lastRiskReport: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number; computedAt: string } | null = null
+let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
+let autoHaltActive = false
+let autoHaltHealthySinceMs = 0
 
 async function publishAudit(event: AuditEvent): Promise<void> {
   await bus.publish('hlp.audit.events', {
@@ -1063,7 +1275,7 @@ async function maybePublishWatchlist(params: { symbols: string[]; reason: string
 }
 
 async function publishAgentCommand(params: {
-  command: '/halt'
+  command: '/halt' | '/resume' | '/flatten'
   reason: string
 }): Promise<void> {
   await bus.publish('hlp.commands', {
@@ -1162,7 +1374,34 @@ async function runOpsAgent(): Promise<void> {
   // Runtime can source ticks for dynamic basket symbols on-demand via l2Book snapshots.
   void maybePublishWatchlist({ symbols: universe, reason: 'ops heartbeat' }).catch(() => undefined)
 
-  if (env.OPS_AUTO_HALT && lastMode !== 'HALT' && (maxAgeMs > 30000 || missing.length > 0)) {
+  const healthy = maxAgeMs <= 15_000 && missing.length === 0
+
+  // Auto-resume only if we were the party that auto-halted.
+  if (autoHaltActive) {
+    if (lastMode !== 'HALT') {
+      autoHaltActive = false
+      autoHaltHealthySinceMs = 0
+    } else if (healthy) {
+      if (autoHaltHealthySinceMs === 0) {
+        autoHaltHealthySinceMs = now
+      }
+      if (now - autoHaltHealthySinceMs > 30_000) {
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: 'auto-resume: market data recovered'
+        })
+        await publishAgentCommand({ command: '/resume', reason: 'auto-resume: market data recovered' })
+        autoHaltActive = false
+        autoHaltHealthySinceMs = 0
+      }
+    } else {
+      autoHaltHealthySinceMs = 0
+    }
+  }
+
+  if (env.OPS_AUTO_HALT && lastMode !== 'HALT' && !healthy) {
     await publishTape({
       correlationId: ulid(),
       role: 'ops',
@@ -1170,6 +1409,8 @@ async function runOpsAgent(): Promise<void> {
       line: 'auto-halt: market data stale'
     })
     await publishAgentCommand({ command: '/halt', reason: 'auto-halt: market data stale' })
+    autoHaltActive = true
+    autoHaltHealthySinceMs = 0
   }
 }
 
@@ -1240,6 +1481,8 @@ async function runResearchAgent(): Promise<void> {
       })
     }
   }
+
+  lastResearchReport = { ...report, computedAt: new Date().toISOString() }
 
   await publishTape({
     correlationId: ulid(),
@@ -1320,6 +1563,8 @@ async function runRiskAgent(): Promise<void> {
     }
   }
 
+  lastRiskReport = { ...report, computedAt: new Date().toISOString() }
+
   await publishTape({
     correlationId: ulid(),
     role: 'risk',
@@ -1342,6 +1587,157 @@ async function runRiskAgent(): Promise<void> {
   })
 }
 
+async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]; targetNotionalUsd: number; positions: OperatorPosition[] }): Promise<void> {
+  const nowMs = Date.now()
+  if (directiveInFlight) {
+    return
+  }
+
+  // Deterministic safety: SAFE_MODE should bias to risk-off without waiting for an LLM decision.
+  if (lastMode === 'SAFE_MODE' && params.positions.length > 0) {
+    if (activeDirective.decision === 'EXIT') {
+      return
+    }
+    lastDirectiveAt = nowMs
+    activeDirective = {
+      decision: 'EXIT',
+      targetNotionalMultiplier: 1,
+      rationale: 'SAFE_MODE: force exit to flat',
+      confidence: 1,
+      decidedAt: new Date().toISOString()
+    }
+    await publishTape({
+      correlationId: ulid(),
+      role: 'strategist',
+      level: 'WARN',
+      line: `directive: EXIT (safe mode)`
+    })
+    await publishAudit({
+      id: ulid(),
+      ts: new Date().toISOString(),
+      actorType: 'internal_agent',
+      actorId: roleActorId('strategist'),
+      action: 'strategist.directive',
+      resource: 'agent.strategist',
+      correlationId: ulid(),
+      details: activeDirective
+    })
+    return
+  }
+
+  if (nowMs - lastDirectiveAt < env.AGENT_DIRECTIVE_INTERVAL_MS) {
+    return
+  }
+
+  directiveInFlight = true
+  try {
+    const summary = summarizePositionsForAgents(params.positions)
+    const heldBasket = basketFromPositions(params.positions)
+    const latestVol = [...params.signals].reverse().find((signal) => signal.signalType === 'volatility')
+    const latestCorr = [...params.signals].reverse().find((signal) => signal.signalType === 'correlation')
+    const latestFunding = [...params.signals].reverse().find((signal) => signal.signalType === 'funding')
+
+    const input = {
+      ts: new Date().toISOString(),
+      mode: lastMode,
+      state: lastStateUpdate ?? null,
+      drift: summary.drift,
+      postureHint: summary.posture,
+      targetNotionalUsd: params.targetNotionalUsd,
+      heldBasketSymbols: heldBasket,
+      activeBasket: {
+        basketSymbols: activeBasket.basketSymbols,
+        rationale: activeBasket.rationale,
+        selectedAt: activeBasket.selectedAt,
+        context: activeBasket.context ?? null
+      },
+      positions: params.positions.map((position) => ({
+        symbol: position.symbol,
+        side: position.side,
+        notionalBucket: bucketNotional(position.notionalUsd),
+        updatedAt: position.updatedAt
+      })),
+      signals: {
+        volatility: latestVol?.value ?? null,
+        correlation: latestCorr?.value ?? null,
+        funding: latestFunding?.value ?? null
+      },
+      lastRiskDecision,
+      lastResearchReport,
+      lastRiskReport,
+      lastScribeAnalysis,
+      multiplierBounds: {
+        min: env.AGENT_NOTIONAL_MULTIPLIER_MIN,
+        max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
+      },
+      currentDirective: activeDirective
+    }
+
+    const llm = llmForRole('strategist', nowMs)
+    const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+
+    let raw: { decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }
+    try {
+      raw = await generateStrategistDirective({ llm, model, input })
+    } catch (primaryError) {
+      if (llm === 'codex') {
+        try {
+          raw = await generateStrategistDirective({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          const disabled = maybeDisableCodexFromError(primaryError, nowMs)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `directive codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+          })
+        } catch (fallbackError) {
+          raw = { decision: 'MAINTAIN', targetNotionalMultiplier: 1, rationale: `deterministic fallback: ${String(fallbackError).slice(0, 120)}`, confidence: 0.25 }
+        }
+      } else {
+        raw = { decision: 'MAINTAIN', targetNotionalMultiplier: 1, rationale: `deterministic fallback: ${String(primaryError).slice(0, 120)}`, confidence: 0.25 }
+      }
+    }
+
+    const mult = clamp(
+      Number(raw.targetNotionalMultiplier),
+      env.AGENT_NOTIONAL_MULTIPLIER_MIN,
+      env.AGENT_NOTIONAL_MULTIPLIER_MAX
+    )
+
+    activeDirective = {
+      decision: raw.decision,
+      targetNotionalMultiplier: Number.isFinite(mult) ? mult : 1,
+      rationale: raw.rationale || 'directive',
+      confidence: clamp(Number(raw.confidence), 0, 1),
+      decidedAt: new Date().toISOString()
+    }
+    lastDirectiveAt = nowMs
+
+    await publishTape({
+      correlationId: ulid(),
+      role: 'strategist',
+      line: `directive: ${activeDirective.decision} mult=${activeDirective.targetNotionalMultiplier.toFixed(2)}`
+    })
+
+    await publishAudit({
+      id: ulid(),
+      ts: new Date().toISOString(),
+      actorType: 'internal_agent',
+      actorId: roleActorId('strategist'),
+      action: 'strategist.directive',
+      resource: 'agent.strategist',
+      correlationId: ulid(),
+      details: {
+        ...activeDirective,
+        input
+      }
+    })
+  } finally {
+    directiveInFlight = false
+  }
+}
+
 async function runStrategistCycle(): Promise<void> {
   const now = Date.now()
   if (now - lastProposalAt < env.AGENT_PROPOSAL_INTERVAL_MS) {
@@ -1349,7 +1745,7 @@ async function runStrategistCycle(): Promise<void> {
   }
   lastProposalAt = now
 
-  if (lastMode === 'HALT' || lastMode === 'SAFE_MODE') {
+  if (lastMode === 'HALT') {
     await publishTape({
       correlationId: ulid(),
       role: 'ops',
@@ -1360,22 +1756,73 @@ async function runStrategistCycle(): Promise<void> {
   }
 
   const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-  const targetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
+  const baseTargetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
   const tactics = computeExecutionTactics({ signals })
 
   syncActiveBasketFromPositions(lastPositions)
-  await maybeSelectBasket({ targetNotionalUsd, signals, positions: lastPositions })
+  await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: baseTargetNotionalUsd, positions: lastPositions })
 
-  const effectiveBasket = lastPositions.length > 0 ? basketFromPositions(lastPositions) : activeBasket.basketSymbols
-  const proposal = buildDeltaProposal({
-    createdBy: roleActorId('strategist'),
-    basketSymbolsCsv: effectiveBasket.join(','),
-    targetNotionalUsd,
-    positions: lastPositions,
-    signals,
-    requestedMode: requestedModeFromEnv(),
-    executionTactics: tactics
-  })
+  const scaledTargetNotionalUsd = Number(
+    Math.max(
+      100,
+      baseTargetNotionalUsd * clamp(activeDirective.targetNotionalMultiplier, env.AGENT_NOTIONAL_MULTIPLIER_MIN, env.AGENT_NOTIONAL_MULTIPLIER_MAX)
+    ).toFixed(2)
+  )
+
+  let proposal: StrategyProposal | null = null
+  if (activeDirective.decision === 'EXIT') {
+    proposal = buildExitProposal({
+      createdBy: roleActorId('strategist'),
+      positions: lastPositions,
+      signals,
+      requestedMode: requestedModeFromEnv(),
+      executionTactics: tactics,
+      confidence: activeDirective.confidence,
+      rationale: activeDirective.rationale
+    })
+  } else {
+    // When flat, ensure we have a basket selected before attempting entry.
+    if (lastPositions.length === 0) {
+      await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions })
+    }
+
+    let desiredBasketSymbols: string[]
+
+    if (activeDirective.decision === 'ROTATE') {
+      // Force a fresh basket selection, even mid-trade.
+      await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions, force: true })
+      desiredBasketSymbols = activeBasket.basketSymbols
+      basketPivot = {
+        basketSymbols: desiredBasketSymbols,
+        startedAtMs: now,
+        expiresAtMs: now + 5 * 60_000
+      }
+    } else {
+      if (lastPositions.length > 0 && basketPivot && now < basketPivot.expiresAtMs) {
+        desiredBasketSymbols = basketPivot.basketSymbols
+      } else {
+        desiredBasketSymbols = lastPositions.length > 0 ? basketFromPositions(lastPositions) : activeBasket.basketSymbols
+      }
+    }
+
+    proposal = buildTargetProposal({
+      createdBy: roleActorId('strategist'),
+      basketSymbols: desiredBasketSymbols,
+      targetNotionalUsd: scaledTargetNotionalUsd,
+      positions: lastPositions,
+      signals,
+      requestedMode: requestedModeFromEnv(),
+      executionTactics: tactics,
+      confidence: activeDirective.confidence,
+      rationale: activeDirective.rationale,
+      summaryPrefix: activeDirective.decision === 'ROTATE' ? 'agent rotate basket' : 'agent autonomous'
+    })
+
+    // ROTATE is a one-shot directive; after emitting the pivot proposal we fall back to MAINTAIN.
+    if (activeDirective.decision === 'ROTATE') {
+      activeDirective = { ...activeDirective, decision: 'MAINTAIN' }
+    }
+  }
   if (!proposal) {
     await publishTape({
       correlationId: ulid(),
@@ -1428,7 +1875,7 @@ async function runStrategistCycle(): Promise<void> {
   }
   lastAnalysisAt = now
 
-  await runScribeAnalysis(parsed.proposal, { signals, targetNotionalUsd })
+  await runScribeAnalysis(parsed.proposal, { signals, targetNotionalUsd: scaledTargetNotionalUsd })
 }
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { signals: PluginSignal[]; targetNotionalUsd: number }): Promise<void> {
@@ -1483,6 +1930,8 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { signals:
       })
     }
   }
+
+  lastScribeAnalysis = { ...analysis, computedAt: new Date().toISOString() }
 
   await publishTape({
     correlationId: proposal.proposalId,
@@ -1542,6 +1991,16 @@ const start = async (): Promise<void> => {
   await bus.consume('hlp.ui.events', '$', (envelope: EventEnvelope<any>) => {
     if (envelope.type === 'STATE_UPDATE') {
       const payload = envelope.payload as any
+      if (payload && typeof payload === 'object') {
+        lastStateUpdate = {
+          mode: typeof payload.mode === 'string' ? payload.mode : undefined,
+          pnlPct: typeof payload.pnlPct === 'number' ? payload.pnlPct : undefined,
+          realizedPnlUsd: typeof payload.realizedPnlUsd === 'number' ? payload.realizedPnlUsd : undefined,
+          driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
+          lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
+          message: typeof payload.message === 'string' ? payload.message : undefined
+        }
+      }
       if (payload?.mode) {
         lastMode = String(payload.mode)
       }
@@ -1551,6 +2010,22 @@ const start = async (): Promise<void> => {
       if (Array.isArray(payload)) {
         lastPositions = payload as OperatorPosition[]
         syncActiveBasketFromPositions(lastPositions)
+        if (basketPivot) {
+          const nowMs = Date.now()
+          if (nowMs > basketPivot.expiresAtMs) {
+            basketPivot = null
+          } else {
+            const held = basketFromPositions(lastPositions)
+            if (held.length > 0 && sameBasket(held, basketPivot.basketSymbols)) {
+              basketPivot = null
+              void publishTape({
+                correlationId: ulid(),
+                role: 'execution',
+                line: `basket pivot complete: ${held.join(',')}`
+              }).catch(() => undefined)
+            }
+          }
+        }
       }
     }
   })
