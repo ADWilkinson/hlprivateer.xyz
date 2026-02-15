@@ -45,7 +45,7 @@ export function FloorHeader({ onX402Access }: FloorHeaderProps) {
               [HL] PRIVATEER
             </h1>
             <div className='text-[10px] sm:text-[11px] tracking-[0.1em] text-hlpPanel/35 max-w-md'>
-              Discretionary Long/Short + Pair-Strategy Floor / x402 Integration Access
+              Autonomous Hyperliquid Trading Floor
             </div>
           </div>
 

@@ -5,8 +5,7 @@ import { usePathname } from 'next/navigation'
 
 const NAV_LINKS = [
   { href: '/', label: 'LANDING' },
-  { href: '/data', label: 'FLOOR DATA' },
-  { href: '/integrations', label: 'INTEGRATIONS' },
+  { href: '/floor', label: 'FLOOR' },
 ]
 
 function isActive(pathname: string, href: string): boolean {

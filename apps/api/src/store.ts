@@ -140,7 +140,10 @@ export class ApiStore {
   }
 
   public getPublicSnapshot(): PublicSnapshot {
-    return this.snapshot
+    return {
+      ...this.snapshot,
+      maxLeverage: this.snapshot.riskPolicy?.maxLeverage
+    }
   }
 
   public addPublicTapeLine(line: FloorTapeLine): void {

@@ -1440,9 +1440,6 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         if (!Number.isFinite(notionalUsd) || notionalUsd <= 0) {
           continue
         }
-        if (notionalUsd <= minimumFlatExposureUsd) {
-          continue
-        }
 
         let tick = await marketAdapter.latest(position.symbol)
         if (!tick) {

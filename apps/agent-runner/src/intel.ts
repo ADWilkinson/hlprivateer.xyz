@@ -2,6 +2,8 @@ import fs from 'node:fs/promises'
 
 type TwitterCredsFile = {
   bearer_token?: unknown
+  auth_token?: unknown
+  ct0?: unknown
   handle?: unknown
 }
 
@@ -98,16 +100,30 @@ async function safeJson(response: Response): Promise<unknown> {
   }
 }
 
-async function loadTwitterCreds(params: { credsPath: string }): Promise<{ bearerToken: string | null; handleHint: string | null }> {
+type TwitterCreds = {
+  bearerToken: string | null
+  authToken: string | null
+  ct0: string | null
+  handleHint: string | null
+}
+
+async function loadTwitterCreds(params: { credsPath: string }): Promise<TwitterCreds> {
   try {
     const raw = await fs.readFile(params.credsPath, 'utf8')
     const parsed = JSON.parse(raw) as TwitterCredsFile
     const bearerRaw = typeof parsed?.bearer_token === 'string' ? parsed.bearer_token : ''
     const handleHint = typeof parsed?.handle === 'string' ? sanitizeLine(parsed.handle, 40) : null
     const bearerToken = bearerRaw ? decodeMaybeURIComponent(bearerRaw) : null
-    return { bearerToken: bearerToken && bearerToken.trim() ? bearerToken.trim() : null, handleHint }
+    const authToken = typeof parsed?.auth_token === 'string' && parsed.auth_token.trim() ? parsed.auth_token.trim() : null
+    const ct0 = typeof parsed?.ct0 === 'string' && parsed.ct0.trim() ? parsed.ct0.trim() : null
+    return {
+      bearerToken: bearerToken && bearerToken.trim() ? bearerToken.trim() : null,
+      authToken,
+      ct0,
+      handleHint
+    }
   } catch {
-    return { bearerToken: null, handleHint: null }
+    return { bearerToken: null, authToken: null, ct0: null, handleHint: null }
   }
 }
 
@@ -135,8 +151,12 @@ type TwitterApiResponse = {
   meta?: Record<string, unknown>
 }
 
+const TWITTER_WEB_BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
+
 async function twitterSearchRecent(params: {
   bearerToken: string
+  authToken?: string | null
+  ct0?: string | null
   query: string
   maxResults: number
   timeoutMs: number
@@ -152,16 +172,23 @@ async function twitterSearchRecent(params: {
   url.searchParams.set('expansions', 'author_id')
   url.searchParams.set('user.fields', 'username,name,verified')
 
+  const useCookieAuth = params.authToken && params.ct0
+  const headers: Record<string, string> = useCookieAuth
+    ? {
+        Authorization: `Bearer ${decodeMaybeURIComponent(TWITTER_WEB_BEARER)}`,
+        'Content-Type': 'application/json',
+        Cookie: `auth_token=${params.authToken}; ct0=${params.ct0}`,
+        'X-Csrf-Token': params.ct0!
+      }
+    : {
+        Authorization: `Bearer ${params.bearerToken}`,
+        'Content-Type': 'application/json'
+      }
+
   try {
     const response = await fetchWithTimeout(
       url.toString(),
-      {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${params.bearerToken}`,
-          'Content-Type': 'application/json'
-        }
-      },
+      { method: 'GET', headers },
       params.timeoutMs
     )
 
@@ -279,27 +306,24 @@ export async function buildExternalIntelPack(params: {
     }
   }
 
-  const twitterBearer =
-    params.twitterBearerToken && params.twitterBearerToken.trim()
-      ? params.twitterBearerToken.trim()
-      : (await loadTwitterCreds({ credsPath: params.twitterCredsPath })).bearerToken
+  const creds = params.twitterBearerToken && params.twitterBearerToken.trim()
+    ? { bearerToken: params.twitterBearerToken.trim(), authToken: null, ct0: null, handleHint: null } as TwitterCreds
+    : await loadTwitterCreds({ credsPath: params.twitterCredsPath })
 
-  const handleHint =
-    params.twitterBearerToken && params.twitterBearerToken.trim()
-      ? null
-      : (await loadTwitterCreds({ credsPath: params.twitterCredsPath })).handleHint
-  if (handleHint) {
-    pack.twitter.handleHint = handleHint
+  const twitterBearer = creds.bearerToken
+  const hasCookieAuth = Boolean(creds.authToken && creds.ct0)
+
+  if (creds.handleHint) {
+    pack.twitter.handleHint = creds.handleHint
   }
 
-  if (!pack.twitter.enabled || !twitterBearer) {
+  if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth)) {
     pack.twitter.ok = false
   } else {
     const baseClauses = ['-is:retweet', 'lang:en']
     const symbolQueries = symbols.map((symbol) => {
       const cashtag = `$${symbol}`
       const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
-      // Keep it practical: focus on perp/funding/flow chatter.
       const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
       return `${symbolClause} ${focus} ${baseClauses.join(' ')}`
     })
@@ -313,7 +337,9 @@ export async function buildExternalIntelPack(params: {
     const results = await Promise.all(
       queries.map((query) =>
         twitterSearchRecent({
-          bearerToken: twitterBearer,
+          bearerToken: twitterBearer ?? '',
+          authToken: creds.authToken,
+          ct0: creds.ct0,
           query,
           maxResults: params.twitterMaxResults,
           timeoutMs: params.timeoutMs

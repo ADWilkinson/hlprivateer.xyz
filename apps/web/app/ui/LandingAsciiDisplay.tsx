@@ -1,107 +1,72 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-type AsciiGridFrame = {
-  seed: number
-  rows: string[]
-}
+const DENSITY = ' .:-=+*#%@'
+const LABEL = '[ PRIVATEER ]'
 
-const SEGMENTS = ['_', '─', '│', '┌', '┐', '└', '┘', '╱', '╲', '◢', '◣', '◤', '◥', '▀', '▄', '█']
-const OVERLAY = [' ', '.', ':', '◦', '·', '+', '-', '*', '✶', '✺']
-
-function buildFrame(rows = 22, cols = 62, seed = 0): AsciiGridFrame {
+function buildFrame(rows: number, cols: number, t: number): string[] {
   const frame: string[] = []
+  const baseline = Math.floor(rows * 0.35)
+
   for (let r = 0; r < rows; r++) {
     let line = ''
     for (let c = 0; c < cols; c++) {
-      const mix = (r * 31 + c * 17 + Math.floor(seed * 99)) % 1000
-      const wave = Math.sin((seed * 0.18 + c / 8) + Math.cos(r / 6)) + Math.cos(seed * 0.09 + r / 7)
-      const drift = ((c % 7) - 3) * 0.16
-      const jitter = Math.sin(seed + r * 0.5 + c * 1.2) + drift
+      const surface =
+        baseline +
+        Math.sin(c * 0.08 + t * 0.06) * 2.5 +
+        Math.sin(c * 0.04 - t * 0.03 + 1.2) * 1.8 +
+        Math.sin(c * 0.15 + t * 0.09 + 0.7) * 1.0
+      const depth = r - surface
 
-      const metric = (mix % 100) / 100
-      const active = metric * metric * 2 + jitter * 0.08 + wave * 0.12
-
-      if (active > 0.72) {
-        line += SEGMENTS[Math.floor(Math.abs(Math.sin(active * 31 + seed * 0.02 + r * 0.11) * 100) % SEGMENTS.length)]
-      } else if (active > 0.45) {
-        line += OVERLAY[Math.floor(Math.abs(Math.cos((active + 0.17) * 29 + c * 0.7) * 100) % OVERLAY.length)]
-      } else if (active > 0.28) {
-        line += '.'
-      } else if ((r + c + Math.floor(seed)) % 29 === 0) {
-        line += '·'
+      if (depth < -2) {
+        const v = Math.sin(c * 0.3 + t * 0.12 + r * 0.8)
+        line += v > 0.88 ? '*' : v > 0.72 ? '+' : v > 0.58 ? '.' : ' '
+      } else if (depth < 0) {
+        const v = Math.sin(c * 0.2 + t * 0.08 + r * 1.1)
+        line += v > 0.3 ? '~' : v > 0 ? '-' : '.'
       } else {
-        line += ' '
+        const i = Math.min(
+          DENSITY.length - 1,
+          Math.max(0, Math.floor(depth * 0.7 + Math.sin(c * 0.12 + t * 0.04 + r * 0.1) * 1.2)),
+        )
+        line += DENSITY[i]
       }
     }
     frame.push(line)
   }
 
-  return {
-    seed,
-    rows: frame.map((line, index) => {
-      const highlight = Math.floor((index + Math.floor(seed / 9)) % 4)
-      if (highlight === 1) {
-        return line.replace(/ /g, '·')
-      }
-      if (highlight === 2) {
-        return line
-      }
-      return line
-    }),
+  const lr = Math.floor(rows * 0.55)
+  const ls = Math.max(0, Math.floor((cols - LABEL.length) / 2))
+  if (lr < frame.length) {
+    const row = frame[lr]!
+    frame[lr] = row.slice(0, ls) + LABEL + row.slice(ls + LABEL.length)
   }
-}
-
-function labelFrame(rows: string[]): string[] {
-  const next = [...rows]
-  const title = ' [ 16-SEGMENT CORE ] '
-  if (next.length >= 2) {
-    const row = Math.floor(next.length / 2)
-    const start = Math.max(0, Math.floor((next[row]?.length ?? 0) / 2 - title.length / 2))
-    const safeRow = next[row] ?? ''
-    next[row] = `${safeRow.slice(0, start)}${title}${safeRow.slice(start + title.length)}`
-  }
-  return next
-}
-
-function useAsciiMatrix(rows = 18, cols = 48, speedMs = 130) {
-  const [frame, setFrame] = useState(buildFrame(rows, cols, 0))
-  const frameSeed = useRef(0)
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      frameSeed.current += 1
-      const next = buildFrame(rows, cols, frameSeed.current)
-      setFrame(next)
-    }, speedMs)
-
-    return () => window.clearInterval(timer)
-  }, [cols, rows, speedMs])
 
   return frame
 }
 
-type LandingAsciiDisplayProps = {
-  rows?: number
-  cols?: number
-  speedMs?: number
-  className?: string
-}
+export function LandingAsciiDisplay({ className = '' }: { className?: string }) {
+  const ref = useRef<HTMLPreElement>(null)
+  const [lines, setLines] = useState<string[]>([])
+  const tick = useRef(0)
 
-export function LandingAsciiDisplay({
-  rows = 18,
-  cols = 48,
-  speedMs = 120,
-  className = '',
-}: LandingAsciiDisplayProps) {
-  const frame = useAsciiMatrix(rows, cols, speedMs)
+  useEffect(() => {
+    const cols = () => (ref.current ? Math.max(40, Math.floor(ref.current.clientWidth / 6.1)) : 80)
+    setLines(buildFrame(20, cols(), 0))
 
-  const lines = useMemo(() => labelFrame(frame.rows), [frame.rows])
+    const id = window.setInterval(() => {
+      tick.current += 1
+      setLines(buildFrame(20, cols(), tick.current))
+    }, 80)
+
+    return () => window.clearInterval(id)
+  }, [])
 
   return (
     <pre
-      className={`whitespace-pre text-[10px] leading-tight text-hlpPanel/85 ${className}`}
+      ref={ref}
+      className={`overflow-hidden whitespace-pre bg-hlpInverseBg text-[10px] leading-tight text-hlpPanel/85 ${className}`}
       aria-hidden='true'
     >
       {lines.join('\n')}

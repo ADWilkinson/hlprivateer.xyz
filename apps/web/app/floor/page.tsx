@@ -17,7 +17,6 @@ import {
   EMPTY_HEARTBEAT,
   EMPTY_STATS,
 } from '../ui/floor-dashboard'
-import { AsciiBackground } from '../ui/AsciiBackground'
 import { AsciiDivider } from '../ui/AsciiDivider'
 import { CrewStationsPanel } from '../ui/CrewStationsPanel'
 import { FloorHeader } from '../ui/FloorHeader'
@@ -813,9 +812,7 @@ export default function DeckPage() {
   }
 
   return (
-    <>
-      <AsciiBackground />
-      <main className={pageShellClass}>
+    <main className={pageShellClass}>
         <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
 
         <div className='space-y-3'>
@@ -884,6 +881,5 @@ export default function DeckPage() {
           </div>
         </footer>
       </main>
-    </>
   )
 }
