@@ -3,7 +3,6 @@ import { AsciiBadge } from './ascii-kit'
 import {
   cardClass,
   collapsibleHeaderClass,
-  heroCardClass,
   inverseControlClass,
   monitorClass,
   panelBodyPad,
@@ -70,12 +69,6 @@ function toSigned(value: number): string {
 function toUsd(value: number | undefined): string {
   if (value === undefined || !Number.isFinite(value)) return '--'
   return ACCOUNT_VALUE_FORMAT.format(value)
-}
-
-function safePnlClass(value: number): string {
-  if (value > 0) return 'text-hlpPositive'
-  if (value < 0) return 'text-hlpNegative'
-  return 'text-hlpMuted'
 }
 
 function buildSquareWavePath(points: Array<{ x: number; y: number }>): string {
@@ -200,31 +193,6 @@ function buildSparkline(
     chartHeight,
     xAxisY,
   }
-}
-
-function HeroStat({
-  label,
-  value,
-  colorClass,
-  isLoading,
-}: {
-  label: string
-  value: string
-  colorClass: string
-  isLoading: boolean
-}) {
-  return (
-    <div className={heroCardClass}>
-          <div className='text-[9px] sm:text-[8px] uppercase tracking-[0.2em] text-hlpPanel/50 mb-1.5'>{label}</div>
-      {isLoading ? (
-        <span className={`inline-block h-7 w-24 ${skeletonPulseClass}`} />
-      ) : (
-        <div className={`text-[20px] sm:text-[24px] md:text-[28px] font-bold tracking-[0.06em] leading-none ${colorClass}`}>
-          {value}
-        </div>
-      )}
-    </div>
-  )
 }
 
 function SparklineCard({
@@ -460,27 +428,6 @@ export function PnlPanel({
 
       {!isCollapsed && (
         <div className={`${panelBodyPad} grid gap-3`}>
-          <div className='grid grid-cols-2 md:grid-cols-3 gap-2'>
-            <HeroStat
-              label='MARKET PNL'
-              value={toSigned(snapshot.pnlPct)}
-              colorClass={`text-hlpPanel ${safePnlClass(snapshot.pnlPct).replace('text-hlpMuted', 'text-hlpPanel/60')}`}
-              isLoading={isLoading}
-            />
-            <HeroStat
-              label='ACCOUNT VALUE'
-              value={toUsd(snapshot.accountValueUsd)}
-              colorClass={snapshot.accountValueUsd === undefined ? 'text-hlpPanel/60' : 'text-hlpPanel'}
-              isLoading={isLoading}
-            />
-            <HeroStat
-              label='MODE'
-              value={isLoading ? 'WARMUP' : snapshot.mode}
-              colorClass='text-hlpPanel'
-              isLoading={false}
-            />
-          </div>
-
           <div className='grid gap-2 xl:grid-cols-2'>
             <SparklineCard
               id='market-pnl'

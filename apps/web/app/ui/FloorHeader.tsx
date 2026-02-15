@@ -4,16 +4,6 @@ type FloorHeaderProps = {
   onX402Access?: () => void
 }
 
-const ASCII_TEXTURE = `  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +
-+  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .
-  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +
-+  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .
-  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +
-+  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .
-  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +
-+  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .
-  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +  .  +`
-
 export function FloorHeader({ onX402Access }: FloorHeaderProps) {
   const handleX402AccessClick = (event: { preventDefault: () => void }) => {
     event.preventDefault()
@@ -28,47 +18,25 @@ export function FloorHeader({ onX402Access }: FloorHeaderProps) {
   }
 
   return (
-    <section className='relative overflow-hidden border border-hlpBorder bg-hlpInverseBg animate-hlp-fade-up'>
-      <div className='absolute inset-0 overflow-hidden pointer-events-none select-none' aria-hidden='true'>
-        <pre className='text-[10px] leading-[1.6] text-hlpPanel/[0.035] whitespace-pre font-mono'>
-          {ASCII_TEXTURE}
-        </pre>
+    <div className='flex items-center justify-between animate-hlp-fade-up'>
+      <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>
+        LIVE TRADING FLOOR
       </div>
-
-      <div className='relative z-10 px-4 py-5 sm:px-6 sm:py-7 md:px-8 md:py-8'>
-        <div className='flex flex-wrap items-start justify-between gap-4'>
-          <div className='min-w-0 space-y-2'>
-            <div className='text-[10px] uppercase tracking-[0.3em] text-hlpPanel/40'>
-              LIVE TRADING FLOOR
-            </div>
-            <h1 className='text-[26px] sm:text-[34px] md:text-[42px] font-bold tracking-[0.14em] text-hlpPanel leading-none'>
-              [HL] PRIVATEER
-            </h1>
-            <div className='text-[10px] sm:text-[11px] tracking-[0.1em] text-hlpPanel/35 max-w-md'>
-              Autonomous Hyperliquid Trading Floor
-            </div>
-          </div>
-
-          <div className='flex flex-wrap items-center gap-2'>
-            <a
-              href='#x402-access'
-              onClick={handleX402AccessClick}
-              className='inline-flex items-center'
-            >
-              <AsciiBadge tone='inverse' variant='curly' className='tracking-[0.2em] border-hlpPanel/20 text-hlpPanel/70 hover:text-hlpPanel transition-colors'>
-                x402 access
-              </AsciiBadge>
-            </a>
-            <AsciiBadge tone='inverse' variant='curly' className='tracking-[0.2em] border-hlpPanel/20 text-hlpPanel/70'>
-              system online
-            </AsciiBadge>
-          </div>
+      <div className='flex items-center gap-3'>
+        <div className='flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-hlpPositive'>
+          <span className='inline-block h-1.5 w-1.5 animate-hlp-led bg-hlpPositive' />
+          LIVE
         </div>
-
-        <div className='mt-5 text-[10px] tracking-[0.35em] text-hlpPanel/[0.08] select-none overflow-hidden whitespace-nowrap'>
-          ~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~
-        </div>
+        <a
+          href='#x402-access'
+          onClick={handleX402AccessClick}
+          className='inline-flex items-center'
+        >
+          <AsciiBadge tone='info' variant='angle' className='tracking-[0.16em]'>
+            x402
+          </AsciiBadge>
+        </a>
       </div>
-    </section>
+    </div>
   )
 }

@@ -36,6 +36,8 @@ const RISK_DENIAL_SUPPRESS_MS = 180_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
 const LOG_PREFIX = '[DeckPage]'
+const DECK_PNL_FMT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3, minimumFractionDigits: 3 })
+const DECK_USD_FMT = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 2 })
 const PNL_SERIES_STORAGE_KEY = 'hlp-privateer:pnl-series-v1'
 const ACCOUNT_SERIES_STORAGE_KEY = 'hlp-privateer:account-series-v1'
 
@@ -804,6 +806,10 @@ export default function DeckPage() {
   const crewNow = nowTick
   const heartbeatMs = Date.now() - deckHeartbeatMs
   const snapshotAgeMs = Number.isFinite(Date.parse(snapshot.lastUpdateAt)) ? nowTick - Date.parse(snapshot.lastUpdateAt) : 0
+  const pnlStr = isBootstrapping ? '--' : `${snapshot.pnlPct >= 0 ? '+' : ''}${DECK_PNL_FMT.format(snapshot.pnlPct)}%`
+  const equityStr = isBootstrapping || snapshot.accountValueUsd === undefined ? '--' : DECK_USD_FMT.format(snapshot.accountValueUsd)
+  const modeStr = isBootstrapping ? '--' : snapshot.mode
+  const pnlColor = isBootstrapping || snapshot.pnlPct === 0 ? 'text-hlpMuted' : snapshot.pnlPct > 0 ? 'text-hlpPositive' : 'text-hlpNegative'
   const toggleSection = (section: SectionKey) => {
     setCollapsedSections((current) => ({
       ...current,
@@ -814,6 +820,29 @@ export default function DeckPage() {
   return (
     <main className={pageShellClass}>
         <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
+
+        <div className='flex flex-wrap items-end justify-center gap-x-10 gap-y-3 py-5 animate-hlp-fade-up-delay-1'>
+          <div className='text-center'>
+            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>MARKET PNL</div>
+            <div className={`text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none ${pnlColor}`}>
+              {pnlStr}
+            </div>
+          </div>
+          <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
+          <div className='text-center'>
+            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>ACCOUNT VALUE</div>
+            <div className='text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none text-hlpFg'>
+              {equityStr}
+            </div>
+          </div>
+          <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
+          <div className='text-center'>
+            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>MODE</div>
+            <div className='text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none text-hlpFg'>
+              {modeStr}
+            </div>
+          </div>
+        </div>
 
         <div className='space-y-3'>
           <StatusStrip
@@ -827,7 +856,7 @@ export default function DeckPage() {
             sectionId='status'
           />
 
-          <AsciiDivider variant='wave' />
+          <AsciiDivider variant='dots' />
 
           <PnlPanel
             snapshot={snapshot}
@@ -839,7 +868,7 @@ export default function DeckPage() {
             sectionId='pnl'
           />
 
-          <AsciiDivider variant='wave' />
+          <AsciiDivider variant='compass' />
 
           <CrewStationsPanel
             crewLast={crewLast}
@@ -852,7 +881,7 @@ export default function DeckPage() {
             sectionId='crew'
           />
 
-          <AsciiDivider variant='wave' />
+          <AsciiDivider variant='dots' />
 
           <TapeSection
             tape={tape}
@@ -872,12 +901,9 @@ export default function DeckPage() {
           />
         </div>
 
-        <footer className='mt-4 pb-6 text-center space-y-2' aria-label='site footer'>
-          <div className='text-[10px] tracking-[0.35em] text-hlpDim/20 select-none overflow-hidden whitespace-nowrap'>
-            {`~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~\u00B7~`}
-          </div>
-          <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim/50'>
-            {`[HL] PRIVATEER | hlprivateer.xyz`}
+        <footer className='mt-4 pb-4 text-center' aria-label='site footer'>
+          <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim/30'>
+            hlprivateer.xyz
           </div>
         </footer>
       </main>
