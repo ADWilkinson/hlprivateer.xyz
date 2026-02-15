@@ -410,9 +410,9 @@ export default function DeckPage() {
   const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
     status: false,
     pnl: false,
-    crew: true,
-    tape: true,
-    x402: true,
+    crew: false,
+    tape: false,
+    x402: false,
   })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
   const seenTapeRef = useRef<Set<string>>(new Set())

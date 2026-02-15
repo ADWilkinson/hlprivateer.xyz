@@ -10,7 +10,7 @@ Primary entrypoints:
 - Operations: `RUNBOOK.md`
 - Go-live checklist: `docs/GO_LIVE.md`
 - Agent runner dev: `docs/AGENT_RUNNER.md`
-- Agent capabilities: `skills.md`
+- Agent skill (agentskills.io): `skills.md`
 - x402 setup: `docs/X402_SELLER_QUICKSTART.md`
 
 Repository map for agents:

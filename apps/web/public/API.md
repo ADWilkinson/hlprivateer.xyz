@@ -64,16 +64,19 @@ Command request example:
 - `POST /v1/agent/handshake`
 - `GET /v1/agent/entitlement`
 - `GET /v1/agent/stream/snapshot`
-- `GET /v1/agent/analysis/latest`
 - `GET /v1/agent/analysis`
-- `GET /v1/agent/data/overview`
 - `GET /v1/agent/insights`
-- `GET /v1/agent/copy-trade/signals`
-- `GET /v1/agent/copy-trade/positions`
+- `GET /v1/agent/copy/trade`
 - `GET /v1/agent/positions`
 - `GET /v1/agent/orders`
 - `POST /v1/agent/command`
 - `POST /v1/agent/unlock/:tier`
+
+Deprecated compatibility aliases:
+- `GET /v1/agent/analysis/latest`
+- `GET /v1/agent/data/overview`
+- `GET /v1/agent/copy-trade/signals`
+- `GET /v1/agent/copy-trade/positions`
 
 ### Internal
 - `GET /v1/security/refresh-secrets` (operator auth required)
@@ -81,19 +84,14 @@ Command request example:
 - `GET /healthz`
 - `GET /metrics`
 
-Pay-gated agent routes (capability + pricing):
-
-| METHOD | ROUTE | CAPABILITY | PURPOSE | PRICE | ENV |
-| --- | --- | --- | --- | --- | --- |
-| GET | /v1/agent/data/overview | market.data.read | Live dashboard payload + topology + risk snapshot summary | $0.02 | X402_PRICE_MARKET_DATA |
-| GET | /v1/agent/insights | agent.insights.read | AI-level floor summary, risk posture, and recent event signals | $0.02 | X402_PRICE_AGENT_INSIGHTS |
-| GET | /v1/agent/copy-trade/signals | copy.signals.read | Public/decision signals suitable for copy-trade clients | $0.03 | X402_PRICE_COPY_TRADE_SIGNALS |
-| GET | /v1/agent/copy-trade/positions | copy.positions.read | Target and basket-level position summaries with risk policy | $0.03 | X402_PRICE_COPY_TRADE_POSITIONS |
-| GET | /v1/agent/analysis/latest | analysis.read | Most recent analysis log and thesis | $0.01 | X402_PRICE_ANALYSIS_LATEST |
-| GET | /v1/agent/analysis | analysis.read | Historical analysis messages (paged by server default) | $0.01 | X402_PRICE_ANALYSIS_HISTORY |
-| GET | /v1/agent/stream/snapshot | stream.read.public | Public feed snapshot for lightweight bots/observers | $0.01 | X402_PRICE_STREAM_SNAPSHOT |
-| GET | /v1/agent/positions | command.positions | Current positions used by external agents (redacted) | $0.01 | X402_PRICE_POSITIONS |
-| GET | /v1/agent/orders | command.positions | Order history and open/closed lifecycle signals | $0.01 | X402_PRICE_ORDERS |
+Required x402 capability (minimum tier) examples:
+- `stream.read.public`: `/v1/agent/stream/snapshot`
+- `analysis.read`: `/v1/agent/analysis` (`latest=true` for latest, otherwise paged history)
+- `market.data.read`: `/v1/agent/insights?scope=market`
+- `agent.insights.read`: `/v1/agent/insights?scope=ai`
+- `copy.signals.read`: `/v1/agent/copy/trade?kind=signals`
+- `copy.positions.read`: `/v1/agent/copy/trade?kind=positions`
+- `command.positions`: `/v1/agent/positions`, `/v1/agent/orders`
 
 ## x402 behavior
 - This repo supports two x402 modes (configured via `X402_PROVIDER`):
@@ -109,16 +107,16 @@ Pay-gated agent routes (capability + pricing):
   - `402` returns `PAYMENT-REQUIRED` (PaymentRequired payload) and paid retries use `PAYMENT-SIGNATURE`.
   - Successful responses include `PAYMENT-RESPONSE` (settlement response).
   - Demo client: `bun scripts/x402/facilitator-demo.ts`
-Route price configuration (override via env):
+- Route price configuration (override via env):
 - `X402_PRICE_STREAM_SNAPSHOT` (default `$0.01`)
-- `X402_PRICE_ANALYSIS_LATEST` (default `$0.01`)
-- `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`)
-- `X402_PRICE_POSITIONS` (default `$0.01`)
-- `X402_PRICE_ORDERS` (default `$0.01`)
-- `X402_PRICE_MARKET_DATA` (default `$0.02`)
-- `X402_PRICE_AGENT_INSIGHTS` (default `$0.02`)
-- `X402_PRICE_COPY_TRADE_SIGNALS` (default `$0.03`)
-- `X402_PRICE_COPY_TRADE_POSITIONS` (default `$0.03`)
+- `X402_PRICE_ANALYSIS_LATEST` (default `$0.01`, `/v1/agent/analysis?latest=true`)
+- `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`, `/v1/agent/analysis`)
+  - `X402_PRICE_POSITIONS` (default `$0.01`)
+  - `X402_PRICE_ORDERS` (default `$0.01`)
+- `X402_PRICE_MARKET_DATA` (default `$0.02`, `/v1/agent/insights?scope=market`)
+- `X402_PRICE_AGENT_INSIGHTS` (default `$0.02`, `/v1/agent/insights?scope=ai`)
+- `X402_PRICE_COPY_TRADE_SIGNALS` (default `$0.03`, `/v1/agent/copy/trade?kind=signals`)
+- `X402_PRICE_COPY_TRADE_POSITIONS` (default `$0.03`, `/v1/agent/copy/trade?kind=positions`)
 - Notes + seller quickstart reference: `docs/X402_SELLER_QUICKSTART.md`.
 
 ## Websocket protocol
@@ -163,7 +161,7 @@ export const PublicPnlResponseSchema = z.object({
 });
 
 export const OperatorCommandSchema = z.object({
-  command: z.enum(["/status", "/positions", "/halt", "/resume", "/flatten", "/explain", "/risk-policy"]),
+  command: z.enum(["/status", "/positions", "/risk-policy", "/halt", "/resume", "/flatten", "/explain"]),
   args: z.array(z.string()).default([]),
   reason: z.string().min(3)
 });

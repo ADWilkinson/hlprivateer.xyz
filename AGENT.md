@@ -21,7 +21,7 @@ This file is the "start here" index for any LLM/agent working in this repo.
 
 ## Repo Navigation For Agents
 - `llms.txt`: short, high-signal map of the repo for LLMs.
-- `skills.md`: agent skill contracts used in this workspace.
+- `skills.md`: agentskills.io skill for external agents (x402 endpoints, use cases, payment flow).
 - `docs/HANDOVER_PROMPT.md`: deep engineer handover prompt (useful for onboarding new agents).
 - `docs/GITHUB_ISSUES.md`: issue hygiene and project tracking conventions.
 
