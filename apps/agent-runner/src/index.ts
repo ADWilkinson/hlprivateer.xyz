@@ -3659,6 +3659,12 @@ async function runStrategistCycle(): Promise<void> {
 	    activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
 
   syncActiveBasketFromPositions(lastPositions)
+
+  // Ensure universe is populated even during HOLD so it's ready when directives change.
+  if (!hasFreshUniverse && lastMode !== 'HALT') {
+    await maybeSelectBasket({ targetNotionalUsd: baseTargetNotionalUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
+  }
+
   await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: baseTargetNotionalUsd, positions: lastPositions })
   const riskRecovery = shouldForceRiskRecovery(now, lastPositions)
   if (riskRecovery.active) {

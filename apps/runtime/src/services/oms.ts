@@ -46,6 +46,8 @@ export interface ExecutionAdapter {
   modify(orderId: string, notionalUsd: number): Promise<PlacedOrder>
   reconcile(): Promise<Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }>>
   snapshot(): Promise<{ orders: PlacedOrder[]; positions: OperatorPosition[]; realizedPnlUsd: number }>
+  /** Close a position by exact size with a reduce-only IOC market order. Used for dust cleanup. */
+  closeBySize?(input: { symbol: string; side: 'BUY' | 'SELL'; size: string; tick: NormalizedTick; idempotencyKey: string }): Promise<PlacedOrder>
   // Live-only helpers used by runtime funding gates.
   getAccountValueUsd?: () => Promise<number>
   getWalletAddress?: () => string
@@ -650,7 +652,95 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     return Number.isFinite(parsed) ? parsed : 0
   }
 
-  return { place, cancel, modify, reconcile, snapshot, getAccountValueUsd, getWalletAddress }
+  async function closeBySize(input: {
+    symbol: string
+    side: 'BUY' | 'SELL'
+    size: string
+    tick: NormalizedTick
+    idempotencyKey: string
+  }): Promise<PlacedOrder> {
+    const converter = await ensureConverter()
+    const assetId = converter.getAssetId(input.symbol)
+    const szDecimals = converter.getSzDecimals(input.symbol)
+    if (typeof assetId !== 'number' || typeof szDecimals !== 'number') {
+      throw new Error(`unknown symbol for live OMS closeBySize: ${input.symbol}`)
+    }
+
+    const slippageBps = resolveSlippageBps(getSlippageBps)
+    const slip = Math.min(0.5, Math.max(0, slippageBps) / 10000)
+    const rawPx = input.side === 'BUY'
+      ? input.tick.ask * (1 + slip)
+      : input.tick.bid * (1 - slip)
+    const px = formatPrice(rawPx, szDecimals, 'perp')
+    const size = formatSize(Number(input.size), szDecimals)
+    const cloid = cloidFromIdempotencyKey(input.idempotencyKey)
+    const nowIso = new Date().toISOString()
+
+    const result = await exchange.order({
+      orders: [
+        {
+          a: assetId,
+          b: input.side === 'BUY',
+          p: px,
+          s: size,
+          r: true,
+          t: { limit: { tif: 'Ioc' } },
+          c: cloid
+        }
+      ],
+      grouping: 'na'
+    })
+
+    const status = result?.response?.data?.statuses?.[0]
+    if (!status) {
+      throw new Error(`closeBySize rejected: missing status for ${input.symbol}`)
+    }
+
+    if (typeof status === 'string') {
+      throw new Error(`closeBySize unresolved: ${status}`)
+    }
+
+    if ('error' in status) {
+      throw new Error(String((status as any).error))
+    }
+
+    if ('filled' in status) {
+      const filled = (status as any).filled as { oid: number; totalSz: string; avgPx: string }
+      const filledQty = Number(filled.totalSz)
+      const avgFillPx = Number(filled.avgPx)
+      const notionalUsd = Number.isFinite(filledQty) && Number.isFinite(avgFillPx) ? filledQty * avgFillPx : 0
+      return {
+        orderId: String(filled.oid),
+        symbol: input.symbol,
+        side: input.side,
+        status: 'FILLED',
+        notionalUsd,
+        filledQty,
+        avgFillPx,
+        createdAt: nowIso,
+        source: 'LIVE'
+      }
+    }
+
+    if ('resting' in status) {
+      const resting = (status as any).resting as { oid: number }
+      return {
+        orderId: String(resting.oid),
+        symbol: input.symbol,
+        side: input.side,
+        status: 'WORKING',
+        notionalUsd: 0,
+        filledQty: 0,
+        avgFillPx: 0,
+        createdAt: nowIso,
+        source: 'LIVE'
+      }
+    }
+
+    throw new Error(`closeBySize unexpected status shape: ${JSON.stringify(status)}`)
+  }
+
+  return { place, cancel, modify, reconcile, snapshot, closeBySize, getAccountValueUsd, getWalletAddress }
 }
 
 export function mapToOperatorOrder(order: PlacedOrder): OperatorOrder {

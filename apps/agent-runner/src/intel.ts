@@ -195,8 +195,9 @@ async function twitterSearchRecent(params: {
   const hasCookieCreds = Boolean(params.authToken && params.ct0)
   const hasBearerCreds = Boolean(params.bearerToken)
   const strategies: boolean[] = []
-  if (hasCookieCreds) strategies.push(true)
+  // Bearer first: app bearer tokens are stable; cookie auth tokens expire frequently.
   if (hasBearerCreds) strategies.push(false)
+  if (hasCookieCreds) strategies.push(true)
   if (strategies.length === 0) {
     return { query, fetchedAt, tweets: [], error: 'no twitter credentials available' }
   }
@@ -213,7 +214,8 @@ async function twitterSearchRecent(params: {
 
       const payloadRaw = await safeJson(response)
       if (!response.ok) {
-        lastError = `twitter status=${response.status} body=${sanitizeLine(
+        const strategyLabel = useCookie ? 'cookie' : 'bearer'
+        lastError = `twitter ${strategyLabel} status=${response.status} body=${sanitizeLine(
           typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
           240
         )}`

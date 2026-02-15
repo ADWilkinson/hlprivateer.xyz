@@ -1516,6 +1516,58 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       state.realizedPnlUsd = snapshot.realizedPnlUsd
       await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
 
+      // Dust sweep: close any remaining sub-dust positions by exact size.
+      if (adapter.closeBySize && state.positions.length > 0) {
+        const DUST_THRESHOLD_USD = 10
+        const dustPositions = state.positions.filter(
+          (p) => Math.abs(p.notionalUsd) > 0 && Math.abs(p.notionalUsd) < DUST_THRESHOLD_USD && p.qty > 0
+        )
+        for (const position of dustPositions) {
+          let dustTick = await marketAdapter.latest(position.symbol)
+          if (!dustTick) {
+            const fallbackPx = Number(position.markPx ?? position.avgEntryPx)
+            if (Number.isFinite(fallbackPx) && fallbackPx > 0) {
+              dustTick = {
+                symbol: position.symbol,
+                px: fallbackPx,
+                bid: fallbackPx,
+                ask: fallbackPx,
+                bidSize: 1,
+                askSize: 1,
+                updatedAt: new Date().toISOString(),
+                source: 'runtime.market.position-fallback'
+              }
+            }
+          }
+          if (!dustTick) continue
+          const dustSide: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
+          try {
+            await adapter.closeBySize({
+              symbol: position.symbol,
+              side: dustSide,
+              size: String(position.qty),
+              tick: dustTick,
+              idempotencyKey: `flatten:dust:${commandAuditId}:${position.symbol}:${dustSide}`
+            })
+          } catch (error) {
+            await addAudit('flatten.dust_error', actorId, commandAuditId, {
+              symbol: position.symbol,
+              side: dustSide,
+              qty: position.qty,
+              message: String(error)
+            }, 'runtime.command')
+          }
+        }
+        // Re-snapshot after dust cleanup
+        if (dustPositions.length > 0) {
+          const dustSnapshot = await adapter.snapshot()
+          state.positions = dustSnapshot.positions
+          state.orders = dustSnapshot.orders
+          state.realizedPnlUsd = dustSnapshot.realizedPnlUsd
+          await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+        }
+      }
+
       await addAudit('flatten.execute', actorId, commandAuditId, {
         closedLegs: closeOrders,
         resultingPositions: state.positions.length,
