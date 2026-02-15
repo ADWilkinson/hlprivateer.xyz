@@ -240,16 +240,6 @@ export default function LandingPage() {
         >
           AGENT DOCS
         </a>
-        <a
-          href='/.well-known/agents.json'
-          className='border border-hlpBorder bg-hlpPanel px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
-        >
-          AGENTS.JSON
-        </a>
-      </div>
-
-      <div className='max-w-[500px] text-center text-[9px] leading-relaxed tracking-wider text-hlpDim'>
-        x402 pay-per-call · USDC on Base · no API keys · no sign-ups
       </div>
     </div>
   )
