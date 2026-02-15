@@ -165,17 +165,34 @@ async function twitterSearchRecent(params: {
       params.timeoutMs
     )
 
-    const payload = (await safeJson(response)) as TwitterApiResponse | string | null
+    const payloadRaw = await safeJson(response)
     if (!response.ok) {
       return {
         query,
         fetchedAt,
         tweets: [],
-        error: `twitter status=${response.status} body=${sanitizeLine(typeof payload === 'string' ? payload : JSON.stringify(payload), 240)}`
+        error: `twitter status=${response.status} body=${sanitizeLine(
+          typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
+          240
+        )}`
       }
     }
 
-    const users = Array.isArray(payload?.includes?.users) ? payload.includes.users : []
+    if (typeof payloadRaw !== 'object' || payloadRaw === null) {
+      return {
+        query,
+        fetchedAt,
+        tweets: [],
+        error: `twitter invalid JSON body: ${sanitizeLine(
+          typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
+          240
+        )}`
+      }
+    }
+
+    const payload = payloadRaw as TwitterApiResponse
+
+    const users = payload.includes?.users ?? []
     const userById = new Map<string, { id: string; username: string | null; name: string | null; verified: boolean | null }>()
     for (const user of users) {
       const id = typeof user?.id === 'string' ? user.id : ''
@@ -188,7 +205,7 @@ async function twitterSearchRecent(params: {
       })
     }
 
-    const tweets = Array.isArray(payload?.data) ? payload.data : []
+    const tweets = payload.data ?? []
     const summarized = tweets
       .map((tweet) => {
         const id = typeof tweet?.id === 'string' ? tweet.id : ''
@@ -225,7 +242,7 @@ async function twitterSearchRecent(params: {
     return {
       query,
       fetchedAt,
-      tweets: summarized.slice(0, 8)
+      tweets: summarized.slice(0, maxResults)
     }
   } catch (error) {
     return {
@@ -389,4 +406,3 @@ export function summarizeExternalIntel(pack: ExternalIntelPack): Record<string, 
       : null
   }
 }
-
