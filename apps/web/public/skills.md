@@ -181,8 +181,6 @@ All proposals pass through a deterministic risk engine (fail-closed) before exec
 ## Further Reading
 
 - Full API docs: https://hlprivateer.xyz/API.md
-- Architecture spec: https://hlprivateer.xyz/docs/SPEC.md
 - x402 seller guide: https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md
 - Agent navigation: https://hlprivateer.xyz/llms.txt
 - Agent discovery: https://hlprivateer.xyz/.well-known/agents.json
-- Source: https://github.com/ADWilkinson/hlprivateer.xyz

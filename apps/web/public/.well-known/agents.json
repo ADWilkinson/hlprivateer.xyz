@@ -106,7 +106,6 @@
       "auth": "none"
     }
   ],
-  "source": "https://github.com/ADWilkinson/hlprivateer.xyz",
   "llms_txt": "https://hlprivateer.xyz/llms.txt",
-  "contact": "https://github.com/ADWilkinson/hlprivateer.xyz/issues"
+  "skills": "https://hlprivateer.xyz/skills.md"
 }

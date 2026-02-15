@@ -1,42 +1,55 @@
 # Agent Index (HL Privateer)
 
-This file is the "start here" index for any LLM/agent working in this repo.
+This file is the "start here" index for any external agent interacting with HL Privateer.
 
-## Primary Docs
-- `README.md`: product overview + quick start.
-- `docs/SPEC.md`: full architecture/spec for the trading system (runtime, risk gates, event bus).
-- `docs/AGENT_RUNNER.md`: how the agent-runner works (LLMs, prompts, proposal schema, publish flow).
-- `API.md`: HTTP + WS API surface (public + operator + agent endpoints).
-- `docs/GO_LIVE.md`: live-trading + x402 go-live checklist (production operations).
+## What is HL Privateer?
+An open, agentic discretionary trading desk on Hyperliquid. Autonomous agents make discretionary long/short calls — positions, analysis, signals, and risk state are accessible to any inbound agent via x402 pay-per-call endpoints.
 
-## Ops + Security
-- `RUNBOOK.md`: operational runbook (services, restarts, smoke tests, troubleshooting).
-- `infra/systemd/`: systemd units for api/ws/runtime/agent-runner/cloudflared.
-- `infra/cloudflared/`: Cloudflare Tunnel configuration and examples.
-- `SECURITY.md`: threat model, secret handling, reporting.
+## Quick Start
+1. Hit any agent endpoint: `GET https://api.hlprivateer.xyz/v1/agent/stream/snapshot`
+2. Receive `402 Payment Required` with `PAYMENT-REQUIRED` header
+3. Pay with x402 (USDC on Base) and retry with `PAYMENT-SIGNATURE` header
+4. Receive data in the `200` response
 
-## x402 (Paid Agent Endpoints)
-- `docs/X402_SELLER_QUICKSTART.md`: concrete seller quickstart and verification steps.
-- `scripts/x402/`: local demo payer scripts for end-to-end validation.
+## Base URLs
+- REST API: `https://api.hlprivateer.xyz`
+- WebSocket: `wss://ws.hlprivateer.xyz`
+- Web UI: `https://hlprivateer.xyz`
 
-## Repo Navigation For Agents
-- `llms.txt`: short, high-signal map of the repo for LLMs.
-- `skills.md`: agentskills.io skill for external agents (x402 endpoints, use cases, payment flow).
-- `docs/HANDOVER_PROMPT.md`: deep engineer handover prompt (useful for onboarding new agents).
-- `docs/GITHUB_ISSUES.md`: issue hygiene and project tracking conventions.
+## Agent Resources
+- `llms.txt`: LLM-oriented overview with endpoint catalog and payment details.
+- `skills.md`: agentskills.io skill — full endpoint reference, use cases, payment flow.
+- `API.md`: Complete HTTP + WebSocket API surface.
+- `docs/X402_SELLER_QUICKSTART.md`: x402 payment integration guide.
+- `.well-known/agents.json`: Machine-readable agent discovery.
 
-## Code Entry Points
-- Runtime orchestrator (strategy loop + risk gates): `apps/runtime/src/orchestrator/state.ts`
-- Live OMS adapter (Hyperliquid execution + account value): `apps/runtime/src/services/oms.ts`
-- Agent runner (LLM calls, proposal publishing): `apps/agent-runner/src/index.ts`
-- API server (public + operator + agent routes): `apps/api/src/index.ts`
-- WS gateway: `apps/ws-gateway/src/index.ts`
-- Web UI: `apps/web/`
+All files are served at `https://hlprivateer.xyz/<path>`.
 
-## Common Commands
-- Install: `bun install`
-- Dev (local): `bun run dev`
-- Build: `bun run build`
-- Tests: `bun run test`
-- Local + public smoke: `LOCAL=1 bash scripts/readiness/smoke.sh`
+## x402 Payment
+- Network: Base (eip155:8453)
+- Asset: USDC
+- Facilitator: `https://facilitator.payai.network`
+- Protocol: x402 v2 (exact scheme)
 
+## Endpoint Pricing
+
+### $0.01/call
+- `/v1/agent/stream/snapshot` — Mode, PnL%, health, positions, ops tape
+- `/v1/agent/positions` — Full position array
+- `/v1/agent/orders` — Open orders
+- `/v1/agent/analysis?latest=true` — Latest strategist analysis
+- `/v1/agent/analysis` — Analysis history
+
+### $0.02/call
+- `/v1/agent/insights?scope=market` — Risk config, signals, account snapshot
+- `/v1/agent/insights?scope=ai` — Full dashboard with risk + analysis
+
+### $0.03/call
+- `/v1/agent/copy/trade?kind=signals` — Proposal + risk audit trail
+- `/v1/agent/copy/trade?kind=positions` — Copy-trade position data
+
+### Free (no payment)
+- `/v1/public/pnl` — PnL% and mode
+- `/v1/public/floor-snapshot` — Public floor snapshot
+- `/v1/public/floor-tape` — Recent ops log lines
+- `/healthz` — Health check

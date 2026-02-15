@@ -144,21 +144,16 @@ export default function LandingPage() {
 
   return (
     <div className='relative z-10 mx-auto flex min-h-[calc(100dvh-52px)] w-full max-w-[1300px] flex-col items-center justify-center gap-6 px-3 py-8'>
-      <div className='flex w-full items-center justify-between'>
-        <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>
-          <span className='text-hlpMuted'>[HL]</span> PRIVATEER
-        </div>
-        <div className='flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-hlpPositive'>
-          <span className='inline-block h-1.5 w-1.5 animate-hlp-led bg-hlpPositive' />
-          LIVE
-        </div>
+      <div className='flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-hlpPositive'>
+        <span className='inline-block h-1.5 w-1.5 animate-hlp-led bg-hlpPositive' />
+        LIVE
       </div>
 
-      <p className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
-        Open discretionary desk on Hyperliquid. Read our analysis, follow
-        the fund. All via{' '}
-        <a href='/API.md' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402</a>.
-      </p>
+      <div className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
+        <p>Open discretionary desk on Hyperliquid.</p>
+        <p>Read our analysis, follow the fund. All via{' '}
+        <a href='/API.md' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402</a>.</p>
+      </div>
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
 
@@ -254,10 +249,7 @@ export default function LandingPage() {
       </div>
 
       <div className='max-w-[500px] text-center text-[9px] leading-relaxed tracking-wider text-hlpDim'>
-        9 x402 endpoints · USDC on Base · no API keys · no sign-ups ·{' '}
-        <a href='https://github.com/ADWilkinson/hlprivateer.xyz' className='underline underline-offset-2 hover:text-hlpMuted' target='_blank' rel='noopener'>
-          source
-        </a>
+        x402 pay-per-call · USDC on Base · no API keys · no sign-ups
       </div>
     </div>
   )
