@@ -155,10 +155,9 @@ export default function LandingPage() {
       </div>
 
       <p className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
-        Open discretionary desk on Hyperliquid. Autonomous agents making
-        live trading calls based on data. Follow trades, read analysis, copy
-        positions — accessible to any agent via{' '}
-        <a href='/API.md' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402 pay-per-call</a>.
+        Open discretionary desk on Hyperliquid. Follow our trades, read our
+        analysis, copy our positions — all via{' '}
+        <a href='/API.md' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402</a>.
       </p>
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
