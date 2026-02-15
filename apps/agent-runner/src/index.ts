@@ -2687,11 +2687,19 @@ async function generateAnalysis(params: {
   }
 }
 
+type ResearchReportResult = {
+  headline: string
+  regime: string
+  recommendation: string
+  confidence: number
+  suggestedTwitterQueries: string[]
+}
+
 async function generateResearchReport(params: {
   llm: LlmChoice
   model: string
   input: Record<string, unknown>
-}): Promise<{ headline: string; regime: string; recommendation: string; confidence: number }> {
+}): Promise<ResearchReportResult> {
   const schema = {
     type: 'object',
     additionalProperties: false,
@@ -2699,7 +2707,12 @@ async function generateResearchReport(params: {
       headline: { type: 'string' },
       regime: { type: 'string' },
       recommendation: { type: 'string' },
-      confidence: { type: 'number' }
+      confidence: { type: 'number' },
+      suggestedTwitterQueries: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Up to 8 Twitter/X search queries to run next cycle. Use Twitter v2 search operators: OR, AND, -is:retweet, lang:en, $cashtag. Focus on narratives, catalysts, liquidation events, or sentiment shifts relevant to current regime and watchlist.'
+      }
     },
     required: ['headline', 'regime', 'recommendation', 'confidence']
   } as const
@@ -2709,7 +2722,8 @@ async function generateResearchReport(params: {
       headline: 'Research pulse',
       regime: 'range / mean-reversion bias',
       recommendation: 'keep pair structure stable; watch correlation + funding for regime shifts',
-      confidence: 0.35
+      confidence: 0.35,
+      suggestedTwitterQueries: []
     }
   }
 
@@ -2721,7 +2735,8 @@ async function generateResearchReport(params: {
       'Use only context and observed signals; do not speculate on external events.',
       'Output one recommendation, not a portfolio plan.',
       'If data indicates regime shift, indicate it explicitly in regime.',
-      'Prefer position-structure stability guidance when correlation deteriorates or signals are mixed.'
+      'Prefer position-structure stability guidance when correlation deteriorates or signals are mixed.',
+      'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -2730,23 +2745,31 @@ async function generateResearchReport(params: {
 
   const raw =
     params.llm === 'claude'
-      ? await runClaudeStructured<{ headline: string; regime: string; recommendation: string; confidence: number }>({
+      ? await runClaudeStructured<ResearchReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model
       })
-      : await runCodexStructured<{ headline: string; regime: string; recommendation: string; confidence: number }>({
+      : await runCodexStructured<ResearchReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
         reasoningEffort: env.CODEX_REASONING_EFFORT
       })
 
+  const suggestedQueries = Array.isArray(raw.suggestedTwitterQueries)
+    ? raw.suggestedTwitterQueries
+        .filter((q): q is string => typeof q === 'string' && q.trim().length > 0)
+        .map((q) => q.trim().slice(0, 280))
+        .slice(0, 8)
+    : []
+
   return {
     headline: String(raw.headline ?? '').slice(0, 120) || 'Research pulse',
     regime: String(raw.regime ?? '').slice(0, 160) || 'unknown',
     recommendation: String(raw.recommendation ?? '').slice(0, 240),
-    confidence: clamp(Number(raw.confidence), 0, 1)
+    confidence: clamp(Number(raw.confidence), 0, 1),
+    suggestedTwitterQueries: suggestedQueries
   }
 }
 
@@ -3038,10 +3061,11 @@ let lastStateUpdate:
 	      notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
 	    }
 	  }
-let lastResearchReport: { headline: string; regime: string; recommendation: string; confidence: number; computedAt: string } | null = null
+let lastResearchReport: (ResearchReportResult & { computedAt: string }) | null = null
 let lastRiskReport: (RiskReportResult & { computedAt: string }) | null = null
 let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
 let lastExternalIntel: ExternalIntelPack | null = null
+let agentSuggestedTwitterQueries: string[] = []
 let autoHaltActive = false
 let autoHaltHealthySinceMs = 0
 let lastRiskDecisionAuditSignature = ''
@@ -3377,7 +3401,8 @@ async function runResearchAgent(): Promise<void> {
 	        twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
 	        twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
 	        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
-	        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS
+	        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
+	        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined
 	      })
 	      intelSummary = summarizeExternalIntel(lastExternalIntel)
 
@@ -3420,7 +3445,7 @@ async function runResearchAgent(): Promise<void> {
   const llm = llmForRole('research', now)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
-  let report: { headline: string; regime: string; recommendation: string; confidence: number } | null = null
+  let report: ResearchReportResult | null = null
   try {
     report = await generateResearchReport({ llm, model, input })
   } catch (primaryError) {
@@ -3468,6 +3493,10 @@ async function runResearchAgent(): Promise<void> {
 
   if (!report) {
     return
+  }
+
+  if (report.suggestedTwitterQueries.length > 0) {
+    agentSuggestedTwitterQueries = report.suggestedTwitterQueries
   }
 
   lastResearchReport = { ...report, computedAt: new Date().toISOString() }
