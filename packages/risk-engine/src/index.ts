@@ -331,9 +331,11 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   const reasons: RiskReason[] = []
   const isExitProposal = context.proposal.actions.length > 0 &&
     context.proposal.actions.every((action) => action.type === 'EXIT')
-  const isReducingExit = isExitProposal &&
+  const isReducingExit = isExitProposal && (
     projectedGrossNotional(context.openPositions, context.proposal) <=
-    currentGrossNotional(context.openPositions)
+    currentGrossNotional(context.openPositions) ||
+    context.openPositions.length === 0
+  )
 
   if (!context.dependenciesHealthy && config.failClosedOnDependencyError) {
     reasons.push({
@@ -362,7 +364,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   }
 
   const parityResult = checkNotionalExposurePolicy(context.openPositions, context.proposal, config.notionalParityTolerance)
-  if (!parityResult.ok && !isExitProposal) {
+  if (!parityResult.ok && !isReducingExit) {
     reasons.push({ code: 'NOTIONAL_PARITY', message: parityResult.reason ?? 'invalid notional parity' })
   }
 
@@ -427,7 +429,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   ]
 
   const hasBlockers = reasons.some((entry) => {
-    if (isExitProposal && (entry.code === 'DRAWDOWN' || entry.code === 'NOTIONAL_PARITY')) {
+    if (isReducingExit && (entry.code === 'DRAWDOWN' || entry.code === 'NOTIONAL_PARITY')) {
       return false
     }
 

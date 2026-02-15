@@ -153,6 +153,26 @@ type TwitterApiResponse = {
 
 const TWITTER_WEB_BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
 
+function buildTwitterHeaders(params: {
+  bearerToken: string
+  authToken?: string | null
+  ct0?: string | null
+  useCookie: boolean
+}): Record<string, string> {
+  if (params.useCookie && params.authToken && params.ct0) {
+    return {
+      Authorization: `Bearer ${decodeMaybeURIComponent(TWITTER_WEB_BEARER)}`,
+      'Content-Type': 'application/json',
+      Cookie: `auth_token=${params.authToken}; ct0=${params.ct0}`,
+      'X-Csrf-Token': params.ct0
+    }
+  }
+  return {
+    Authorization: `Bearer ${params.bearerToken}`,
+    'Content-Type': 'application/json'
+  }
+}
+
 async function twitterSearchRecent(params: {
   bearerToken: string
   authToken?: string | null
@@ -172,113 +192,110 @@ async function twitterSearchRecent(params: {
   url.searchParams.set('expansions', 'author_id')
   url.searchParams.set('user.fields', 'username,name,verified')
 
-  const useCookieAuth = params.authToken && params.ct0
-  const headers: Record<string, string> = useCookieAuth
-    ? {
-        Authorization: `Bearer ${decodeMaybeURIComponent(TWITTER_WEB_BEARER)}`,
-        'Content-Type': 'application/json',
-        Cookie: `auth_token=${params.authToken}; ct0=${params.ct0}`,
-        'X-Csrf-Token': params.ct0!
-      }
-    : {
-        Authorization: `Bearer ${params.bearerToken}`,
-        'Content-Type': 'application/json'
-      }
+  const hasCookieCreds = Boolean(params.authToken && params.ct0)
+  const hasBearerCreds = Boolean(params.bearerToken)
+  const strategies: boolean[] = []
+  if (hasCookieCreds) strategies.push(true)
+  if (hasBearerCreds) strategies.push(false)
+  if (strategies.length === 0) {
+    return { query, fetchedAt, tweets: [], error: 'no twitter credentials available' }
+  }
 
-  try {
-    const response = await fetchWithTimeout(
-      url.toString(),
-      { method: 'GET', headers },
-      params.timeoutMs
-    )
+  let lastError = ''
+  for (const useCookie of strategies) {
+    const headers = buildTwitterHeaders({ ...params, useCookie })
+    try {
+      const response = await fetchWithTimeout(
+        url.toString(),
+        { method: 'GET', headers },
+        params.timeoutMs
+      )
 
-    const payloadRaw = await safeJson(response)
-    if (!response.ok) {
-      return {
-        query,
-        fetchedAt,
-        tweets: [],
-        error: `twitter status=${response.status} body=${sanitizeLine(
+      const payloadRaw = await safeJson(response)
+      if (!response.ok) {
+        lastError = `twitter status=${response.status} body=${sanitizeLine(
           typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
           240
         )}`
+        if (response.status === 401 || response.status === 403) {
+          continue
+        }
+        return { query, fetchedAt, tweets: [], error: lastError }
       }
-    }
 
-    if (typeof payloadRaw !== 'object' || payloadRaw === null) {
-      return {
-        query,
-        fetchedAt,
-        tweets: [],
-        error: `twitter invalid JSON body: ${sanitizeLine(
-          typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
-          240
-        )}`
-      }
-    }
-
-    const payload = payloadRaw as TwitterApiResponse
-
-    const users = payload.includes?.users ?? []
-    const userById = new Map<string, { id: string; username: string | null; name: string | null; verified: boolean | null }>()
-    for (const user of users) {
-      const id = typeof user?.id === 'string' ? user.id : ''
-      if (!id) continue
-      userById.set(id, {
-        id,
-        username: typeof user.username === 'string' ? sanitizeLine(user.username, 32) : null,
-        name: typeof user.name === 'string' ? sanitizeLine(user.name, 42) : null,
-        verified: typeof user.verified === 'boolean' ? user.verified : null
-      })
-    }
-
-    const tweets = payload.data ?? []
-    const summarized = tweets
-      .map((tweet) => {
-        const id = typeof tweet?.id === 'string' ? tweet.id : ''
-        if (!id) return null
-        const authorId = typeof tweet.author_id === 'string' ? tweet.author_id : null
-        const author = authorId ? userById.get(authorId) : undefined
-        const text = typeof tweet?.text === 'string' ? sanitizeLine(tweet.text, 340) : ''
-        const createdAt = typeof tweet?.created_at === 'string' ? tweet.created_at : null
-        const metrics = tweet?.public_metrics ?? {}
-        const safeMetric = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+      if (typeof payloadRaw !== 'object' || payloadRaw === null) {
         return {
+          query,
+          fetchedAt,
+          tweets: [],
+          error: `twitter invalid JSON body: ${sanitizeLine(
+            typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
+            240
+          )}`
+        }
+      }
+
+      const payload = payloadRaw as TwitterApiResponse
+
+      const users = payload.includes?.users ?? []
+      const userById = new Map<string, { id: string; username: string | null; name: string | null; verified: boolean | null }>()
+      for (const user of users) {
+        const id = typeof user?.id === 'string' ? user.id : ''
+        if (!id) continue
+        userById.set(id, {
           id,
-          url: `https://x.com/i/web/status/${id}`,
-          createdAt,
-          author: {
-            id: author?.id ?? authorId ?? null,
-            username: author?.username ?? null,
-            name: author?.name ?? null,
-            verified: author?.verified ?? null
-          },
-          text,
-          metrics: {
-            likeCount: safeMetric(metrics.like_count),
-            retweetCount: safeMetric(metrics.retweet_count),
-            replyCount: safeMetric(metrics.reply_count),
-            quoteCount: safeMetric(metrics.quote_count)
-          }
-        } satisfies TwitterTweetSummary
-      })
-      .filter((entry): entry is TwitterTweetSummary => Boolean(entry))
+          username: typeof user.username === 'string' ? sanitizeLine(user.username, 32) : null,
+          name: typeof user.name === 'string' ? sanitizeLine(user.name, 42) : null,
+          verified: typeof user.verified === 'boolean' ? user.verified : null
+        })
+      }
 
-    summarized.sort((a, b) => (b.metrics.likeCount ?? 0) - (a.metrics.likeCount ?? 0))
+      const tweets = payload.data ?? []
+      const summarized = tweets
+        .map((tweet) => {
+          const id = typeof tweet?.id === 'string' ? tweet.id : ''
+          if (!id) return null
+          const authorId = typeof tweet.author_id === 'string' ? tweet.author_id : null
+          const author = authorId ? userById.get(authorId) : undefined
+          const text = typeof tweet?.text === 'string' ? sanitizeLine(tweet.text, 340) : ''
+          const createdAt = typeof tweet?.created_at === 'string' ? tweet.created_at : null
+          const metrics = tweet?.public_metrics ?? {}
+          const safeMetric = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+          return {
+            id,
+            url: `https://x.com/i/web/status/${id}`,
+            createdAt,
+            author: {
+              id: author?.id ?? authorId ?? null,
+              username: author?.username ?? null,
+              name: author?.name ?? null,
+              verified: author?.verified ?? null
+            },
+            text,
+            metrics: {
+              likeCount: safeMetric(metrics.like_count),
+              retweetCount: safeMetric(metrics.retweet_count),
+              replyCount: safeMetric(metrics.reply_count),
+              quoteCount: safeMetric(metrics.quote_count)
+            }
+          } satisfies TwitterTweetSummary
+        })
+        .filter((entry): entry is TwitterTweetSummary => Boolean(entry))
 
-    return {
-      query,
-      fetchedAt,
-      tweets: summarized.slice(0, maxResults)
-    }
-  } catch (error) {
-    return {
-      query,
-      fetchedAt,
-      tweets: [],
-      error: sanitizeLine(String(error), 240)
+      summarized.sort((a, b) => (b.metrics.likeCount ?? 0) - (a.metrics.likeCount ?? 0))
+
+      return {
+        query,
+        fetchedAt,
+        tweets: summarized.slice(0, maxResults)
+      }
+    } catch (error) {
+      lastError = sanitizeLine(String(error), 240)
+      continue
     }
   }
+
+  return { query, fetchedAt, tweets: [], error: lastError || 'all twitter auth strategies failed' }
 }
 
 export async function buildExternalIntelPack(params: {
