@@ -608,19 +608,42 @@ function formatAgentErrorEmbed(d: Record<string, unknown>): DiscordEmbedResult {
 function formatIntelRefreshEmbed(d: Record<string, unknown>): DiscordEmbedResult {
   const symbols = Array.isArray(d.symbols) ? d.symbols.map((s) => String(s)).join(', ') : sanitizeLine(String(d.symbols ?? ''), 128)
   const fields: DiscordEmbedField[] = []
-  const twitter = d.twitterStatus ?? d.twitter
-  if (twitter != null) fields.push({ name: 'Twitter', value: sanitizeLine(String(twitter), 64), inline: true })
-  const fng = d.fearAndGreed ?? d.fng ?? d.fearGreed
-  if (fng != null) fields.push({ name: 'Fear & Greed', value: sanitizeLine(String(fng), 32), inline: true })
-  const tweets = Array.isArray(d.topTweets ?? d.tweets) ? ((d.topTweets ?? d.tweets) as unknown[]) : []
-  if (tweets.length > 0) {
-    const top = tweets.slice(0, 3).map((t) => {
-      if (!t || typeof t !== 'object') return sanitizeLine(String(t), 200)
-      const rec = t as Record<string, unknown>
-      return sanitizeLine(String(rec.text ?? rec.content ?? t), 200)
-    }).filter(Boolean)
-    if (top.length > 0) fields.push({ name: 'Top Tweets', value: sanitizeDiscordMultiline(fmtBulletList(top, 3), 1024) })
+
+  const twitter = d.twitter as Record<string, unknown> | null | undefined
+  if (twitter && typeof twitter === 'object') {
+    const ok = twitter.ok ? 'ok' : 'degraded'
+    const queryCount = typeof twitter.queryCount === 'number' ? twitter.queryCount : 0
+    const totalTweets = Array.isArray(twitter.queries)
+      ? (twitter.queries as Array<Record<string, unknown>>).reduce((sum, q) => sum + (typeof q.tweetCount === 'number' ? q.tweetCount : 0), 0)
+      : 0
+    const errorQueries = Array.isArray(twitter.queries)
+      ? (twitter.queries as Array<Record<string, unknown>>).filter((q) => q.error).length
+      : 0
+    const parts = [`${ok} (${queryCount} queries, ${totalTweets} tweets)`]
+    if (errorQueries > 0) parts.push(`${errorQueries} failed`)
+    fields.push({ name: 'Twitter', value: sanitizeLine(parts.join(', '), 128), inline: true })
+
+    const allTweets = Array.isArray(twitter.queries)
+      ? (twitter.queries as Array<Record<string, unknown>>).flatMap((q) => Array.isArray(q.topTweets) ? q.topTweets as Array<Record<string, unknown>> : [])
+      : []
+    if (allTweets.length > 0) {
+      const top = allTweets.slice(0, 3).map((t) => sanitizeLine(String(t.text ?? ''), 200)).filter(Boolean)
+      if (top.length > 0) fields.push({ name: 'Top Tweets', value: sanitizeDiscordMultiline(fmtBulletList(top, 3), 1024) })
+    }
+  } else if (twitter != null) {
+    fields.push({ name: 'Twitter', value: sanitizeLine(String(twitter), 64), inline: true })
   }
+
+  const fng = d.fearGreed as Record<string, unknown> | null | undefined
+  if (fng && typeof fng === 'object') {
+    const value = typeof fng.value === 'number' ? fng.value : null
+    const classification = typeof fng.classification === 'string' ? fng.classification : null
+    const label = value !== null && classification ? `${value} (${classification})` : value !== null ? String(value) : classification ?? (fng.ok ? 'ok' : 'unavailable')
+    fields.push({ name: 'Fear & Greed', value: sanitizeLine(label, 64), inline: true })
+  } else if (fng != null) {
+    fields.push({ name: 'Fear & Greed', value: sanitizeLine(String(fng), 32), inline: true })
+  }
+
   return { description: symbols ? `Intel refresh: ${symbols}` : 'Intel refresh', fields }
 }
 
@@ -2229,12 +2252,12 @@ async function maybeSelectBasket(params: {
     }
 
     const validated = validateBasketSelection({ requested: chosen.basketSymbols, allowed: candidates, size: env.AGENT_UNIVERSE_SIZE })
-    if (validated.length !== env.AGENT_UNIVERSE_SIZE) {
+    if (validated.length === 0) {
       await publishTape({
         correlationId: ulid(),
         role: 'ops',
         level: 'WARN',
-        line: `universe selection invalid (size=${validated.length}); skipping universe refresh`
+        line: `universe selection empty (0 valid symbols from ${chosen.basketSymbols.length} requested); skipping`
       })
       return
     }
@@ -4301,6 +4324,11 @@ const start = async (): Promise<void> => {
       const payload = envelope.payload as unknown
       if (!Array.isArray(payload)) {
         warnMalformedEnvelope('hlp.ui.events', 'POSITION_UPDATE', payload, 'not_array')
+        return
+      }
+
+      if (payload.length === 0) {
+        lastPositions = []
         return
       }
 
