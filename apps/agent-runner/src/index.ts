@@ -1397,61 +1397,25 @@ function buildRiskRecoveryFromStateUpdate(nowMs: number): {
   }
 }
 
-function buildRiskPolicyTuningArgs(): { args: string[]; reason: string; signature: string } | null {
-  if (!lastRiskDecision || lastRiskDecision.decision !== 'DENY' || !lastRiskDecision.computedAt) {
-    return null
-  }
-
-  const reasonCodes = parseRiskReasonCodes(lastRiskDecision)
-  if (reasonCodes.length === 0) {
-    return null
-  }
-
-  const signature = reasonCodes.slice().sort().join('|')
-  if (signature === lastRiskPolicyTuneSignature) {
-    return null
-  }
-
-  if (Date.now() - lastRiskPolicyTuneAt < RISK_POLICY_TUNING_COOLDOWN_MS) {
-    return null
-  }
-
-  const policy = resolveRiskLimitsForContext()
+function buildRiskPolicyArgsFromRecommendations(
+  recommendations: RiskPolicyRecommendation
+): { args: string[]; reason: string } | null {
   const args: string[] = []
 
-  if (reasonCodes.includes('DRAWDOWN')) {
-    const tuned = Math.max(0.5, policy.maxDrawdownPct * 0.75)
-    if (tuned < policy.maxDrawdownPct) {
-      args.push(`maxDrawdownPct=${tuned.toFixed(2)}`)
-    }
+  if (typeof recommendations.maxDrawdownPct === 'number') {
+    args.push(`maxDrawdownPct=${recommendations.maxDrawdownPct.toFixed(2)}`)
   }
-
-  if (reasonCodes.includes('EXPOSURE')) {
-    const tuned = Math.max(25, policy.maxExposureUsd * 0.8)
-    if (tuned < policy.maxExposureUsd) {
-      args.push(`maxExposureUsd=${Math.round(tuned)}`)
-    }
+  if (typeof recommendations.maxLeverage === 'number') {
+    args.push(`maxLeverage=${recommendations.maxLeverage.toFixed(3)}`)
   }
-
-  if (reasonCodes.includes('LEVERAGE')) {
-    const tuned = Math.max(0.25, policy.maxLeverage * 0.8)
-    if (tuned < policy.maxLeverage) {
-      args.push(`maxLeverage=${tuned.toFixed(3)}`)
-    }
+  if (typeof recommendations.maxExposureUsd === 'number') {
+    args.push(`maxExposureUsd=${Math.round(recommendations.maxExposureUsd)}`)
   }
-
-  if (reasonCodes.includes('SLIPPAGE_BREACH')) {
-    const tuned = Math.max(1, policy.maxSlippageBps * 0.8)
-    if (tuned < policy.maxSlippageBps) {
-      args.push(`maxSlippageBps=${Math.round(tuned)}`)
-    }
+  if (typeof recommendations.maxSlippageBps === 'number') {
+    args.push(`maxSlippageBps=${Math.round(recommendations.maxSlippageBps)}`)
   }
-
-  if (reasonCodes.includes('STALE_DATA')) {
-    const tuned = Math.max(300, policy.staleDataMs * 0.8)
-    if (tuned < policy.staleDataMs) {
-      args.push(`staleDataMs=${Math.round(tuned)}`)
-    }
+  if (typeof recommendations.notionalParityTolerance === 'number') {
+    args.push(`notionalParityTolerance=${recommendations.notionalParityTolerance.toFixed(4)}`)
   }
 
   if (args.length === 0) {
@@ -1460,8 +1424,7 @@ function buildRiskPolicyTuningArgs(): { args: string[]; reason: string; signatur
 
   return {
     args,
-    reason: `risk policy auto-tighten for ${signature}`,
-    signature
+    reason: 'risk agent policy recommendation'
   }
 }
 
@@ -2492,11 +2455,27 @@ async function generateResearchReport(params: {
   }
 }
 
+type RiskPolicyRecommendation = {
+  maxDrawdownPct?: number
+  maxLeverage?: number
+  maxExposureUsd?: number
+  maxSlippageBps?: number
+  notionalParityTolerance?: number
+}
+
+type RiskReportResult = {
+  headline: string
+  posture: 'GREEN' | 'AMBER' | 'RED'
+  risks: string[]
+  confidence: number
+  policyRecommendations: RiskPolicyRecommendation | null
+}
+
 async function generateRiskReport(params: {
   llm: LlmChoice
   model: string
   input: Record<string, unknown>
-}): Promise<{ headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number }> {
+}): Promise<RiskReportResult> {
   const schema = {
     type: 'object',
     additionalProperties: false,
@@ -2504,9 +2483,20 @@ async function generateRiskReport(params: {
       headline: { type: 'string' },
       posture: { type: 'string', enum: ['GREEN', 'AMBER', 'RED'] },
       risks: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
-      confidence: { type: 'number' }
+      confidence: { type: 'number' },
+      policyRecommendations: {
+        type: ['object', 'null'],
+        additionalProperties: false,
+        properties: {
+          maxDrawdownPct: { type: 'number' },
+          maxLeverage: { type: 'number' },
+          maxExposureUsd: { type: 'number' },
+          maxSlippageBps: { type: 'number' },
+          notionalParityTolerance: { type: 'number' }
+        }
+      }
     },
-    required: ['headline', 'posture', 'risks', 'confidence']
+    required: ['headline', 'posture', 'risks', 'confidence', 'policyRecommendations']
   } as const
 
   if (params.llm === 'none') {
@@ -2514,20 +2504,28 @@ async function generateRiskReport(params: {
       headline: 'Risk posture',
       posture: 'GREEN',
       risks: ['Volatility spike', 'Liquidity gaps', 'Correlation break'],
-      confidence: 0.35
+      confidence: 0.35,
+      policyRecommendations: null
     }
   }
 
   const prompt = [
     buildAgentPrompt({
       role: 'risk-agent',
-      mission: 'Assess immediate risk posture and list concrete blockers or residual risks.',
+      mission: 'Assess immediate risk posture, list concrete risks, and recommend risk policy parameter changes if warranted.',
       rules: [
         'Only return posture GREEN/AMBER/RED.',
         'Prioritize stale data, volatility regime, and drift imbalance.',
         'Tie each risk item to specific observable context.',
         'When posture is RED, favor conservative action and explicit blockers.',
-        'Do not output execution mechanics.'
+        'Do not output execution mechanics.',
+        'POLICY MANAGEMENT: You control the live risk policy parameters. The current policy is included in context under "currentRiskPolicy".',
+        'Set policyRecommendations to an object with any parameters you want to change, or null to keep current policy.',
+        'You may TIGHTEN parameters (lower drawdown cap, reduce leverage) in volatile/uncertain markets.',
+        'You may LOOSEN parameters (raise drawdown cap, increase leverage) when conditions stabilize and recovery is needed.',
+        'Example: if drawdown cap is 5% and current PnL is -5.2% but market is stabilizing, recommend maxDrawdownPct=7 to allow recovery trades.',
+        'Example: if volatility is spiking and regime is fear-driven, recommend maxDrawdownPct=3 and maxLeverage=1.5 to reduce risk appetite.',
+        'Only recommend changes with clear justification tied to observable market conditions. Do not change params arbitrarily.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -2536,12 +2534,12 @@ async function generateRiskReport(params: {
 
   const raw =
     params.llm === 'claude'
-      ? await runClaudeStructured<{ headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number }>({
+      ? await runClaudeStructured<RiskReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model
       })
-      : await runCodexStructured<{ headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number }>({
+      : await runCodexStructured<RiskReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
@@ -2549,11 +2547,17 @@ async function generateRiskReport(params: {
       })
 
   const posture = raw.posture === 'GREEN' || raw.posture === 'AMBER' || raw.posture === 'RED' ? raw.posture : 'AMBER'
+  const recommendations = raw.policyRecommendations && typeof raw.policyRecommendations === 'object'
+    ? Object.fromEntries(
+        Object.entries(raw.policyRecommendations).filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+      ) as RiskPolicyRecommendation
+    : null
   return {
     headline: String(raw.headline ?? '').slice(0, 120) || 'Risk posture',
     posture,
     risks: Array.isArray(raw.risks) ? raw.risks.map((r) => String(r).slice(0, 240)).slice(0, 6) : [],
-    confidence: clamp(Number(raw.confidence), 0, 1)
+    confidence: clamp(Number(raw.confidence), 0, 1),
+    policyRecommendations: recommendations && Object.keys(recommendations).length > 0 ? recommendations : null
   }
 }
 
@@ -2736,7 +2740,7 @@ let lastStateUpdate:
 	    }
 	  }
 let lastResearchReport: { headline: string; regime: string; recommendation: string; confidence: number; computedAt: string } | null = null
-let lastRiskReport: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number; computedAt: string } | null = null
+let lastRiskReport: (RiskReportResult & { computedAt: string }) | null = null
 let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
 let lastExternalIntel: ExternalIntelPack | null = null
 let autoHaltActive = false
@@ -3149,11 +3153,14 @@ async function runRiskAgent(): Promise<void> {
   const signalPack = summarizeLatestSignals(now)
   const latestVol = latestSignalFromPack(signalPack, 'volatility')
 
+	  const currentRiskPolicy = resolveRiskLimitsForContext()
 	  const input = {
 	    ts: new Date().toISOString(),
 	    mode: lastMode,
 	    drift: summary.drift,
 	    postureHint: summary.posture,
+	    pnlPct: lastStateUpdate?.pnlPct ?? null,
+	    accountValueUsd: lastStateUpdate?.accountValueUsd ?? null,
 	    vol1hPct: latestVol?.value ?? null,
 	    signalCoverage: {
 	      types: Object.keys(signalPack).length,
@@ -3161,13 +3168,14 @@ async function runRiskAgent(): Promise<void> {
 	    },
 	    signals: signalPack,
 	    externalIntel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
-	    lastRiskDecision
+	    lastRiskDecision,
+	    currentRiskPolicy
 	  }
 
   const llm = llmForRole('risk', now)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
-  let report: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number } | null = null
+  let report: RiskReportResult | null = null
   try {
     report = await generateRiskReport({ llm, model, input })
   } catch (primaryError) {
@@ -3240,22 +3248,24 @@ async function runRiskAgent(): Promise<void> {
     }
   })
 
-  const policyTune = buildRiskPolicyTuningArgs()
-  if (policyTune) {
-    lastRiskPolicyTuneAt = Date.now()
-    lastRiskPolicyTuneSignature = policyTune.signature
-    await publishAgentCommand({
-      command: '/risk-policy',
-      args: policyTune.args,
-      reason: policyTune.reason
-    })
+  if (report.policyRecommendations) {
+    const policyUpdate = buildRiskPolicyArgsFromRecommendations(report.policyRecommendations)
+    if (policyUpdate && Date.now() - lastRiskPolicyTuneAt >= RISK_POLICY_TUNING_COOLDOWN_MS) {
+      lastRiskPolicyTuneAt = Date.now()
+      lastRiskPolicyTuneSignature = policyUpdate.args.sort().join('|')
+      await publishAgentCommand({
+        command: '/risk-policy',
+        args: policyUpdate.args,
+        reason: policyUpdate.reason
+      })
 
-    await publishTape({
-      correlationId: ulid(),
-      role: 'risk',
-      level: 'WARN',
-      line: `requested risk policy auto-tighten: ${policyTune.args.join(', ')}`
-    })
+      await publishTape({
+        correlationId: ulid(),
+        role: 'risk',
+        level: 'WARN',
+        line: `risk agent policy update: ${policyUpdate.args.join(', ')}`
+      })
+    }
   }
 }
 
