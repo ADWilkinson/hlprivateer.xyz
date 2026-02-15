@@ -195,9 +195,12 @@ async function twitterSearchRecent(params: {
   const hasCookieCreds = Boolean(params.authToken && params.ct0)
   const hasBearerCreds = Boolean(params.bearerToken)
   const strategies: boolean[] = []
-  // Bearer first: app bearer tokens are stable; cookie auth tokens expire frequently.
-  if (hasBearerCreds) strategies.push(false)
-  if (hasCookieCreds) strategies.push(true)
+  // Prefer OAuth2 app bearer tokens (supported on v2 API). Cookie auth is unreliable and often unsupported.
+  if (hasBearerCreds) {
+    strategies.push(false)
+  } else if (hasCookieCreds) {
+    strategies.push(true)
+  }
   if (strategies.length === 0) {
     return { query, fetchedAt, tweets: [], error: 'no twitter credentials available' }
   }
