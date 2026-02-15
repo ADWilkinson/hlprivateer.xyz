@@ -1,7 +1,7 @@
 # Agent Runner - Development Context
 
 ## Overview
-LLM orchestration service running multi-agent strategy loops. 7 agent roles produce structured proposals published to Redis event bus for runtime consumption.
+LLM orchestration service running multi-agent strategy loops. 7 agent roles produce structured proposals published to Redis event bus for runtime consumption. Agents run in a chained pipeline (Research → Risk → Strategist) with adaptive urgency-based scheduling.
 
 ## Key Files
 ```
@@ -18,15 +18,27 @@ src/
 
 ## Agent Roles
 
-| Role | Cadence | Purpose | LLM |
-|------|---------|---------|-----|
+| Role | Scheduling | Purpose | LLM |
+|------|------------|---------|-----|
 | Scout | 1s heartbeat | Tick collection, feed freshness, watchlist | No |
-| Research | Hourly | Regime, funding, correlation, social, macro | Yes |
-| Risk | Hourly | Posture (GREEN/YELLOW/RED), policy recommendations | Optional |
-| Strategist | Hourly | Long/short/pair directives, sizing, horizon | Yes |
+| Research | Pipeline (urgency-driven) | Regime, funding, correlation, social, macro | Yes |
+| Risk | Pipeline (urgency-driven) | Posture (GREEN/YELLOW/RED), policy recommendations | Optional |
+| Strategist | Pipeline (urgency-driven) | Long/short/pair directives, sizing, horizon | Yes |
 | Execution | Event-driven | Transform plans into `StrategyProposal` | Optional |
-| Scribe | Hourly | Audit narrative, rationale synthesis | Yes |
-| Ops | Continuous | Floor stability, auto-halt, watchdog | No |
+| Scribe | Event-driven (on new proposal) | Audit narrative, rationale synthesis | Yes |
+| Ops | Continuous (3s) | Floor stability, auto-halt, watchdog | No |
+
+## Adaptive Pipeline Scheduling
+
+The strategy pipeline (`runStrategyPipeline`) chains Research → Risk → Strategist in a single pass. A pure-function urgency classifier (`classifyUrgency`) determines the pipeline cadence:
+
+| Level | Interval | Trigger |
+|-------|----------|---------|
+| CRITICAL | 60s | Risk DENY, posture RED, SAFE_MODE with open positions |
+| ELEVATED | `AGENT_PIPELINE_MIN_MS` (5min) | In position + high vol / drift / loss > 5% |
+| ACTIVE | 15min | In position, normal conditions |
+| WATCHING | 20min | No position + elevated vol or ALLOW_REDUCE_ONLY |
+| IDLE | `AGENT_PIPELINE_BASE_MS` (30min) | No position, calm market |
 
 ## LLM Integration (`llm.ts`)
 Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structured output. Multi-strategy JSON extraction from stdout (handles ANSI, markdown fences, nested JSON). Timeouts: 90s claude, 120s codex. Temporary settings isolation (disables hooks).
@@ -61,14 +73,17 @@ Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structur
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AGENT_LLM` | codex | Global LLM ('claude'/'codex'/'none') |
-| `AGENT_PROPOSAL_INTERVAL_MS` | 3600000 | Hourly cycle |
+| `AGENT_PIPELINE_BASE_MS` | 1800000 | IDLE cadence (30min) |
+| `AGENT_PIPELINE_MIN_MS` | 300000 | ELEVATED cadence (5min) |
+| `AGENT_OPS_INTERVAL_MS` | 3000 | Ops heartbeat (3s) |
 | `AGENT_UNIVERSE_SIZE` | 6 | Top N assets |
 | `AGENT_UNIVERSE_CANDIDATE_LIMIT` | 240 | Broad pool |
-| `AGENT_INTEL_ENABLED` | - | Enable intel pack |
+| `AGENT_UNIVERSE_REFRESH_MS` | 10800000 | Universe refresh (3h) |
+| `AGENT_INTEL_ENABLED` | true | Enable intel pack |
 | `DRY_RUN` | false | SIM mode |
 
 ## Development
 - `AGENT_LLM=none` skips LLM calls (dry run)
 - `DRY_RUN=true` forces SIM mode
-- `AGENT_PROPOSAL_INTERVAL_MS=300000` (5min) for faster testing
-- Check `journals/journal-ops.ndjson` for floor status
+- `AGENT_PIPELINE_BASE_MS=60000` (1min) for faster testing
+- Check `journals/journal-ops.ndjson` for floor status and urgency level changes

@@ -38,9 +38,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
-const HOURLY_MS = 60 * 60_000
-const MIN_AGENT_LOOP_MS = 5 * 60_000
-
 export const env = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -56,40 +53,20 @@ export const env = z
     AGENT_RISK_LLM: z.enum(['claude', 'codex', 'none']).optional(),
     AGENT_STRATEGIST_LLM: z.enum(['claude', 'codex', 'none']).optional(),
     AGENT_SCRIBE_LLM: z.enum(['claude', 'codex', 'none']).optional(),
-    AGENT_PROPOSAL_INTERVAL_MS: z.coerce
+    AGENT_PIPELINE_BASE_MS: z.coerce
       .number()
       .int()
       .positive()
-      .default(HOURLY_MS)
-      .transform((value) => clamp(Math.trunc(value), MIN_AGENT_LOOP_MS, HOURLY_MS)),
-    AGENT_ANALYSIS_INTERVAL_MS: z.coerce
+      .default(30 * 60_000)
+      .transform((value) => clamp(Math.trunc(value), 300_000, 3_600_000)),
+    AGENT_PIPELINE_MIN_MS: z.coerce
       .number()
       .int()
       .positive()
-      .default(HOURLY_MS)
-      .transform((value) => clamp(Math.trunc(value), MIN_AGENT_LOOP_MS, HOURLY_MS)),
-    AGENT_RESEARCH_INTERVAL_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(HOURLY_MS)
-      .transform((value) => clamp(Math.trunc(value), MIN_AGENT_LOOP_MS, HOURLY_MS)),
-    AGENT_RISK_INTERVAL_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(HOURLY_MS)
-      .transform((value) => clamp(Math.trunc(value), MIN_AGENT_LOOP_MS, HOURLY_MS)),
-    AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+      .default(5 * 60_000)
+      .transform((value) => clamp(Math.trunc(value), 60_000, 900_000)),
+    AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(3000),
     OPS_AUTO_HALT: booleanFromEnv.default(false),
-
-    // Strategy refresh loop (pair/long/short planning + risk/timeframe posture).
-    AGENT_DIRECTIVE_INTERVAL_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(HOURLY_MS)
-      .transform((value) => clamp(Math.trunc(value), MIN_AGENT_LOOP_MS, HOURLY_MS)),
     AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(100),
     AGENT_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(100),
     RISK_MAX_LEVERAGE: z.coerce.number().positive().default(20),
@@ -129,7 +106,7 @@ export const env = z
     AGENT_UNIVERSE_SIZE: z.coerce.number().int().min(1).max(12).default(6),
     // Keep candidate universe broad by default so the LLM can see the full tradable space.
     AGENT_UNIVERSE_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(500).default(240),
-    AGENT_UNIVERSE_REFRESH_MS: z.coerce.number().int().positive().default(60 * 60_000),
+    AGENT_UNIVERSE_REFRESH_MS: z.coerce.number().int().positive().default(3 * 60 * 60_000),
 
     // Basket feature extraction (historical + external metrics).
     AGENT_FEATURE_WINDOW_MIN: z.coerce.number().int().min(30).max(720).default(240),

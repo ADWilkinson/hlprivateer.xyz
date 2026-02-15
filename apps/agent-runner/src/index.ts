@@ -471,6 +471,217 @@ function summarizeDetailsForDiscord(value: unknown, maxLength: number): string {
   }
 }
 
+function fmtUsd(value: unknown): string {
+  const num = typeof value === 'number' && Number.isFinite(value) ? value : null
+  if (num === null) return '--'
+  const abs = Math.abs(num)
+  const formatted = abs >= 1000 ? `$${Math.round(abs).toLocaleString('en-US')}` : `$${abs.toFixed(2)}`
+  return num < 0 ? `-${formatted}` : formatted
+}
+
+function fmtPct(value: unknown): string {
+  const num = typeof value === 'number' && Number.isFinite(value) ? value : null
+  if (num === null) return '--'
+  return `${Math.round(num * 100)}%`
+}
+
+function fmtBulletList(items: unknown[], max: number): string {
+  const lines = items
+    .slice(0, max)
+    .map((item) => `- ${sanitizeLine(String(item), 200)}`)
+  if (items.length > max) lines.push(`- ... +${items.length - max} more`)
+  return lines.join('\n')
+}
+
+function fmtLegs(legs: unknown[]): string {
+  return legs
+    .slice(0, 10)
+    .map((leg) => {
+      if (!leg || typeof leg !== 'object') return null
+      const r = leg as Record<string, unknown>
+      const symbol = sanitizeLine(String(r.symbol ?? ''), 24).toUpperCase()
+      const side = sanitizeLine(String(r.side ?? ''), 8).toUpperCase()
+      if (!symbol) return null
+      return `${symbol} ${side || '--'} ${fmtUsd(r.notionalUsd)}`
+    })
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
+}
+
+type DiscordEmbedResult = { description?: string; fields?: DiscordEmbedField[] }
+
+function formatResearchReportEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const headline = sanitizeLine(String(d.headline ?? d.title ?? d.summary ?? ''), 256)
+  const fields: DiscordEmbedField[] = []
+  if (d.regime != null) fields.push({ name: 'Regime', value: sanitizeLine(String(d.regime), 64).toUpperCase(), inline: true })
+  if (d.confidence != null) fields.push({ name: 'Confidence', value: fmtPct(d.confidence), inline: true })
+  const rec = d.recommendation ?? d.action ?? d.signal
+  if (rec != null) fields.push({ name: 'Recommendation', value: sanitizeDiscordMultiline(String(rec), 1024) })
+  return { description: headline ? `**${headline}**` : undefined, fields }
+}
+
+function formatRiskReportEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const headline = sanitizeLine(String(d.headline ?? d.title ?? d.summary ?? ''), 256)
+  const fields: DiscordEmbedField[] = []
+  if (d.posture != null) fields.push({ name: 'Posture', value: sanitizeLine(String(d.posture), 32).toUpperCase(), inline: true })
+  if (d.confidence != null) fields.push({ name: 'Confidence', value: fmtPct(d.confidence), inline: true })
+  const risks = Array.isArray(d.risks) ? d.risks : []
+  if (risks.length > 0) fields.push({ name: 'Risks', value: sanitizeDiscordMultiline(fmtBulletList(risks, 6), 1024) })
+  if (d.policy != null) fields.push({ name: 'Policy', value: sanitizeDiscordMultiline(String(d.policy), 512) })
+  return { description: headline ? `**${headline}**` : undefined, fields }
+}
+
+function formatRiskDecisionEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const decision = sanitizeLine(String(d.decision ?? ''), 32).toUpperCase()
+  const reasons = Array.isArray(d.reasons) ? (d.reasons as unknown[]) : []
+  const fields: DiscordEmbedField[] = []
+  if (reasons.length > 0) {
+    const reasonLines = reasons
+      .slice(0, 8)
+      .map((r) => {
+        if (!r || typeof r !== 'object') return sanitizeLine(String(r), 160)
+        const rec = r as Record<string, unknown>
+        const code = sanitizeLine(String(rec.code ?? ''), 48).toUpperCase()
+        const msg = sanitizeLine(String(rec.message ?? ''), 160)
+        return code ? `**${code}**: ${msg}` : msg
+      })
+      .filter(Boolean)
+    if (reasonLines.length > 0) fields.push({ name: 'Reasons', value: sanitizeDiscordMultiline(reasonLines.join('\n'), 1024) })
+  }
+  return { description: decision ? `**${decision}**` : undefined, fields }
+}
+
+function formatStrategistDirectiveEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const decision = sanitizeLine(String(d.decision ?? d.directive ?? ''), 64).toUpperCase()
+  const rationale = sanitizeLine(String(d.rationale ?? ''), 256)
+  const desc = [decision, rationale].filter(Boolean).join(' — ')
+  const fields: DiscordEmbedField[] = []
+  if (d.confidence != null) fields.push({ name: 'Confidence', value: fmtPct(d.confidence), inline: true })
+  if (d.horizon != null) fields.push({ name: 'Horizon', value: sanitizeLine(String(d.horizon), 32), inline: true })
+  const legs = Array.isArray(d.legs ?? d.plan) ? (d.legs ?? d.plan) as unknown[] : []
+  const legStr = fmtLegs(legs)
+  if (legStr) fields.push({ name: 'Legs', value: sanitizeDiscordMultiline(legStr, 1024) })
+  if (d.riskBudget != null) fields.push({ name: 'Risk Budget', value: fmtUsd(d.riskBudget), inline: true })
+  if (d.notes != null) fields.push({ name: 'Notes', value: sanitizeDiscordMultiline(String(d.notes), 512) })
+  return { description: desc ? `**${desc}**` : undefined, fields }
+}
+
+function formatAgentProposalEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const summary = sanitizeLine(String(d.summary ?? d.rationale ?? ''), 256)
+  const fields: DiscordEmbedField[] = []
+  if (d.decision != null) fields.push({ name: 'Decision', value: sanitizeLine(String(d.decision), 32).toUpperCase(), inline: true })
+  if (d.requestedMode != null) fields.push({ name: 'Mode', value: sanitizeLine(String(d.requestedMode), 24).toUpperCase(), inline: true })
+  if (d.confidence != null) fields.push({ name: 'Confidence', value: fmtPct(d.confidence), inline: true })
+  const legs = Array.isArray(d.plan) ? (d.plan as unknown[]) : []
+  const legStr = fmtLegs(legs)
+  if (legStr) fields.push({ name: 'Plan', value: sanitizeDiscordMultiline(legStr, 1024) })
+  const recovery = d.recovery ?? d.recoveryPlan
+  if (recovery != null) fields.push({ name: 'Recovery', value: sanitizeDiscordMultiline(String(recovery), 512) })
+  return { description: summary ? `**${summary}**` : undefined, fields }
+}
+
+function formatProposalInvalidEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const errors = Array.isArray(d.errors) ? d.errors : Array.isArray(d.issues) ? d.issues : []
+  const fields: DiscordEmbedField[] = []
+  if (errors.length > 0) {
+    const numbered = errors.slice(0, 10).map((e, i) => `${i + 1}. ${sanitizeLine(String(e), 160)}`).join('\n')
+    fields.push({ name: 'Errors', value: sanitizeDiscordMultiline(numbered, 1024) })
+  }
+  return { description: '**Proposal validation failed**', fields }
+}
+
+function formatAnalysisReportEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const headline = sanitizeLine(String(d.headline ?? d.title ?? d.summary ?? ''), 256)
+  const fields: DiscordEmbedField[] = []
+  if (d.confidence != null) fields.push({ name: 'Confidence', value: fmtPct(d.confidence), inline: true })
+  if (d.thesis != null) fields.push({ name: 'Thesis', value: sanitizeDiscordMultiline(String(d.thesis), 512) })
+  const risks = Array.isArray(d.risks) ? d.risks : []
+  if (risks.length > 0) fields.push({ name: 'Risks', value: sanitizeDiscordMultiline(fmtBulletList(risks, 6), 1024) })
+  return { description: headline ? `**${headline}**` : undefined, fields }
+}
+
+function formatAgentErrorEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const msg = sanitizeLine(String(d.message ?? d.error ?? ''), 420)
+  return { description: msg ? `**${msg}**` : undefined }
+}
+
+function formatIntelRefreshEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const symbols = Array.isArray(d.symbols) ? d.symbols.map((s) => String(s)).join(', ') : sanitizeLine(String(d.symbols ?? ''), 128)
+  const fields: DiscordEmbedField[] = []
+  const twitter = d.twitterStatus ?? d.twitter
+  if (twitter != null) fields.push({ name: 'Twitter', value: sanitizeLine(String(twitter), 64), inline: true })
+  const fng = d.fearAndGreed ?? d.fng ?? d.fearGreed
+  if (fng != null) fields.push({ name: 'Fear & Greed', value: sanitizeLine(String(fng), 32), inline: true })
+  const tweets = Array.isArray(d.topTweets ?? d.tweets) ? ((d.topTweets ?? d.tweets) as unknown[]) : []
+  if (tweets.length > 0) {
+    const top = tweets.slice(0, 3).map((t) => {
+      if (!t || typeof t !== 'object') return sanitizeLine(String(t), 200)
+      const rec = t as Record<string, unknown>
+      return sanitizeLine(String(rec.text ?? rec.content ?? t), 200)
+    }).filter(Boolean)
+    if (top.length > 0) fields.push({ name: 'Top Tweets', value: sanitizeDiscordMultiline(fmtBulletList(top, 3), 1024) })
+  }
+  return { description: symbols ? `Intel refresh: ${symbols}` : 'Intel refresh', fields }
+}
+
+function formatUniverseSelectedEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const fields: DiscordEmbedField[] = []
+  const symbols = Array.isArray(d.symbols) ? d.symbols.map((s) => String(s)).join(', ') : null
+  if (symbols) fields.push({ name: 'Symbols', value: sanitizeLine(symbols, 256), inline: true })
+  if (d.target != null) fields.push({ name: 'Target', value: sanitizeLine(String(d.target), 32), inline: true })
+  if (d.candidates != null) fields.push({ name: 'Candidates', value: sanitizeLine(String(d.candidates), 32), inline: true })
+  if (d.rationale != null) fields.push({ name: 'Rationale', value: sanitizeDiscordMultiline(String(d.rationale), 512) })
+  if (d.context != null) fields.push({ name: 'Context', value: sanitizeDiscordMultiline(String(d.context), 512) })
+  return { description: '**Universe Selected**', fields }
+}
+
+function formatModeChangeEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const oldMode = sanitizeLine(String(d.oldMode ?? d.from ?? ''), 24).toUpperCase()
+  const newMode = sanitizeLine(String(d.newMode ?? d.to ?? ''), 24).toUpperCase()
+  const desc = oldMode && newMode ? `**${oldMode} -> ${newMode}**` : undefined
+  const fields: DiscordEmbedField[] = []
+  if (!desc && typeof d.mode === 'string' && d.mode.trim()) {
+    fields.push({ name: 'Mode', value: sanitizeLine(d.mode, 64).toUpperCase(), inline: true })
+  }
+  return { description: desc, fields }
+}
+
+function formatTradeExecutedEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const symbol = sanitizeLine(String(d.symbol ?? ''), 24).toUpperCase()
+  const side = sanitizeLine(String(d.side ?? d.direction ?? ''), 12).toUpperCase()
+  const size = d.size ?? d.qty ?? d.quantity ?? null
+  const price = d.price ?? d.px ?? null
+  const pnl = d.pnlUsd ?? d.pnlImpactUsd ?? d.pnlImpact ?? null
+  const parts = [symbol, side].filter(Boolean)
+  const desc = parts.length > 0 ? parts.join(' ') : 'Trade executed'
+  const fields: DiscordEmbedField[] = []
+  if (size != null) fields.push({ name: 'Size', value: sanitizeLine(String(size), 32), inline: true })
+  if (price != null) fields.push({ name: 'Price', value: sanitizeLine(String(price), 32), inline: true })
+  if (pnl != null) fields.push({ name: 'PnL', value: fmtUsd(typeof pnl === 'string' ? Number(pnl) : pnl), inline: true })
+  return { description: `**${desc}**`, fields }
+}
+
+function fallbackJsonEmbed(details: unknown): DiscordEmbedResult {
+  const json = summarizeDetailsForDiscord(details, 1800).replace(/```/g, '``')
+  return { description: json ? `\`\`\`json\n${sanitizeDiscordMultiline(json, 1800)}\n\`\`\`` : undefined }
+}
+
+const DISCORD_FORMATTERS: Record<string, (d: Record<string, unknown>) => DiscordEmbedResult> = {
+  'research.report': formatResearchReportEmbed,
+  'risk.report': formatRiskReportEmbed,
+  'risk.decision': formatRiskDecisionEmbed,
+  'strategist.directive': formatStrategistDirectiveEmbed,
+  'agent.proposal': formatAgentProposalEmbed,
+  'agent.proposal.invalid': formatProposalInvalidEmbed,
+  'analysis.report': formatAnalysisReportEmbed,
+  'agent.error': formatAgentErrorEmbed,
+  'intel.refresh': formatIntelRefreshEmbed,
+  'universe.selected': formatUniverseSelectedEmbed,
+  'mode.change': formatModeChangeEmbed,
+  'execution.mode': formatModeChangeEmbed,
+  'trade.executed': formatTradeExecutedEmbed,
+}
+
 function queueJournalWrite(event: AuditEvent): void {
   const shouldWriteGitHub = env.AGENT_GITHUB_JOURNAL_ENABLED && isGitHubJournalEnabled()
   const shouldWriteLocal = env.AGENT_JOURNAL_ENABLED || (shouldWriteGitHub && isGitHubJournalFlushEnabled())
@@ -547,94 +758,6 @@ function discordEmbedColor(level: AuditLevel): number {
   return 0x00ff00
 }
 
-function formatProposalSummary(details: Record<string, unknown>): string | null {
-  const decision = sanitizeLine(String(details.decision ?? ''), 24).toUpperCase()
-  const requestedMode = sanitizeLine(String(details.requestedMode ?? ''), 24).toUpperCase()
-  const confidence = typeof details.confidence === 'number' && Number.isFinite(details.confidence) ? details.confidence : null
-  const legs = Array.isArray(details.plan) ? (details.plan as unknown[]) : []
-
-  const headerParts = [decision || null, requestedMode || null, confidence !== null ? `conf=${confidence.toFixed(2)}` : null].filter(Boolean)
-  const header = headerParts.length > 0 ? headerParts.join(' | ') : null
-
-  const fmtUsd = (value: unknown): string => {
-    const num = typeof value === 'number' && Number.isFinite(value) ? Math.abs(value) : null
-    if (num === null) return '--'
-    return `$${Math.round(num).toLocaleString('en-US')}`
-  }
-
-  const legLines = legs
-    .slice(0, 10)
-    .map((leg) => {
-      if (!leg || typeof leg !== 'object') return null
-      const record = leg as Record<string, unknown>
-      const symbol = sanitizeLine(String(record.symbol ?? ''), 24).toUpperCase()
-      const side = sanitizeLine(String(record.side ?? ''), 8).toUpperCase()
-      if (!symbol) return null
-      return `${symbol} ${side || '--'} ${fmtUsd(record.notionalUsd)}`
-    })
-    .filter((line): line is string => Boolean(line))
-
-  if (!header && legLines.length === 0) return null
-  return [header, ...legLines].filter(Boolean).join('\n')
-}
-
-function formatRiskDenialSummary(details: Record<string, unknown>): string | null {
-  const decision = sanitizeLine(String(details.decision ?? ''), 32).toUpperCase()
-  if (decision !== 'DENY' && decision !== 'ALLOW_REDUCE_ONLY') return null
-
-  const reasons = Array.isArray(details.reasons) ? (details.reasons as unknown[]) : []
-  const codes = reasons
-    .map((reason) => (reason && typeof reason === 'object' ? sanitizeLine(String((reason as Record<string, unknown>).code ?? ''), 48) : ''))
-    .map((code) => code.toUpperCase())
-    .filter(Boolean)
-  const messages = reasons
-    .map((reason) => (reason && typeof reason === 'object' ? sanitizeLine(String((reason as Record<string, unknown>).message ?? ''), 160) : ''))
-    .filter(Boolean)
-    .slice(0, 6)
-
-  const signature = codes.length > 0 ? [...new Set(codes)].join(' | ') : 'NO_REASON_CODES'
-  const why = messages.length > 0 ? messages.join('\n') : null
-  return why ? `${signature}\n${why}` : signature
-}
-
-function formatModeChangeSummary(details: Record<string, unknown>): string | null {
-  const oldMode = sanitizeLine(String(details.oldMode ?? details.from ?? ''), 24).toUpperCase()
-  const newMode = sanitizeLine(String(details.newMode ?? details.to ?? ''), 24).toUpperCase()
-  if (!oldMode || !newMode) return null
-  return `${oldMode} -> ${newMode}`
-}
-
-function formatTradeExecutedSummary(details: Record<string, unknown>): string | null {
-  const symbol = sanitizeLine(String(details.symbol ?? ''), 24).toUpperCase()
-  const side = sanitizeLine(String(details.side ?? details.direction ?? ''), 12).toUpperCase()
-  const size = details.size ?? details.qty ?? details.quantity ?? null
-  const price = details.price ?? details.px ?? null
-  const pnlImpact = details.pnlUsd ?? details.pnlImpactUsd ?? details.pnlImpact ?? null
-
-  if (!symbol && !side && size === null && price === null && pnlImpact === null) return null
-
-  const fmtNum = (value: unknown): string => {
-    const num = typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' ? Number(value) : NaN
-    if (!Number.isFinite(num)) return '--'
-    return String(num)
-  }
-  const fmtUsd2 = (value: unknown): string => {
-    const num = typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' ? Number(value) : NaN
-    if (!Number.isFinite(num)) return '--'
-    const abs = `$${Math.abs(num).toFixed(2)}`
-    return num >= 0 ? `+${abs}` : `-${abs}`
-  }
-
-  const parts = [
-    symbol || null,
-    side || null,
-    size !== null ? `size=${fmtNum(size)}` : null,
-    price !== null ? `px=${fmtNum(price)}` : null,
-    pnlImpact !== null ? `pnl=${fmtUsd2(pnlImpact)}` : null,
-  ].filter(Boolean)
-
-  return parts.length > 0 ? parts.join(' | ') : null
-}
 
 async function notifyDiscord(event: AuditEvent): Promise<void> {
   if (!isDiscordActionAllowed(event.action)) {
@@ -660,52 +783,12 @@ async function notifyDiscord(event: AuditEvent): Promise<void> {
 
   const detailsRecord = (event.details && typeof event.details === 'object') ? (event.details as Record<string, unknown>) : {}
 
-  if (event.action === 'agent.proposal') {
-    const proposed = formatProposalSummary(detailsRecord)
-    if (proposed) {
-      embedFields.push({ name: 'proposed', value: sanitizeDiscordMultiline(proposed, 1024) })
-    }
-  }
-
-  if (event.action === 'risk.decision') {
-    const denial = formatRiskDenialSummary(detailsRecord)
-    if (denial) {
-      embedFields.push({ name: 'gate', value: sanitizeDiscordMultiline(denial, 1024) })
-    }
-  }
-
-  if (event.action === 'mode.change' || event.action === 'execution.mode') {
-    const modeChange = formatModeChangeSummary(detailsRecord)
-    if (modeChange) {
-      embedFields.push({ name: 'mode', value: sanitizeLine(modeChange, 128) })
-    } else if (typeof detailsRecord.mode === 'string' && detailsRecord.mode.trim()) {
-      embedFields.push({ name: 'mode', value: sanitizeLine(detailsRecord.mode, 64).toUpperCase() })
-    }
-  }
-
-  if (event.action === 'trade.executed' || event.action === 'execution' || event.action.startsWith('trade.')) {
-    const trade = formatTradeExecutedSummary(detailsRecord)
-    if (trade) {
-      embedFields.push({ name: 'trade', value: sanitizeLine(trade, 512) })
-    }
-  }
-
-  const errorMessageCandidate = typeof detailsRecord.message === 'string' ? detailsRecord.message : null
-  const preface =
-    level === 'ERROR' && errorMessageCandidate
-      ? `**${sanitizeDiscordMultiline(errorMessageCandidate, 420)}**`
-      : undefined
-
-  const wrapperOverhead = '```json\n\n```'.length + (preface ? preface.length + 2 : 0)
-  const maxDetailsLen = Math.max(0, 4096 - wrapperOverhead)
-  const detailsJson = summarizeDetailsForDiscord(event.details, Math.min(3800, maxDetailsLen))
-    .replace(/```/g, '``')
-  const description = detailsJson
-    ? [
-        preface ?? null,
-        `\`\`\`json\n${sanitizeDiscordMultiline(detailsJson, Math.min(3800, maxDetailsLen))}\n\`\`\``,
-      ].filter(Boolean).join('\n\n')
-    : preface ?? undefined
+  const tradeActions = event.action === 'trade.executed' || event.action === 'execution' || event.action.startsWith('trade.')
+  const formatterKey = tradeActions && !DISCORD_FORMATTERS[event.action] ? 'trade.executed' : event.action
+  const formatter = DISCORD_FORMATTERS[formatterKey]
+  const result = formatter ? formatter(detailsRecord) : fallbackJsonEmbed(event.details)
+  if (result.fields) embedFields.push(...result.fields)
+  const description = result.description
 
   const embed: DiscordEmbed = {
     title,
@@ -2886,6 +2969,8 @@ let lastResearchAt = 0
 let lastRiskAt = 0
 let lastOpsAt = 0
 let lastDirectiveAt = 0
+let lastPipelineAt = 0
+let lastUrgencyLevel: UrgencyLevel = 'IDLE'
 let lastProposal: StrategyProposal | null = null
 let lastProposalPublishedAt = 0
 let lastRiskDecision: RuntimeRiskDecision | null = null
@@ -3190,11 +3275,63 @@ async function runOpsAgent(): Promise<void> {
   }
 }
 
+type UrgencyLevel = 'IDLE' | 'WATCHING' | 'ACTIVE' | 'ELEVATED' | 'CRITICAL'
+
+function classifyUrgency(): { level: UrgencyLevel; intervalMs: number } {
+  const summary = summarizePositionsForAgents(lastPositions)
+  const signalPack = summarizeLatestSignals(Date.now())
+  const latestVol = latestSignalFromPack(signalPack, 'volatility')
+  const vol = latestVol?.value ?? 0
+  const pnlPct = lastStateUpdate?.pnlPct ?? 0
+  const hasPositions = lastPositions.length > 0
+
+  if (lastRiskDecision?.decision === 'DENY') {
+    return { level: 'CRITICAL', intervalMs: 60_000 }
+  }
+  if (summary.posture === 'RED') {
+    return { level: 'CRITICAL', intervalMs: 60_000 }
+  }
+  if (lastMode === 'SAFE_MODE' && hasPositions) {
+    return { level: 'CRITICAL', intervalMs: 60_000 }
+  }
+  if (hasPositions && Math.abs(vol) > 15) {
+    return { level: 'ELEVATED', intervalMs: env.AGENT_PIPELINE_MIN_MS }
+  }
+  if (hasPositions && summary.drift === 'POTENTIAL_DRIFT') {
+    return { level: 'ELEVATED', intervalMs: env.AGENT_PIPELINE_MIN_MS }
+  }
+  if (hasPositions && pnlPct < -5) {
+    return { level: 'ELEVATED', intervalMs: env.AGENT_PIPELINE_MIN_MS }
+  }
+  if (hasPositions) {
+    return { level: 'ACTIVE', intervalMs: 15 * 60_000 }
+  }
+  if (Math.abs(vol) > 10 || lastRiskDecision?.decision === 'ALLOW_REDUCE_ONLY') {
+    return { level: 'WATCHING', intervalMs: 20 * 60_000 }
+  }
+  return { level: 'IDLE', intervalMs: env.AGENT_PIPELINE_BASE_MS }
+}
+
+async function runStrategyPipeline(): Promise<void> {
+  const now = Date.now()
+  const { level, intervalMs } = classifyUrgency()
+
+  if (now - lastPipelineAt < intervalMs) return
+
+  if (level !== lastUrgencyLevel) {
+    lastUrgencyLevel = level
+    await publishTape({ correlationId: ulid(), role: 'ops', line: `urgency=${level} interval=${intervalMs}ms` })
+  }
+
+  lastPipelineAt = now
+
+  await runResearchAgent()
+  await runRiskAgent()
+  await runStrategistCycle()
+}
+
 async function runResearchAgent(): Promise<void> {
   const now = Date.now()
-  if (now - lastResearchAt < env.AGENT_RESEARCH_INTERVAL_MS) {
-    return
-  }
   lastResearchAt = now
 
   const signalPack = summarizeLatestSignals(now)
@@ -3335,9 +3472,6 @@ async function runResearchAgent(): Promise<void> {
 
 async function runRiskAgent(): Promise<void> {
   const now = Date.now()
-  if (now - lastRiskAt < env.AGENT_RISK_INTERVAL_MS) {
-    return
-  }
   lastRiskAt = now
 
   const summary = summarizePositionsForAgents(lastPositions)
@@ -3498,10 +3632,6 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
     return
   }
 
-  if (nowMs - lastDirectiveAt < env.AGENT_DIRECTIVE_INTERVAL_MS) {
-    return
-  }
-
   directiveInFlight = true
   try {
     const summary = summarizePositionsForAgents(params.positions)
@@ -3631,9 +3761,6 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 
 async function runStrategistCycle(): Promise<void> {
   const now = Date.now()
-  if (now - lastProposalAt < env.AGENT_PROPOSAL_INTERVAL_MS) {
-    return
-  }
   lastProposalAt = now
 
   if (lastMode === 'HALT') {
@@ -3920,10 +4047,6 @@ async function runStrategistCycle(): Promise<void> {
 
   lastProposal = parsed.proposal
   lastProposalPublishedAt = now
-
-  if (now - lastAnalysisAt < env.AGENT_ANALYSIS_INTERVAL_MS) {
-    return
-  }
   lastAnalysisAt = now
 
   await runScribeAnalysis(parsed.proposal, { targetNotionalUsd: scaledTargetNotionalUsd })
@@ -4283,9 +4406,7 @@ const start = async (): Promise<void> => {
 
       try {
         await runOpsAgent()
-        await runResearchAgent()
-        await runRiskAgent()
-        await runStrategistCycle()
+        await runStrategyPipeline()
         consecutiveFailures = 0
       } catch (error) {
         consecutiveFailures += 1

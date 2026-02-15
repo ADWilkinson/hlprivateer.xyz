@@ -33,13 +33,10 @@ Outputs published:
 Core:
 - `REDIS_URL`, `REDIS_STREAM_PREFIX`
 - `AGENT_ID` (default `agent-runner`)
-- `AGENT_PROPOSAL_INTERVAL_MS` (default 3600000; proposal cadence, clamped to <= 1h)
-- `AGENT_ANALYSIS_INTERVAL_MS` (default 3600000; clamped to <= 1h)
-- `AGENT_RESEARCH_INTERVAL_MS` (default 3600000; clamped to <= 1h)
-- `AGENT_RISK_INTERVAL_MS` (default 3600000; clamped to <= 1h)
-- `AGENT_OPS_INTERVAL_MS` (default 5000)
+- `AGENT_PIPELINE_BASE_MS` (default 1800000 / 30min; IDLE cadence, clamped [5min, 1h])
+- `AGENT_PIPELINE_MIN_MS` (default 300000 / 5min; ELEVATED cadence, clamped [1min, 15min])
+- `AGENT_OPS_INTERVAL_MS` (default 3000)
 - `OPS_AUTO_HALT` (default false; when true, ops-agent may publish `/halt` on severe stale data)
-- `AGENT_DIRECTIVE_INTERVAL_MS` (default 3600000; strategist refresh cadence, clamped to <= 1h)
 
 Strategy knobs (shared with runtime):
 - `AGENT_TARGET_NOTIONAL_USD` (minimum strategy capital floor; default `100`)
