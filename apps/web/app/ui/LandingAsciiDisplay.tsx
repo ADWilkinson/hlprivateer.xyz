@@ -24,9 +24,9 @@ function buildFrame(rows = 22, cols = 62, seed = 0): AsciiGridFrame {
       const active = metric * metric * 2 + jitter * 0.08 + wave * 0.12
 
       if (active > 0.72) {
-        line += SEGMENTS[Math.floor(Math.abs(Math.sin(active * 31 + seed * 0.02 + r * 0.11) * 100) % SEGMENTS.length]
+        line += SEGMENTS[Math.floor(Math.abs(Math.sin(active * 31 + seed * 0.02 + r * 0.11) * 100) % SEGMENTS.length)]
       } else if (active > 0.45) {
-        line += OVERLAY[Math.floor(Math.abs(Math.cos((active + 0.17) * 29 + c * 0.7) * 100) % OVERLAY.length]
+        line += OVERLAY[Math.floor(Math.abs(Math.cos((active + 0.17) * 29 + c * 0.7) * 100) % OVERLAY.length)]
       } else if (active > 0.28) {
         line += '.'
       } else if ((r + c + Math.floor(seed)) % 29 === 0) {
@@ -108,4 +108,3 @@ export function LandingAsciiDisplay({
     </pre>
   )
 }
-
