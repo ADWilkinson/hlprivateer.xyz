@@ -103,7 +103,7 @@ export const env = z
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),
 
     // Strategy universe controls (discretionary long/short candidate selection).
-    AGENT_UNIVERSE_SIZE: z.coerce.number().int().min(1).max(12).default(6),
+    AGENT_UNIVERSE_SIZE: z.coerce.number().int().min(1).max(100).default(50),
     // Keep candidate universe broad by default so the LLM can see the full tradable space.
     AGENT_UNIVERSE_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(500).default(240),
     AGENT_UNIVERSE_REFRESH_MS: z.coerce.number().int().positive().default(3 * 60 * 60_000),
