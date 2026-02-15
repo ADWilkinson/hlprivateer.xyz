@@ -102,6 +102,21 @@ type GitHubJournalTarget = {
   githubPath: string
 }
 
+type DiscordEmbedField = {
+  name: string
+  value: string
+  inline?: boolean
+}
+
+type DiscordEmbed = {
+  title: string
+  description?: string
+  color?: number
+  fields?: DiscordEmbedField[]
+  footer?: { text: string }
+  timestamp?: string
+}
+
 const DISCORD_ACTION_SET = new Set(
   env.DISCORD_WEBHOOK_ACTIONS
     .split(',')
@@ -384,11 +399,23 @@ function normalizeProposalNotional(value: number): number {
 }
 
 function deriveAuditLevel(event: AuditEvent): AuditLevel {
+  const action = String(event.action ?? '')
+  const lowered = action.toLowerCase()
+  if (lowered.startsWith('error.') || lowered.includes('.error') || lowered.endsWith('_error') || lowered.endsWith('.fatal')) {
+    return 'ERROR'
+  }
   if (event.action === 'agent.error') {
     return 'ERROR'
   }
   if (event.action === 'agent.proposal.invalid') {
     return 'WARN'
+  }
+  if (event.action === 'risk.decision') {
+    const decision = String((event.details as Record<string, unknown>)?.decision ?? '').toUpperCase()
+    if (decision === 'DENY' || decision === 'ALLOW_REDUCE_ONLY') {
+      return 'WARN'
+    }
+    return 'INFO'
   }
   if (event.action === 'risk.report') {
     const posture = String((event.details as Record<string, unknown>).posture ?? '').toUpperCase()
@@ -501,6 +528,114 @@ function discordFingerprint(event: AuditEvent): string {
   return `${event.resource}:${event.action}:${event.correlationId}`
 }
 
+function truncateWithEllipsis(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  if (maxLength <= 3) return value.slice(0, maxLength)
+  return `${value.slice(0, maxLength - 3)}...`
+}
+
+function sanitizeDiscordMultiline(value: string, maxLength: number): string {
+  const cleaned = value
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
+    .replace(/\r\n/g, '\n')
+  return truncateWithEllipsis(cleaned, maxLength)
+}
+
+function discordEmbedColor(level: AuditLevel): number {
+  if (level === 'ERROR') return 0xff0000
+  if (level === 'WARN') return 0xffaa00
+  return 0x00ff00
+}
+
+function formatProposalSummary(details: Record<string, unknown>): string | null {
+  const decision = sanitizeLine(String(details.decision ?? ''), 24).toUpperCase()
+  const requestedMode = sanitizeLine(String(details.requestedMode ?? ''), 24).toUpperCase()
+  const confidence = typeof details.confidence === 'number' && Number.isFinite(details.confidence) ? details.confidence : null
+  const legs = Array.isArray(details.plan) ? (details.plan as unknown[]) : []
+
+  const headerParts = [decision || null, requestedMode || null, confidence !== null ? `conf=${confidence.toFixed(2)}` : null].filter(Boolean)
+  const header = headerParts.length > 0 ? headerParts.join(' | ') : null
+
+  const fmtUsd = (value: unknown): string => {
+    const num = typeof value === 'number' && Number.isFinite(value) ? Math.abs(value) : null
+    if (num === null) return '--'
+    return `$${Math.round(num).toLocaleString('en-US')}`
+  }
+
+  const legLines = legs
+    .slice(0, 10)
+    .map((leg) => {
+      if (!leg || typeof leg !== 'object') return null
+      const record = leg as Record<string, unknown>
+      const symbol = sanitizeLine(String(record.symbol ?? ''), 24).toUpperCase()
+      const side = sanitizeLine(String(record.side ?? ''), 8).toUpperCase()
+      if (!symbol) return null
+      return `${symbol} ${side || '--'} ${fmtUsd(record.notionalUsd)}`
+    })
+    .filter((line): line is string => Boolean(line))
+
+  if (!header && legLines.length === 0) return null
+  return [header, ...legLines].filter(Boolean).join('\n')
+}
+
+function formatRiskDenialSummary(details: Record<string, unknown>): string | null {
+  const decision = sanitizeLine(String(details.decision ?? ''), 32).toUpperCase()
+  if (decision !== 'DENY' && decision !== 'ALLOW_REDUCE_ONLY') return null
+
+  const reasons = Array.isArray(details.reasons) ? (details.reasons as unknown[]) : []
+  const codes = reasons
+    .map((reason) => (reason && typeof reason === 'object' ? sanitizeLine(String((reason as Record<string, unknown>).code ?? ''), 48) : ''))
+    .map((code) => code.toUpperCase())
+    .filter(Boolean)
+  const messages = reasons
+    .map((reason) => (reason && typeof reason === 'object' ? sanitizeLine(String((reason as Record<string, unknown>).message ?? ''), 160) : ''))
+    .filter(Boolean)
+    .slice(0, 6)
+
+  const signature = codes.length > 0 ? [...new Set(codes)].join(' | ') : 'NO_REASON_CODES'
+  const why = messages.length > 0 ? messages.join('\n') : null
+  return why ? `${signature}\n${why}` : signature
+}
+
+function formatModeChangeSummary(details: Record<string, unknown>): string | null {
+  const oldMode = sanitizeLine(String(details.oldMode ?? details.from ?? ''), 24).toUpperCase()
+  const newMode = sanitizeLine(String(details.newMode ?? details.to ?? ''), 24).toUpperCase()
+  if (!oldMode || !newMode) return null
+  return `${oldMode} -> ${newMode}`
+}
+
+function formatTradeExecutedSummary(details: Record<string, unknown>): string | null {
+  const symbol = sanitizeLine(String(details.symbol ?? ''), 24).toUpperCase()
+  const side = sanitizeLine(String(details.side ?? details.direction ?? ''), 12).toUpperCase()
+  const size = details.size ?? details.qty ?? details.quantity ?? null
+  const price = details.price ?? details.px ?? null
+  const pnlImpact = details.pnlUsd ?? details.pnlImpactUsd ?? details.pnlImpact ?? null
+
+  if (!symbol && !side && size === null && price === null && pnlImpact === null) return null
+
+  const fmtNum = (value: unknown): string => {
+    const num = typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' ? Number(value) : NaN
+    if (!Number.isFinite(num)) return '--'
+    return String(num)
+  }
+  const fmtUsd2 = (value: unknown): string => {
+    const num = typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' ? Number(value) : NaN
+    if (!Number.isFinite(num)) return '--'
+    const abs = `$${Math.abs(num).toFixed(2)}`
+    return num >= 0 ? `+${abs}` : `-${abs}`
+  }
+
+  const parts = [
+    symbol || null,
+    side || null,
+    size !== null ? `size=${fmtNum(size)}` : null,
+    price !== null ? `px=${fmtNum(price)}` : null,
+    pnlImpact !== null ? `pnl=${fmtUsd2(pnlImpact)}` : null,
+  ].filter(Boolean)
+
+  return parts.length > 0 ? parts.join(' | ') : null
+}
+
 async function notifyDiscord(event: AuditEvent): Promise<void> {
   if (!isDiscordActionAllowed(event.action)) {
     return
@@ -515,17 +650,71 @@ async function notifyDiscord(event: AuditEvent): Promise<void> {
     return
   }
 
-  const details = summarizeDetailsForDiscord(event.details, 1100)
   const level = deriveAuditLevel(event)
-  const prefix = level === 'ERROR' ? '[CRITICAL]' : level === 'WARN' ? '[WARN]' : '[INFO]'
-  const message = [
-    `${prefix} ${level} | **${action}**`,
-    `resource: ${event.resource}`,
-    `actor: ${event.actorType}/${event.actorId}`,
-    `correlation: ${correlationId}`,
-    `time: ${event.ts}`,
-    details ? `\`\`\`json\n${details}\n\`\`\`` : ''
-  ].filter(Boolean).join('\n')
+  const title = level === 'ERROR' ? `💀 ${action}` : action
+  const embedFields: DiscordEmbedField[] = [
+    { name: 'resource', value: sanitizeLine(event.resource, 256) || '--', inline: true },
+    { name: 'actor', value: sanitizeLine(`${event.actorType}/${event.actorId}`, 256) || '--', inline: true },
+    { name: 'correlation', value: correlationId || '--', inline: true },
+  ]
+
+  const detailsRecord = (event.details && typeof event.details === 'object') ? (event.details as Record<string, unknown>) : {}
+
+  if (event.action === 'agent.proposal') {
+    const proposed = formatProposalSummary(detailsRecord)
+    if (proposed) {
+      embedFields.push({ name: 'proposed', value: sanitizeDiscordMultiline(proposed, 1024) })
+    }
+  }
+
+  if (event.action === 'risk.decision') {
+    const denial = formatRiskDenialSummary(detailsRecord)
+    if (denial) {
+      embedFields.push({ name: 'gate', value: sanitizeDiscordMultiline(denial, 1024) })
+    }
+  }
+
+  if (event.action === 'mode.change' || event.action === 'execution.mode') {
+    const modeChange = formatModeChangeSummary(detailsRecord)
+    if (modeChange) {
+      embedFields.push({ name: 'mode', value: sanitizeLine(modeChange, 128) })
+    } else if (typeof detailsRecord.mode === 'string' && detailsRecord.mode.trim()) {
+      embedFields.push({ name: 'mode', value: sanitizeLine(detailsRecord.mode, 64).toUpperCase() })
+    }
+  }
+
+  if (event.action === 'trade.executed' || event.action === 'execution' || event.action.startsWith('trade.')) {
+    const trade = formatTradeExecutedSummary(detailsRecord)
+    if (trade) {
+      embedFields.push({ name: 'trade', value: sanitizeLine(trade, 512) })
+    }
+  }
+
+  const errorMessageCandidate = typeof detailsRecord.message === 'string' ? detailsRecord.message : null
+  const preface =
+    level === 'ERROR' && errorMessageCandidate
+      ? `**${sanitizeDiscordMultiline(errorMessageCandidate, 420)}**`
+      : undefined
+
+  const wrapperOverhead = '```json\n\n```'.length + (preface ? preface.length + 2 : 0)
+  const maxDetailsLen = Math.max(0, 4096 - wrapperOverhead)
+  const detailsJson = summarizeDetailsForDiscord(event.details, Math.min(3800, maxDetailsLen))
+    .replace(/```/g, '``')
+  const description = detailsJson
+    ? [
+        preface ?? null,
+        `\`\`\`json\n${sanitizeDiscordMultiline(detailsJson, Math.min(3800, maxDetailsLen))}\n\`\`\``,
+      ].filter(Boolean).join('\n\n')
+    : preface ?? undefined
+
+  const embed: DiscordEmbed = {
+    title,
+    color: discordEmbedColor(level),
+    fields: embedFields,
+    description,
+    footer: { text: sanitizeLine(event.ts, 2048) || new Date().toISOString() },
+    timestamp: sanitizeLine(event.ts, 40) || undefined,
+  }
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), env.DISCORD_WEBHOOK_TIMEOUT_MS)
@@ -533,7 +722,7 @@ async function notifyDiscord(event: AuditEvent): Promise<void> {
     const response = await fetch(env.DISCORD_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: message }),
+      body: JSON.stringify({ embeds: [embed] }),
       signal: controller.signal
     })
 
