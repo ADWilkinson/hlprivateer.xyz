@@ -154,7 +154,11 @@ export class RedisEventBus implements EventBus {
       try {
         const last = await reader.xrevrange(streamName, '+', '-', 'COUNT', 1)
         cursor = last.length > 0 ? last[0][0] : '0-0'
-      } catch {
+      } catch (error) {
+        console.warn('event-bus: failed to resolve stream tail for $ cursor', {
+          stream: streamName,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error)
+        })
         cursor = '0-0'
       }
     }
@@ -209,28 +213,42 @@ export class RedisEventBus implements EventBus {
     toTs: string,
     onMessage: (envelope: EnvelopeRecord) => Promise<void> | void
   ): Promise<void> {
-    const entries = await this.redis.xrange(this.stream(stream), '-', '+')
     const from = Date.parse(fromTs)
     const to = Date.parse(toTs)
 
-    for (const [, fields] of entries) {
-      const envelopePayload = extractPayload(fields)
-      if (!envelopePayload) {
-        continue
+    const streamName = this.stream(stream)
+    const batchSize = 1000
+    let cursor = '-'
+
+    while (true) {
+      const entries = await this.redis.xrange(streamName, cursor, '+', 'COUNT', String(batchSize))
+      if (entries.length === 0) {
+        break
       }
 
-      const envelope = parseEnvelope(envelopePayload)
-      if (!envelope) {
-        continue
-      }
-      const eventTs = Date.parse(envelope.ts)
-      const afterFrom = Number.isNaN(from) || eventTs >= from
-      const beforeTo = Number.isNaN(to) || eventTs <= to
-      if (!afterFrom || !beforeTo) {
-        continue
+      for (const [, fields] of entries) {
+        const envelopePayload = extractPayload(fields)
+        if (!envelopePayload) {
+          continue
+        }
+
+        const envelope = parseEnvelope(envelopePayload)
+        if (!envelope) {
+          continue
+        }
+
+        const eventTs = Date.parse(envelope.ts)
+        const afterFrom = Number.isNaN(from) || eventTs >= from
+        const beforeTo = Number.isNaN(to) || eventTs <= to
+        if (!afterFrom || !beforeTo) {
+          continue
+        }
+
+        await onMessage(envelope)
       }
 
-      await onMessage(envelope)
+      const lastId = entries[entries.length - 1][0]
+      cursor = `(${lastId}`
     }
   }
 

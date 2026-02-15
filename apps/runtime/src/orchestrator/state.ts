@@ -26,6 +26,63 @@ import { canTransition } from '../state-machine'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
+type RateLimitLevel = 'warn' | 'error'
+
+function createRateLimitedLogger(intervalMs: number) {
+  const last = new Map<string, number>()
+  return (
+    key: string,
+    level: RateLimitLevel,
+    message: string,
+    meta?: Record<string, unknown>
+  ) => {
+    const now = Date.now()
+    const lastAt = last.get(key) ?? 0
+    if (now - lastAt < intervalMs) {
+      return
+    }
+    last.set(key, now)
+    const payload = meta ? { ...meta } : undefined
+    if (level === 'warn') {
+      console.warn(message, payload)
+    } else {
+      console.error(message, payload)
+    }
+  }
+}
+
+const logRuntimePersistenceError = (() => {
+  const log = createRateLimitedLogger(30_000)
+  return (operation: string, error: unknown, meta?: Record<string, unknown>) => {
+    log(
+      `runtime.persistence.${operation}`,
+      'error',
+      `runtime: persistence write failed (${operation})`,
+      {
+        operation,
+        error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+        ...(meta ?? {})
+      }
+    )
+  }
+})()
+
+const logRuntimeBusPublishError = (() => {
+  const log = createRateLimitedLogger(30_000)
+  return (stream: string, error: unknown, meta?: Record<string, unknown>) => {
+    log(
+      `runtime.bus.${stream}`,
+      'warn',
+      `runtime: bus publish failed (${stream})`,
+      {
+        stream,
+        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        ...(meta ?? {})
+      }
+    )
+  }
+})()
+
 
 interface LoopConfig {
   env: RuntimeEnv
@@ -729,7 +786,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         state.positions = live.positions
         state.orders = live.orders
         state.realizedPnlUsd = live.realizedPnlUsd
-        await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+        await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
+          logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
+        )
       }
 
       // Note: `BASKET_SYMBOLS` is treated as a market-data seed only.
@@ -780,7 +839,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
             actorType: 'system',
             actorId: 'market-l2book',
             payload: derivedTick
-          }).catch(() => undefined)
+          }).catch((error) => logRuntimeBusPublishError('hlp.market.normalized', error, { symbol }))
         }
       }
 
@@ -1161,7 +1220,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     state.positions = snapshot.positions
     state.orders = snapshot.orders
     state.realizedPnlUsd = snapshot.realizedPnlUsd
-    await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+    await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
+      logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
+    )
 
     await bus.publish('hlp.execution.commands', {
       type: 'execution.complete',
@@ -1223,7 +1284,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       details: details as Record<string, unknown>
     }
 
-    void store.saveAudit(event).catch(() => undefined)
+    void store.saveAudit(event).catch((error) => logRuntimePersistenceError('saveAudit', error, { eventId: event.id, action: event.action }))
 
     await bus.publish('hlp.audit.events', {
       type: 'RUNTIME_DECISION',
@@ -1404,7 +1465,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       actorId,
       reason,
       args
-    }).catch(() => undefined)
+    }).catch((error) => logRuntimePersistenceError('saveCommand', error, { actorId, command }))
 
     runtimeCommandCounter.inc({ command, result: 'accepted' })
     await addAudit('command', actorId, commandAuditId, {
@@ -1514,7 +1575,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       state.positions = snapshot.positions
       state.orders = snapshot.orders
       state.realizedPnlUsd = snapshot.realizedPnlUsd
-      await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+      await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
+      logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
+    )
 
       // Dust sweep: close any remaining sub-dust positions by exact size.
       if (adapter.closeBySize && state.positions.length > 0) {
@@ -1564,7 +1627,9 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
           state.positions = dustSnapshot.positions
           state.orders = dustSnapshot.orders
           state.realizedPnlUsd = dustSnapshot.realizedPnlUsd
-          await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch(() => undefined)
+          await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
+          logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
+        )
         }
       }
 

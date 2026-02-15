@@ -93,10 +93,24 @@ function clampFilled(qty: number, targetQty: number): number {
 export function createSimAdapter(slippageBps: SlippageBpsProvider = 5, latencyMs = 100): ExecutionAdapter {
   const orders = new Map<string, InternalOrder>()
   const idempotencyMap = new Map<string, string>()
+  const idempotencySeenAt = new Map<string, number>()
+  let idempotencyOps = 0
+  const pruneIdempotency = () => {
+    idempotencyOps += 1
+    if (idempotencyOps % 100 !== 0) return
+    const cutoff = Date.now() - 5 * 60_000
+    for (const [key, ts] of idempotencySeenAt) {
+      if (ts < cutoff) {
+        idempotencySeenAt.delete(key)
+        idempotencyMap.delete(key)
+      }
+    }
+  }
   const positions = new Map<string, InternalPosition>()
   let realizedPnlUsd = 0
 
   async function place(input: OrderInput): Promise<PlacedOrder> {
+    pruneIdempotency()
     const existing = idempotencyMap.get(input.idempotencyKey)
     if (existing) {
       return orders.get(existing) ?? existingOrderFromId(input)
@@ -124,6 +138,7 @@ export function createSimAdapter(slippageBps: SlippageBpsProvider = 5, latencyMs
 
     orders.set(order.orderId, order)
     idempotencyMap.set(input.idempotencyKey, order.orderId)
+    idempotencySeenAt.set(input.idempotencyKey, Date.now())
 
     transitionOrder(order, 'WORKING')
 
@@ -295,6 +310,19 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
   const infoUrl = env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL
 
   const idempotencyMap = new Map<string, string>() // idempotencyKey -> oid string
+  const idempotencySeenAt = new Map<string, number>()
+  let idempotencyOps = 0
+  const pruneIdempotency = () => {
+    idempotencyOps += 1
+    if (idempotencyOps % 100 !== 0) return
+    const cutoff = Date.now() - 5 * 60_000
+    for (const [key, ts] of idempotencySeenAt) {
+      if (ts < cutoff) {
+        idempotencySeenAt.delete(key)
+        idempotencyMap.delete(key)
+      }
+    }
+  }
   let symbolConverterPromise: Promise<SymbolConverter> | null = null
 
   const realizedCache = {
@@ -341,6 +369,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
   }
 
   async function place(input: OrderInput): Promise<PlacedOrder> {
+    pruneIdempotency()
     if (!Number.isFinite(input.notionalUsd) || input.notionalUsd <= 0) {
       throw new Error('invalid notional')
     }
@@ -353,6 +382,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     if (existing.status === 'order') {
       const mapped = mapOrderStatusToPlaced(existing.order, nowIso)
       idempotencyMap.set(input.idempotencyKey, mapped.orderId)
+      idempotencySeenAt.set(input.idempotencyKey, Date.now())
       return mapped
     }
 
@@ -369,6 +399,8 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     const pxRaw = input.side === 'BUY'
       ? input.tick.ask * (1 + slip)
       : input.tick.bid * (1 - slip)
+    // NOTE: Hyperliquid's `formatPrice` uses `szDecimals` to derive the allowed price decimals
+    // (max decimals = 6 - szDecimals for perps). This matches the upstream SDK contract.
     const px = formatPrice(pxRaw, szDecimals, 'perp')
     const pxNum = Number(px)
     if (!Number.isFinite(pxNum) || pxNum <= 0) {
@@ -404,6 +436,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
       if (resolved.status === 'order') {
         const mapped = mapOrderStatusToPlaced(resolved.order, nowIso)
         idempotencyMap.set(input.idempotencyKey, mapped.orderId)
+      idempotencySeenAt.set(input.idempotencyKey, Date.now())
         return mapped
       }
       throw new Error(`order unresolved: ${status}`)
@@ -430,6 +463,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
         source: 'LIVE'
       }
       idempotencyMap.set(input.idempotencyKey, placed.orderId)
+      idempotencySeenAt.set(input.idempotencyKey, Date.now())
       return placed
     }
 
@@ -447,6 +481,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
         source: 'LIVE'
       }
       idempotencyMap.set(input.idempotencyKey, placed.orderId)
+      idempotencySeenAt.set(input.idempotencyKey, Date.now())
       return placed
     }
 
@@ -543,6 +578,18 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     }
   }
 
+  const warnStaleOrder = (() => {
+    const last = new Map<string, number>()
+    return (orderId: string, ageMs: number, maxAgeMs: number) => {
+      const now = Date.now()
+      const key = `stale:${orderId}`
+      const lastAt = last.get(key) ?? 0
+      if (now - lastAt < 60_000) return
+      last.set(key, now)
+      console.warn('oms: reconcile saw stale open order (leaving WORKING)', { orderId, ageMs, maxAgeMs })
+    }
+  })()
+
   async function reconcile(): Promise<Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }>> {
     const now = Date.now()
     const open = await info.openOrders({ user: wallet.address })
@@ -556,9 +603,12 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
       const tooOld = Number.isFinite(ageMs) && ageMs > env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS
 
       const baseStatus: OrderState = filledQty > 0 ? 'PARTIALLY_FILLED' : 'WORKING'
+      if (tooOld) {
+        warnStaleOrder(String(order.oid), ageMs, env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS)
+      }
       return {
         orderId: String(order.oid),
-        status: tooOld ? 'FAILED' : baseStatus,
+        status: baseStatus,
         filledQty,
         avgFillPx: Number.isFinite(avgFillPx) ? avgFillPx : 0
       }

@@ -676,7 +676,6 @@ app.post('/v1/operator/refresh', { ...routeRateLimit(30, 60_000), preHandler: [a
   const claims = resolveOperatorClaims(request)
   if (!claims.sub) {
     return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'missing subject claim' })
-    return
   }
 
   const refreshedToken = await app.jwt.sign({

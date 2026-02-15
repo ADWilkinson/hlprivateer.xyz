@@ -4047,6 +4047,80 @@ const start = async (): Promise<void> => {
     })
   })
 
+
+
+  type RateLimitLevel = 'warn' | 'error'
+
+  function createRateLimitedLogger(intervalMs: number) {
+    const last = new Map<string, number>()
+    return (
+      key: string,
+      level: RateLimitLevel,
+      message: string,
+      meta?: Record<string, unknown>
+    ) => {
+      const now = Date.now()
+      const lastAt = last.get(key) ?? 0
+      if (now - lastAt < intervalMs) {
+        return
+      }
+      last.set(key, now)
+      const payload = meta ? { ...meta } : undefined
+      if (level === 'warn') {
+        console.warn(message, payload)
+      } else {
+        console.error(message, payload)
+      }
+    }
+  }
+
+  const warnMalformedEnvelope = (() => {
+    const log = createRateLimitedLogger(30_000)
+    return (stream: string, type: string, payload: unknown, reason: string) => {
+      log(
+        `agent-runner.envelope.${stream}.${type}.${reason}`,
+        'warn',
+        'agent-runner: skipping malformed envelope payload',
+        {
+          stream,
+          type,
+          reason,
+          payloadType: payload === null ? 'null' : typeof payload
+        }
+      )
+    }
+  })()
+
+  const warnHeartbeatWriteFailed = (() => {
+    const log = createRateLimitedLogger(30_000)
+    return (error: unknown) => {
+      log(
+        'agent-runner.heartbeat.write',
+        'warn',
+        'agent-runner: failed to write heartbeat file',
+        {
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error)
+        }
+      )
+    }
+  })()
+
+  const isRecord = (value: unknown): value is Record<string, unknown> => {
+    return typeof value === 'object' && value !== null
+  }
+
+  const finiteNumber = (value: unknown): number | undefined => {
+    const num = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(num) ? num : undefined
+  }
+
+  const asRiskDecision = (value: unknown): 'DENY' | 'ALLOW_REDUCE_ONLY' | 'ALLOW' | undefined => {
+    if (value === 'DENY' || value === 'ALLOW_REDUCE_ONLY' || value === 'ALLOW') {
+      return value
+    }
+    return undefined
+  }
+
   await bus.consume('hlp.plugin.signals', '$', (envelope: EventEnvelope<any>) => {
     const payload = envelope.payload as any
     if (!payload?.signalType || !payload?.pluginId) {
@@ -4058,62 +4132,79 @@ const start = async (): Promise<void> => {
 
   await bus.consume('hlp.ui.events', '$', (envelope: EventEnvelope<any>) => {
     if (envelope.type === 'STATE_UPDATE') {
-      const payload = envelope.payload as any
-      if (payload && typeof payload === 'object') {
-        const stateAtMs = typeof payload.lastUpdateAt === 'string' ? Date.parse(payload.lastUpdateAt) : Date.now()
-        lastStateUpdateAtMs = Number.isFinite(stateAtMs) ? stateAtMs : Date.now()
-        const message = typeof payload.message === 'string' ? payload.message : ''
-        const parsedStateRiskMessage = message ? parseRiskStateMessage(message, lastStateUpdateAtMs) : null
-        if (parsedStateRiskMessage) {
-          lastStateRiskMessage = parsedStateRiskMessage
-        }
-
-        const riskPolicyPayload = typeof payload.riskPolicy === 'object' && payload.riskPolicy !== null ? payload.riskPolicy as Record<string, unknown> : null
-	        lastStateUpdate = {
-	          mode: typeof payload.mode === 'string' ? payload.mode : undefined,
-	          pnlPct: typeof payload.pnlPct === 'number' ? payload.pnlPct : undefined,
-	          realizedPnlUsd: typeof payload.realizedPnlUsd === 'number' ? payload.realizedPnlUsd : undefined,
-	          accountValueUsd: typeof payload.accountValueUsd === 'number' ? payload.accountValueUsd : undefined,
-	          driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
-	          lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
-	          message: typeof payload.message === 'string' ? payload.message : undefined,
-	          riskPolicy: riskPolicyPayload
-	            ? {
-	              maxLeverage: typeof riskPolicyPayload.maxLeverage === 'number' ? riskPolicyPayload.maxLeverage : undefined,
-	              targetLeverage: typeof riskPolicyPayload.targetLeverage === 'number' ? riskPolicyPayload.targetLeverage : undefined,
-	              maxDrawdownPct: typeof riskPolicyPayload.maxDrawdownPct === 'number' ? riskPolicyPayload.maxDrawdownPct : undefined,
-	              maxExposureUsd: typeof riskPolicyPayload.maxExposureUsd === 'number' ? riskPolicyPayload.maxExposureUsd : undefined,
-	              maxSlippageBps: typeof riskPolicyPayload.maxSlippageBps === 'number' ? riskPolicyPayload.maxSlippageBps : undefined,
-	              staleDataMs: typeof riskPolicyPayload.staleDataMs === 'number' ? riskPolicyPayload.staleDataMs : undefined,
-	              liquidityBufferPct: typeof riskPolicyPayload.liquidityBufferPct === 'number' ? riskPolicyPayload.liquidityBufferPct : undefined,
-	              notionalParityTolerance: typeof riskPolicyPayload.notionalParityTolerance === 'number' ? riskPolicyPayload.notionalParityTolerance : undefined
-	            }
-	            : undefined
-	        }
+      const payload = envelope.payload as unknown
+      if (!isRecord(payload)) {
+        warnMalformedEnvelope('hlp.ui.events', 'STATE_UPDATE', payload, 'not_record')
+        return
       }
-      if (payload?.mode) {
+
+      const stateAtMs = typeof payload.lastUpdateAt === 'string' ? Date.parse(payload.lastUpdateAt) : Date.now()
+      lastStateUpdateAtMs = Number.isFinite(stateAtMs) ? stateAtMs : Date.now()
+
+      const message = typeof payload.message === 'string' ? payload.message : ''
+      const parsedStateRiskMessage = message ? parseRiskStateMessage(message, lastStateUpdateAtMs) : null
+      if (parsedStateRiskMessage) {
+        lastStateRiskMessage = parsedStateRiskMessage
+      }
+
+      const riskPolicyPayload = isRecord(payload.riskPolicy) ? payload.riskPolicy : null
+      lastStateUpdate = {
+        mode: typeof payload.mode === 'string' ? payload.mode : undefined,
+        pnlPct: finiteNumber(payload.pnlPct),
+        realizedPnlUsd: finiteNumber(payload.realizedPnlUsd),
+        accountValueUsd: finiteNumber(payload.accountValueUsd),
+        driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
+        lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
+        message: typeof payload.message === 'string' ? payload.message : undefined,
+        riskPolicy: riskPolicyPayload
+          ? {
+              maxLeverage: finiteNumber(riskPolicyPayload.maxLeverage),
+              targetLeverage: finiteNumber(riskPolicyPayload.targetLeverage),
+              maxDrawdownPct: finiteNumber(riskPolicyPayload.maxDrawdownPct),
+              maxExposureUsd: finiteNumber(riskPolicyPayload.maxExposureUsd),
+              maxSlippageBps: finiteNumber(riskPolicyPayload.maxSlippageBps),
+              staleDataMs: finiteNumber(riskPolicyPayload.staleDataMs),
+              liquidityBufferPct: finiteNumber(riskPolicyPayload.liquidityBufferPct),
+              notionalParityTolerance: finiteNumber(riskPolicyPayload.notionalParityTolerance)
+            }
+          : undefined
+      }
+
+      if (payload.mode) {
         lastMode = String(payload.mode)
       }
     }
     if (envelope.type === 'POSITION_UPDATE') {
-      const payload = envelope.payload as any
-      if (Array.isArray(payload)) {
-        lastPositions = meaningfulPositions(payload as OperatorPosition[], EXIT_NOTIONAL_EPSILON_USD)
-        syncActiveBasketFromPositions(lastPositions)
-        if (basketPivot) {
-          const nowMs = Date.now()
-          if (nowMs > basketPivot.expiresAtMs) {
+      const payload = envelope.payload as unknown
+      if (!Array.isArray(payload)) {
+        warnMalformedEnvelope('hlp.ui.events', 'POSITION_UPDATE', payload, 'not_array')
+        return
+      }
+
+      const positions = payload
+        .filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.symbol === 'string')
+        .map((item) => item as unknown as OperatorPosition)
+
+      if (positions.length === 0) {
+        warnMalformedEnvelope('hlp.ui.events', 'POSITION_UPDATE', payload, 'empty_or_invalid')
+        return
+      }
+
+      lastPositions = meaningfulPositions(positions, EXIT_NOTIONAL_EPSILON_USD)
+      syncActiveBasketFromPositions(lastPositions)
+      if (basketPivot) {
+        const nowMs = Date.now()
+        if (nowMs > basketPivot.expiresAtMs) {
+          basketPivot = null
+        } else {
+          const held = basketFromPositions(lastPositions)
+          if (held.length > 0 && sameBasket(held, basketPivot.basketSymbols)) {
             basketPivot = null
-          } else {
-            const held = basketFromPositions(lastPositions)
-            if (held.length > 0 && sameBasket(held, basketPivot.basketSymbols)) {
-              basketPivot = null
-              void publishTape({
-                correlationId: ulid(),
-                role: 'execution',
-                line: `basket pivot complete: ${held.join(',')}`
-              }).catch(() => undefined)
-            }
+            void publishTape({
+              correlationId: ulid(),
+              role: 'execution',
+              line: `basket pivot complete: ${held.join(',')}`
+            }).catch(() => undefined)
           }
         }
       }
@@ -4124,8 +4215,11 @@ const start = async (): Promise<void> => {
     if (envelope.type !== 'risk.decision') {
       return
     }
-    const payload = envelope.payload as any
-    if (payload && typeof payload === 'object') {
+    const payload = envelope.payload as unknown
+    if (!isRecord(payload)) {
+      warnMalformedEnvelope('hlp.risk.decisions', 'risk.decision', payload, 'not_record')
+      return
+    }
       const reasons = Array.isArray(payload.reasons)
         ? payload.reasons
           .map((item: any) => ({
@@ -4135,24 +4229,25 @@ const start = async (): Promise<void> => {
           }))
           .filter((reason: RuntimeRiskReason) => reason.code)
         : undefined
-      lastRiskDecision = {
-        decision: typeof payload.decision === 'string' ? payload.decision : undefined,
+      const nextRiskDecision: RuntimeRiskDecision = {
+        decision: asRiskDecision(payload.decision),
         computedAt: typeof payload.computedAt === 'string' ? payload.computedAt : undefined,
         reasons,
         decisionId: typeof payload.decisionId === 'string' ? payload.decisionId : undefined,
         proposalCorrelation: typeof payload.proposalCorrelation === 'string' ? payload.proposalCorrelation : undefined,
-        computed: typeof payload.computed === 'object' && payload.computed ? {
-          grossExposureUsd: Number(payload.computed.grossExposureUsd),
-          netExposureUsd: Number(payload.computed.netExposureUsd),
-          projectedDrawdownPct: Number(payload.computed.projectedDrawdownPct),
-          notionalImbalancePct: Number(payload.computed.notionalImbalancePct)
+        computed: isRecord(payload.computed) ? {
+          grossExposureUsd: finiteNumber(payload.computed.grossExposureUsd) ?? 0,
+          netExposureUsd: finiteNumber(payload.computed.netExposureUsd) ?? 0,
+          projectedDrawdownPct: finiteNumber(payload.computed.projectedDrawdownPct) ?? 0,
+          notionalImbalancePct: finiteNumber(payload.computed.notionalImbalancePct) ?? 0
         } : undefined
       }
+      lastRiskDecision = nextRiskDecision
 
       // High-signal audit hook for monitoring + journals.
-      const decision = lastRiskDecision.decision
+      const decision = nextRiskDecision.decision
       if (decision === 'DENY' || decision === 'ALLOW_REDUCE_ONLY') {
-        const codes = parseRiskReasonCodes(lastRiskDecision).slice().sort()
+        const codes = parseRiskReasonCodes(nextRiskDecision).slice().sort()
         const signature = `${decision}|${codes.join('|')}`
         const nowMs = Date.now()
         if (signature !== lastRiskDecisionAuditSignature || nowMs - lastRiskDecisionAuditAtMs > 120_000) {
@@ -4166,31 +4261,34 @@ const start = async (): Promise<void> => {
             action: 'risk.decision',
             resource: 'runtime.risk',
             correlationId: envelope.correlationId ?? ulid(),
-            details: lastRiskDecision
+            details: nextRiskDecision as unknown as Record<string, unknown>
           }).catch(() => undefined)
         }
-      }
       }
   })
 
   scheduleGitHubJournalIntervalFlush()
 
   const HEARTBEAT_PATH = '/tmp/.agent-runner-heartbeat'
-  let tickRunning = false
-  setInterval(() => {
-    if (tickRunning) {
-      return
-    }
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-    tickRunning = true
-    void Promise.resolve()
-      .then(async () => {
+  let tickRunning = true
+  let consecutiveFailures = 0
+  const BASE_TICK_MS = 1000
+  const MAX_BACKOFF_MS = 30_000
+
+  const tickLoop = async () => {
+    while (tickRunning) {
+      const startedAtMs = Date.now()
+
+      try {
         await runOpsAgent()
         await runResearchAgent()
         await runRiskAgent()
         await runStrategistCycle()
-      })
-      .catch((error) => {
+        consecutiveFailures = 0
+      } catch (error) {
+        consecutiveFailures += 1
         // Keep the runner alive; report via audit stream.
         void publishAudit({
           id: ulid(),
@@ -4201,13 +4299,27 @@ const start = async (): Promise<void> => {
           resource: 'agent.runner',
           correlationId: ulid(),
           details: { message: String(error) }
+        }).catch((publishError) => {
+          console.warn('agent-runner: publishAudit failed in error handler', {
+            error: String(publishError)
+          })
         })
-      })
-      .finally(() => {
-        tickRunning = false
-        fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch(() => undefined)
-      })
-  }, 1000)
+      } finally {
+        await fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch((error) => {
+          warnHeartbeatWriteFailed(error)
+        })
+
+        const elapsedMs = Date.now() - startedAtMs
+        const backoffMs = consecutiveFailures > 0
+          ? Math.min(MAX_BACKOFF_MS, BASE_TICK_MS * (2 ** (consecutiveFailures - 1)))
+          : BASE_TICK_MS
+        const delayMs = Math.max(0, backoffMs - elapsedMs)
+        await sleep(delayMs)
+      }
+    }
+  }
+
+  void tickLoop()
 
   await publishTape({ correlationId: ulid(), role: 'ops', line: `crew online requestedMode=${requestedModeFromEnv()}` })
   await publishTape({ correlationId: ulid(), role: 'scout', line: 'scout online (market + tape)' })
@@ -4217,7 +4329,9 @@ const start = async (): Promise<void> => {
   await publishTape({ correlationId: ulid(), role: 'execution', line: 'execution online (tactics)' })
   await publishTape({ correlationId: ulid(), role: 'scribe', line: 'scribe online (analysis)' })
 
-  await fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch(() => undefined)
+  await fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch((error) => {
+    warnHeartbeatWriteFailed(error)
+  })
   console.log(`agent-runner started agentId=${env.AGENT_ID} llm=${env.AGENT_LLM} requestedMode=${requestedModeFromEnv()}`)
 }
 

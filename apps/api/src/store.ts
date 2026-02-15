@@ -15,6 +15,47 @@ import { createApiStore, type ApiPersistence } from './db/persistence'
 import { env } from './config'
 
 const PUBLIC_TAPE_HISTORY_LIMIT = 120
+
+type RateLimitLevel = 'warn' | 'error'
+
+function createRateLimitedLogger(intervalMs: number) {
+  const last = new Map<string, number>()
+  return (
+    key: string,
+    level: RateLimitLevel,
+    message: string,
+    meta?: Record<string, unknown>
+  ) => {
+    const now = Date.now()
+    const lastAt = last.get(key) ?? 0
+    if (now - lastAt < intervalMs) {
+      return
+    }
+    last.set(key, now)
+    const payload = meta ? { ...meta } : undefined
+    if (level === 'warn') {
+      console.warn(message, payload)
+    } else {
+      console.error(message, payload)
+    }
+  }
+}
+
+const logPersistenceWriteError = (() => {
+  const log = createRateLimitedLogger(30_000)
+  return (operation: string, error: unknown, meta?: Record<string, unknown>) => {
+    log(
+      `api.persistence.${operation}`,
+      'error',
+      `api: persistence write failed (${operation})`,
+      {
+        operation,
+        error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+        ...(meta ?? {})
+      }
+    )
+  }
+})()
 type ApiSnapshotUpdate = Partial<ApiSnapshot> & { message?: string; reason?: unknown }
 
 export interface ApiRuntimeSnapshot {
@@ -88,7 +129,9 @@ export class ApiStore {
         this.persistence = persistence
         await this.hydrateFromPersistence()
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        logPersistenceWriteError('initialize', error)
+      })
   }
 
   public async ready(): Promise<void> {
@@ -184,13 +227,15 @@ export class ApiStore {
     const reason = typeof snapshot.reason === 'string' ? snapshot.reason : 'state update'
     void this.persistence
       .saveSystemState(this.snapshot.mode, reason)
-      .catch(() => undefined)
+      .catch((error) => logPersistenceWriteError('saveSystemState', error, { mode: this.snapshot.mode, reason }))
   }
 
   public setPositions(positions: OperatorPosition[]) {
     this.positions = positions
     this.syncPublicOpenPositions(positions)
-    void this.persistence.savePositions(positions).catch(() => undefined)
+    void this.persistence
+      .savePositions(positions)
+      .catch((error) => logPersistenceWriteError('savePositions', error, { count: positions.length }))
   }
 
   private syncPublicOpenPositions(positions: OperatorPosition[]): void {
@@ -214,7 +259,9 @@ export class ApiStore {
 
   public setOrders(orders: OperatorOrder[]) {
     this.orders = orders
-    void this.persistence.saveOrders(orders).catch(() => undefined)
+    void this.persistence
+      .saveOrders(orders)
+      .catch((error) => logPersistenceWriteError('saveOrders', error, { count: orders.length }))
   }
 
   public addAudit(event: AuditEvent) {
@@ -246,7 +293,9 @@ export class ApiStore {
     this.audits.unshift(eventWithHash)
     this.audits = this.audits.slice(0, 5000)
 
-    void this.persistence.saveAudit(eventWithHash).catch(() => undefined)
+    void this.persistence
+      .saveAudit(eventWithHash)
+      .catch((error) => logPersistenceWriteError('saveAudit', error, { eventId: eventWithHash.id, action: eventWithHash.action }))
   }
 
   public getAudit(limit: number, cursor?: number): AuditEvent[] {
@@ -274,7 +323,9 @@ export class ApiStore {
 
   public async setEntitlement({ entitlementId, entitlement }: EntitlementUpdate): Promise<void> {
     this.entitlements.set(entitlementId, entitlement)
-    void this.persistence.saveEntitlement(entitlementId, entitlement).catch(() => undefined)
+    void this.persistence
+      .saveEntitlement(entitlementId, entitlement)
+      .catch((error) => logPersistenceWriteError('saveEntitlement', error, { entitlementId }))
   }
 
   public async getEntitlement(entitlementId: string): Promise<Entitlement | undefined> {
@@ -304,7 +355,9 @@ export class ApiStore {
     verifiedAt?: string
     metadata?: Record<string, unknown>
   }): Promise<void> {
-    void this.persistence.recordPaymentAttempt(input).catch(() => undefined)
+    void this.persistence
+      .recordPaymentAttempt(input)
+      .catch((error) => logPersistenceWriteError('recordPaymentAttempt', error, { paymentId: (input as any)?.id }))
   }
 
   public async persistCommand(input: {
@@ -314,7 +367,9 @@ export class ApiStore {
     reason: string
     args: string[]
   }): Promise<void> {
-    void this.persistence.saveCommand(input).catch(() => undefined)
+    void this.persistence
+      .saveCommand(input)
+      .catch((error) => logPersistenceWriteError('saveCommand', error, { commandId: (input as any)?.id, type: (input as any)?.type }))
   }
 
   public async close(): Promise<void> {
