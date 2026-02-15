@@ -121,12 +121,15 @@ const RISK_POLICY_MIN_STALE_DATA_MS = 300
 const RISK_POLICY_MIN_LIQUIDITY_BUFFER = 1
 const RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE = 0
 const RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE = 1
-const MIN_MEANINGFUL_POSITION_USD = 50
+const MIN_MEANINGFUL_POSITION_USD = 100
 
 const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
   maxLeverage: 'maxLeverage',
   max_leverage: 'maxLeverage',
   'max-leverage': 'maxLeverage',
+  targetLeverage: 'targetLeverage',
+  target_leverage: 'targetLeverage',
+  'target-leverage': 'targetLeverage',
   maxDrawdownPct: 'maxDrawdownPct',
   max_drawdown_pct: 'maxDrawdownPct',
   'max-drawdown-pct': 'maxDrawdownPct',
@@ -190,6 +193,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
   let runtimeRiskPolicy: RuntimeRiskPolicy = {
     maxLeverage: env.RISK_MAX_LEVERAGE,
+    targetLeverage: Math.min(env.RISK_TARGET_LEVERAGE, env.RISK_MAX_LEVERAGE),
     maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
     maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
     maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
@@ -282,6 +286,14 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         normalized.maxLeverage = numericValue
       }
 
+      if (key === 'targetLeverage') {
+        if (numericValue < RISK_POLICY_MIN_LEVERAGE) {
+          fields.push(`${key}: min ${RISK_POLICY_MIN_LEVERAGE}`)
+          continue
+        }
+        normalized.targetLeverage = numericValue
+      }
+
       if (key === 'maxDrawdownPct') {
         if (numericValue < RISK_POLICY_MIN_DRAWDOWN_PCT) {
           fields.push(`${key}: min ${RISK_POLICY_MIN_DRAWDOWN_PCT}`)
@@ -340,6 +352,17 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       ...normalized
     }
 
+    if (
+      typeof nextPolicy.targetLeverage === 'number' &&
+      Number.isFinite(nextPolicy.targetLeverage) &&
+      nextPolicy.targetLeverage > nextPolicy.maxLeverage
+    ) {
+      return {
+        message: `invalid risk policy value(s): targetLeverage must be <= maxLeverage`,
+        fields: ['targetLeverage']
+      }
+    }
+
     return { patch: nextPolicy }
   }
 
@@ -379,8 +402,12 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     return normalizeRiskPolicy(readRuntimeRiskPolicy(), rawPatch)
   }
 
-  const minLiveAccountValueUsd = (): number =>
-    Math.max(1, (2 * env.BASKET_TARGET_NOTIONAL_USD) / Math.max(1, readRuntimeRiskPolicy().maxLeverage))
+  const minLiveAccountValueUsd = (): number => {
+    const policy = readRuntimeRiskPolicy()
+    const leverageCap = Math.max(1, policy.targetLeverage ?? policy.maxLeverage)
+    const leverageAwareFloor = env.BASKET_TARGET_NOTIONAL_USD / leverageCap
+    return Math.max(env.RUNTIME_MIN_LIVE_ACCOUNT_VALUE_USD, leverageAwareFloor)
+  }
 
   const minimumFlatExposureUsd = Math.max(MIN_MEANINGFUL_POSITION_USD, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
   const exposureUsd = (positions: readonly OperatorPosition[]): number =>
@@ -452,9 +479,19 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
     }
   }
 
-  const runtimeRiskPolicyContext = (): Record<string, number> => ({
-    ...readRuntimeRiskPolicy()
-  })
+  const runtimeRiskPolicyContext = (): Record<string, number> => {
+    const policy = readRuntimeRiskPolicy()
+    return {
+      maxLeverage: policy.maxLeverage,
+      targetLeverage: typeof policy.targetLeverage === 'number' && Number.isFinite(policy.targetLeverage) ? policy.targetLeverage : policy.maxLeverage,
+      maxDrawdownPct: policy.maxDrawdownPct,
+      maxExposureUsd: policy.maxExposureUsd,
+      maxSlippageBps: policy.maxSlippageBps,
+      staleDataMs: policy.staleDataMs,
+      liquidityBufferPct: policy.liquidityBufferPct,
+      notionalParityTolerance: policy.notionalParityTolerance
+    }
+  }
 
   await bus.publish('hlp.ui.events', {
     type: 'STATE_UPDATE',
@@ -704,7 +741,6 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
       // Pull latest ticks for any symbol we might touch this cycle.
       const tickSymbols = new Set<string>([
-        'HYPE',
         ...seedBasketSymbols,
         ...agentWatchlistSymbols,
         ...state.positions.map((position) => position.symbol)
@@ -843,23 +879,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         pendingAgentProposalReceivedAt = 0
         origin = 'agent'
       } else {
-        // Deterministic proposals are REBALANCE-only. We never ENTER a new trade from env BASKET_SYMBOLS
-        // because the short basket must be thesis-driven (agent selected) and can change over time.
-        if (!hasMeaningfulExposure()) {
-          proposalCandidate = null
-        } else {
-          const heldBasketSymbols = [...new Set(state.positions.map((position) => position.symbol))]
-            .map((symbol) => symbol.trim())
-            .filter((symbol) => symbol && symbol.toUpperCase() !== 'HYPE')
-          proposalCandidate = buildProposal(
-            state,
-            targetNotional,
-            heldBasketSymbols.join(','),
-            recentSignals,
-            env.RUNTIME_FLAT_DUST_NOTIONAL_USD,
-            meaningfulPositions(state.positions)
-          )
-        }
+        proposalCandidate = null
       }
 
       if (!proposalCandidate) {
@@ -1553,12 +1573,6 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       return { ok: true, message: `state:${state.mode} pnl:${state.pnlPct}% cycle:${state.cycle}` }
     }
 
-    if (commandName === '/simulate') {
-      const mode = args[0] === 'off' ? 'OFF' : 'ON'
-      runtimeCommandCounter.inc({ command, result: 'executed' })
-      return { ok: true, message: `simulation mode ${mode}` }
-    }
-
     if (commandName === '/explain') {
       runtimeCommandCounter.inc({ command, result: 'executed' })
       return {
@@ -1720,88 +1734,7 @@ function buildProposal(
   minimumMeaningfulNotionalUsd = 0,
   currentPositions: readonly OperatorPosition[] = state.positions
 ): StrategyProposal | null {
-  const basketSymbols = basketSymbolsCsv
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  if (basketSymbols.length === 0) {
-    return null
-  }
-
-  const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
-  const latestCorrelation = [...signals].reverse().find((signal) => signal.signalType === 'correlation')
-  const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
-  const signalSummary = [
-    latestVolatility ? `vol=${latestVolatility.value.toFixed(3)}` : 'vol=na',
-    latestCorrelation ? `corr=${latestCorrelation.value.toFixed(3)}` : 'corr=na',
-    latestFunding ? `funding=${latestFunding.value.toFixed(6)}` : 'funding=na'
-  ].join(' ')
-
-  const desiredBySymbol = new Map<string, number>()
-  desiredBySymbol.set('HYPE', targetNotional)
-  const perBasket = targetNotional / basketSymbols.length
-  for (const symbol of basketSymbols) {
-    desiredBySymbol.set(symbol, -perBasket)
-  }
-
-  const currentBySymbol = new Map<string, number>()
-  for (const position of currentPositions) {
-    const signed = position.side === 'LONG' ? Math.abs(position.notionalUsd) : -Math.abs(position.notionalUsd)
-    currentBySymbol.set(position.symbol, (currentBySymbol.get(position.symbol) ?? 0) + signed)
-  }
-
-  const minLegUsd = Math.max(0, minimumMeaningfulNotionalUsd)
-  const legs = [...desiredBySymbol.entries()]
-    .map(([symbol, desiredNotional]) => {
-      const current = currentBySymbol.get(symbol) ?? 0
-      const delta = desiredNotional - current
-      if (!Number.isFinite(delta) || Math.abs(delta) < minLegUsd) {
-        return null
-      }
-
-      const notionalUsd = normalizeProposalNotional(delta)
-      if (!Number.isFinite(notionalUsd) || notionalUsd <= 0) {
-        return null
-      }
-
-      return {
-        symbol,
-        side: delta > 0 ? ('BUY' as const) : ('SELL' as const),
-        notionalUsd
-      }
-    })
-    .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number } => Boolean(leg))
-
-  if (legs.length === 0) {
-    return null
-  }
-
-  const hasMeaningfulExposure = currentPositions.length > 0 && currentPositions.some((position) => {
-    const absNotionalUsd = Math.abs(position.notionalUsd)
-    return Number.isFinite(absNotionalUsd) && absNotionalUsd >= Math.max(0, minimumMeaningfulNotionalUsd) && absNotionalUsd > 0
-  })
-
-  const actionType = hasMeaningfulExposure ? 'REBALANCE' : 'ENTER'
-  const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
-
-  return {
-    proposalId: envelopeId(),
-    cycleId: envelopeId(),
-    summary: hasMeaningfulExposure ? `rebalance to target (${signalSummary})` : `enter pair trade (${signalSummary})`,
-    confidence: 0.75,
-    requestedMode: 'SIM',
-    createdBy: 'runtime',
-    actions: [
-      {
-        type: actionType,
-        rationale: 'delta-to-target exposure (HYPE vs basket)',
-        notionalUsd: normalizeProposalNotional(actionNotionalUsd),
-        expectedSlippageBps: 3,
-        legs
-      }
-    ]
-  }
+  return null
 }
 
 function envelopeId() {

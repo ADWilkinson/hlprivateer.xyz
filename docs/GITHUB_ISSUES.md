@@ -205,7 +205,7 @@ Dependencies: HLP-014, HLP-019, HLP-022
 ## HLP-022 Command parser and execution bus
 Description: Implement slash command parser and command event bus.
 Acceptance Criteria:
-- `/status`, `/positions`, `/simulate`, `/halt`, `/resume`, `/flatten` supported.
+- `/status`, `/positions`, `/risk-policy`, `/halt`, `/resume`, `/flatten` supported.
 - Unknown commands return typed error.
 - Command events include actor metadata.
 Dependencies: HLP-002, HLP-012

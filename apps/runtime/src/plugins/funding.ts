@@ -25,7 +25,7 @@ export default {
     }
 
     const infoUrl = ctx.getConfig('HL_INFO_URL')
-    const symbol = (ctx.getConfig('HLP_FUNDING_SYMBOL') ?? 'HYPE').trim() || 'HYPE'
+    const symbol = (ctx.getConfig('HLP_FUNDING_SYMBOL') ?? 'BTC').trim() || 'BTC'
     const windowDaysRaw = ctx.getConfig('HLP_FUNDING_WINDOW_DAYS')
     const windowDays = clamp(Number(windowDaysRaw ?? 7), 1, 30)
 

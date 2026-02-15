@@ -284,6 +284,7 @@ function getEffectiveRiskConfig() {
 
   return {
     maxLeverage: Number.isFinite(riskPolicy.maxLeverage) ? Number(riskPolicy.maxLeverage) : env.RISK_MAX_LEVERAGE,
+    targetLeverage: num(riskPolicy.targetLeverage, Number.isFinite(riskPolicy.maxLeverage) ? Number(riskPolicy.maxLeverage) : env.RISK_MAX_LEVERAGE),
     maxDrawdownPct: Number.isFinite(riskPolicy.maxDrawdownPct)
       ? Number(riskPolicy.maxDrawdownPct)
       : env.RISK_MAX_DRAWDOWN_PCT,

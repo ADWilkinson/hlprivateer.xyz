@@ -3,7 +3,7 @@
 ## 1) Product vision (PRD)
 
 ### 1.1 One-liner + elevator pitch + why now
-- One-liner: HL Privateer is a self-hosted, agentic Hyperliquid pair-trading platform that continuously runs `LONG HYPE` vs `SHORT dynamic basket`, with deterministic risk gates and a real-time ASCII trade floor.
+- One-liner: HL Privateer is a self-hosted, agentic Hyperliquid trading platform with discretionary long/short strategy selection, deterministic risk gates, and a real-time ASCII trade floor.
 - Elevator pitch: You run one Linux home server, connect it through Cloudflare Tunnel, and get a full autonomous trading desk: market data, strategy agents, execution, risk hard-gates, audit replay, and a monetizable external agent interface via x402 access tiers.
 - Why now:
   - Hyperliquid latency/liquidity is now sufficient for systematic pair-trading loops.
@@ -13,7 +13,7 @@
 ### 1.2 Target users/personas
 - Human operator (primary): owns risk budget, config, kill-switch authority, and incident response.
 - Internal agents:
-  - `research-agent`: synthesizes new market context and basket hypotheses.
+  - `research-agent`: synthesizes new market context and pair-leg hypotheses.
   - `risk-agent`: explains risk posture, but cannot bypass hard-gates.
   - `execution-agent`: proposes execution tactics under slippage/liquidity constraints.
   - `ops-agent`: monitors service health, replay, and anomaly alerts.
@@ -30,7 +30,7 @@
   - As operator, I can halt all trading within one command and force safe mode.
   - As operator, I can replay any incident session and see every AI proposal and risk decision.
 - Agent stories:
-  - As research-agent, I can propose basket composition changes with rationale and confidence.
+  - As research-agent, I can propose long/short pair-leg composition changes with rationale and confidence.
   - As execution-agent, I can request child-order slicing but only within deterministic slippage caps.
   - As external agent, I can authenticate, pay via x402, negotiate capabilities, and receive only tier-allowed data.
 
@@ -43,11 +43,11 @@
 ### 1.5 Product scope
 
 #### MVP (2-4 weeks)
-- Included:
-  - Hyperliquid market data + OMS for HYPE and top-N basket assets.
+ - Included:
+  - Hyperliquid market data + OMS with discretionary long/short strategy execution.
   - Deterministic risk engine hard-gate for every order.
-  - Pair-trade state machine and equal-notional enforcement.
-  - Paper/sim mode + live mode toggle with same interfaces.
+  - Strategy plan state machine with long/short exposure parity constraints.
+  - Production live mode with optional DRY_RUN parity mode, sharing identical contracts.
   - ASCII trade floor with `public` and `operator` views.
   - External agent API tiering + x402 verification (Tier 0 and Tier 1).
   - Append-only event store + audit trail + session replay (basic).
@@ -55,7 +55,7 @@
   - No multi-exchange routing in MVP.
   - No advanced ML training pipeline.
   - No mobile app.
-  - No fully autonomous basket reconstitution without operator approval.
+  - No fixed-symbol strategy assumptions; discretion is plan-config driven.
 
 #### V1 (next milestone)
 - Tier 2/Tier 3 external access.
@@ -105,7 +105,7 @@
 
 ## 2) Core constraints (must be enforced in design)
 
-- Strategy invariant: always `LONG HYPE` vs `SHORT basket`; equal notional both legs at entry and rebalance.
+- Strategy invariant: discretionary long/short structure with explicit thesis and risk budgets; no fixed symbol is assumed.
 - AI invariant: AI can only `propose`; deterministic risk engine must `approve` before execution.
 - Privacy invariant: public outputs expose PnL only in percent plus obfuscated status stream.
 - Ecosystem invariant: external agents can interact only through authenticated tiered contracts; x402 required for paid tiers.
@@ -365,8 +365,8 @@ export function validateProposal(input: RiskInput): RiskDecision {
 - Human override controls:
   - AuthZ role `operator_admin` required.
   - All overrides require reason code and expire automatically.
-- Paper mode:
-  - Same interfaces/events, different execution adapter (`SimExecutionAdapter`).
+- DRY_RUN operator mode:
+  - Same interfaces/events, non-execution adapter with no exchange side-effects.
 
 ### 4.4 Data feeds + plugin system
 
@@ -433,14 +433,14 @@ ASCII mockup:
 +--------------------------------------------------------------------------------+
 | HL PRIVATEER FLOOR | MODE: READY | PNL: +2.84% | DD: 1.2% | LAT: 142ms        |
 +--------------------------------------------------------------------------------+
-| RCH [^]  "Basket spread widening vs HYPE beta"                               |
+| RCH [^]  "Pair spread widening vs SOL beta"                                  |
 | RSK [!]  "Imbalance 0.8%, within threshold"                                  |
-| EXE [>]  "Placed BUY HYPE 4.32 @ 23.14"                                      |
+| EXE [>]  "Placed BUY BTC 4.32 @ 23.14"                                       |
 | MKT [~]  "Funding divergence +12 bps"                                        |
 | OPS [#]  "Redis lag 8ms | WS clients 42"                                     |
 | CON [$]  "Agent tier1 unlocked: bot_0x9f..."                                 |
 +--------------------------------------------------------------------------------+
-| /status  /positions  /simulate on  /halt  /resume  /unlock tier2              |
+| /status  /positions  /risk-policy  /halt  /resume  /unlock tier2             |
 +--------------------------------------------------------------------------------+
 ```
 
@@ -454,7 +454,7 @@ Implementation:
 Access tiers:
 - Tier 0 (free): public pnl percent + delayed obfuscated events.
 - Tier 1 (paid): near-real-time obfuscated events + basic command `/status`.
-- Tier 2 (paid+): limited positions summary bands, strategy state, `/simulate`.
+- Tier 2 (paid+): limited positions summary bands, strategy state, `/risk-policy`.
 - Tier 3 (whitelisted): richer telemetry and command APIs with strict quotas.
 
 Payment flow:
@@ -568,7 +568,7 @@ Operator:
 - `GET /v1/operator/status`
 - `GET /v1/operator/positions`
 - `GET /v1/operator/orders?status=open`
-- `POST /v1/operator/command` (`halt`, `resume`, `simulate`, `flatten`)
+- `POST /v1/operator/command` (`halt`, `resume`, `risk-policy`, `flatten`)
 - `PATCH /v1/operator/config/risk`
 - `GET /v1/operator/audit?from=&to=`
 - `POST /v1/operator/replay/start`
@@ -661,7 +661,7 @@ Commands:
 - `/explain`
 - `/positions`
 - `/unlock tier2`
-- `/simulate on|off`
+- `/risk-policy`
 - `/halt`
 - `/resume`
 - `/flatten`
@@ -682,7 +682,7 @@ export const CommandSchema = z.object({
 Permissions model:
 - `public`: none.
 - `agent_tier1`: `/status`, `/unlock`.
-- `agent_tier2`: `/simulate` (sandbox only), `/explain` (redacted).
+- `agent_tier2`: `/risk-policy`, `/explain` (redacted).
 - `operator_view`: `/status`, `/positions`, `/explain`.
 - `operator_admin`: all commands including `/halt`, `/resume`, `/flatten`, config mutations.
 
@@ -737,7 +737,7 @@ AuthN/AuthZ:
   - JWT keys: 30-day rotation.
 
 Secure defaults:
-- Start in `SIM_MODE=true` on fresh install.
+- Fresh installs default to `DRY_RUN=true` for initial safety checks, then switch to `DRY_RUN=false` before production execution.
 - `LIVE_MODE` requires explicit operator unlock each boot.
 - Unknown plugin permissions default deny.
 
@@ -834,27 +834,25 @@ Transition rules:
 - `* -> HALT` on kill-switch/manual critical incident.
 
 Decision cadence and triggers:
-- Time-based: every 5 seconds proposal cycle.
+- Time-based: at least once per hour (AGENT loop cadence).
 - Event-based immediate cycles on:
   - spread z-score crossing thresholds
   - fill completion events
   - volatility regime change
 
-Universe selection for short basket:
-- Start set: top liquid perp assets excluding HYPE.
+Universe selection for long/short exposure:
+- Start set: top liquid perp assets from Hyperliquid.
 - Filter by:
   - minimum 24h volume
   - spread stability
   - borrow/funding constraints
-- Recompute basket every 6 hours; operator approval required in MVP.
+- Recompute universe at configured cadence; no hard-coded symbol lock.
 
-Equal notional sizing math:
+Discretionary sizing math:
 - Define target gross notional `G`.
-- Long leg notional = `G / 2` on HYPE.
-- Short basket total notional = `G / 2` distributed by weights `w_i`.
-- For symbol `i`, short notional `N_i = (G / 2) * w_i`.
-- Quantity = `round_down(N_i / markPrice_i, lotSize_i)`.
-- Enforce post-rounding imbalance <= `maxNotionalImbalancePct`.
+- For each symbol `i`, strategist-proposed leg notional `N_i` includes direction and confidence.
+- Quantity = `round_down(|N_i| / markPrice_i, lotSize_i)`.
+- Enforce post-rounding imbalance <= policy `maxNotionalImbalancePct`.
 
 Execution rules:
 - Default order type: post-only limit.
@@ -878,23 +876,20 @@ Risk rules:
 - Volatility filter suspends entries above threshold.
 - Stale data and thin book circuit breakers.
 
-Simulation/paper behavior:
+Dry-run behavior:
 - Same API contracts and event streams.
-- Synthetic fills from order book simulator with configurable latency/slippage model.
+- No exchange execution orders are sent while DRY_RUN is enabled; analysis, proposals, and risk logs continue unchanged.
 
 Worked example:
 - Inputs:
   - `G = $10,000`
-  - HYPE mark = `23.50`
-  - Basket: SOL `w=0.50`, ETH `w=0.30`, BTC `w=0.20`
+  - Long SOL `N = $3,200`, Short BTC `N = -$3,100`, Short ETH `N = -$3,700`
   - Prices: SOL `110`, ETH `3400`, BTC `68000`
 - Target notionals:
-  - Long HYPE = `$5,000` -> qty `5000/23.5 = 212.765` -> `212.7` (lot rounded)
-  - Short SOL = `$2,500` -> qty `22.727`
-  - Short ETH = `$1,500` -> qty `0.441`
-  - Short BTC = `$1,000` -> qty `0.0147`
-- If rounded basket sum becomes `$4,940` while long is `$4,995`, imbalance is `1.10%` and allowed (<1.5%).
-- If imbalance drifts to `2.2%` after fills/price move, transition to `REBALANCE`, submit risk-approved corrective orders.
+  - Long SOL qty `3200/110 = 29.090` -> `29.1` (lot rounded)
+  - Short BTC qty `3100/68000 = 0.0456`
+  - Short ETH qty `3700/3400 = 1.088`
+- If post-rounding imbalance exceeds policy and persists, transition to `REBALANCE` and submit risk-approved corrective orders.
 
 ---
 
@@ -910,11 +905,11 @@ Week 1
 - Day 5: Basic Fastify API and auth boundaries.
 
 Week 2
-- Day 6: deterministic risk engine package + unit tests.
+- Day 6: deterministic risk engine package + execution hardening.
 - Day 7: strategy loop scaffolding + schema-validated proposals.
-- Day 8: paper execution adapter + reconciliation pipeline.
+- Day 8: execution validation, reconciliation, and dry-run/live parity checks.
 - Day 9: state machine integration and safe-mode logic.
-- Day 10: operator commands (`/halt`, `/resume`, `/simulate`).
+- Day 10: operator commands (`/halt`, `/resume`, `/risk-policy`).
 
 Week 3
 - Day 11: Next.js ASCII floor public view.
@@ -942,7 +937,7 @@ Full details are in `docs/GITHUB_ISSUES.md`. Summary IDs:
 - `HLP-007` Deterministic risk engine package
 - `HLP-008` Pair-trade state machine
 - `HLP-009` Strategy proposal schema and parser
-- `HLP-010` Paper trading execution adapter
+- `HLP-010` Execution adapter parity and dry-run safeguards
 - `HLP-011` Runtime orchestrator loop
 - `HLP-012` Operator auth and RBAC
 - `HLP-013` Public API endpoints (PnL + obfuscated snapshot)
@@ -964,11 +959,11 @@ Full details are in `docs/GITHUB_ISSUES.md`. Summary IDs:
 - `HLP-029` Security baseline (headers, rate limits, WAF hooks)
 - `HLP-030` Secrets management via `*_FILE` + systemd credentials
 - `HLP-031` systemd deployment and Cloudflare tunnel setup
-- `HLP-032` End-to-end sim + live readiness checklist
+- `HLP-032` End-to-end dry-run + live readiness checklist
 
 ### 10.3 Definition of Done checklist
 - Deterministic risk checks cover 100% of execution paths.
-- Kill switch tested in both sim and live adapters.
+- Kill switch verified in both dry-run and live adapters.
 - Public view exposes only approved fields.
 - Every trade/action linked to audit entries.
 - Replay can reconstruct at least one full incident.

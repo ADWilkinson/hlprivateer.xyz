@@ -243,7 +243,6 @@ export type OperatorPosition = z.infer<typeof OperatorPositionSchema>
 export const OperatorCommandNameSchema = z.enum([
   '/status',
   '/positions',
-  '/simulate',
   '/halt',
   '/resume',
   '/flatten',
@@ -363,12 +362,6 @@ export const COMMAND_POLICIES: Record<OperatorCommandName, CommandPolicy> = {
     allowedActorTypes: ['human', 'internal_agent', 'external_agent'],
     requiredRoles: [],
     requiredCapabilities: ['command.positions']
-  },
-  '/simulate': {
-    command: '/simulate',
-    allowedActorTypes: ['human', 'internal_agent'],
-    requiredRoles: [OPERATOR_ADMIN_ROLE],
-    requiredCapabilities: ['command.execute']
   },
   '/halt': {
     command: '/halt',

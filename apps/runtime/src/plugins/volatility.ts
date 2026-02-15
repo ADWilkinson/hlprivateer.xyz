@@ -34,7 +34,7 @@ export default {
     }
 
     const infoUrl = ctx.getConfig('HL_INFO_URL')
-    const symbol = (ctx.getConfig('HLP_VOL_SYMBOL') ?? 'HYPE').trim() || 'HYPE'
+    const symbol = (ctx.getConfig('HLP_VOL_SYMBOL') ?? 'BTC').trim() || 'BTC'
     const windowMinRaw = ctx.getConfig('HLP_VOL_WINDOW_MIN')
     const windowMin = clamp(Number(windowMinRaw ?? 60), 10, 360)
 

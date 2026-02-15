@@ -1,4 +1,6 @@
 import { ulid } from 'ulid'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { RedisEventBus, InMemoryEventBus } from '@hl/privateer-event-bus'
 import type { EventEnvelope, AuditEvent, OperatorPosition, StrategyProposal } from '@hl/privateer-contracts'
 import { parseStrategyProposal } from '@hl/privateer-contracts'
@@ -9,6 +11,7 @@ import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliq
 import { computePriceFeaturePack, type PriceFeature } from './price-features'
 import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMarketSnapshot } from './coingecko'
 import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
+import { buildExternalIntelPack, summarizeExternalIntel, type ExternalIntelPack } from './intel'
 
 type Tick = {
   symbol: string
@@ -89,12 +92,462 @@ function roleActorId(role: FloorRole): string {
 }
 
 const PROPOSAL_NOTIONAL_PRECISION = 6
+type AuditLevel = 'INFO' | 'WARN' | 'ERROR'
+type GitHubContentPayload = {
+  sha?: string
+  content?: string
+}
+type GitHubJournalTarget = {
+  localPath: string
+  githubPath: string
+}
+
+const DISCORD_ACTION_SET = new Set(
+  env.DISCORD_WEBHOOK_ACTIONS
+    .split(',')
+    .map((action) => sanitizeLine(action, 120).toLowerCase())
+    .filter(Boolean)
+)
+const GITHUB_API_BASE_URL = env.GITHUB_API_URL.replace(/\/+$/, '')
+
+const JOURNAL_PATH = path.resolve(process.cwd(), env.AGENT_JOURNAL_PATH)
+const GITHUB_JOURNAL_PATH = env.AGENT_GITHUB_JOURNAL_PATH
+
+let journalWriteChain: Promise<void> = Promise.resolve()
+let journalDirectoryReady = new Map<string, Promise<void>>()
+let githubJournalWriteChain: Promise<void> = Promise.resolve()
+let githubJournalFlushChain: Promise<void> = Promise.resolve()
+let githubJournalFlushTimer: ReturnType<typeof setInterval> | null = null
+let pendingGitHubJournalTargets = new Map<string, GitHubJournalTarget>()
+let lastDiscordNotifyByFingerprint = new Map<string, number>()
+
+function normalizeGitHubBranch(branch = env.GITHUB_JOURNAL_BRANCH): string {
+  const normalized = sanitizeLine(branch, 100)
+  return normalized || 'main'
+}
+
+function normalizeGitHubPath(value: string): string {
+  return sanitizeLine(value, 240).replace(/^\/+|\/+$/g, '')
+}
+
+function githubApiHeaders(): Record<string, string> {
+  return {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'User-Agent': 'hl-privateer-agent-runner',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json'
+  }
+}
+
+function githubContentsUrl(pathValue: string, branch: string, ref = false): string {
+  const owner = encodeURIComponent(sanitizeLine(env.GITHUB_REPO_OWNER, 120))
+  const repo = encodeURIComponent(sanitizeLine(env.GITHUB_REPO_NAME, 120))
+  const encodedPath = pathValue
+    .split('/')
+    .map((segment) => encodeURIComponent(sanitizeLine(segment, 240)))
+    .filter(Boolean)
+    .join('/')
+  const base = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/contents/${encodedPath}`
+  if (!ref) {
+    return base
+  }
+  return `${base}?ref=${encodeURIComponent(branch)}`
+}
+
+function normalizeJournalToken(value: string): string {
+  return sanitizeLine(value, 160)
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+}
+
+function resolveActorLabel(event: AuditEvent): string {
+  const actorType = normalizeJournalToken(event.actorType || 'agent')
+  const actorIdRaw = sanitizeLine(event.actorId || '', 160)
+
+  // Prefer stable per-role files for internal agents so journals remain easy to scan.
+  // Example: "privateer-floor:strategist" -> "strategist".
+  const roleToken = actorIdRaw.includes(':') ? actorIdRaw.split(':').pop() ?? '' : actorIdRaw
+  const role = normalizeJournalToken(roleToken)
+  if (actorType === 'internal_agent' && role) {
+    return role
+  }
+
+  const actorId = normalizeJournalToken(actorIdRaw || actorType)
+  const combined = `${actorType}-${actorId}`
+  return normalizeJournalToken(combined) || `agent-${env.AGENT_ID}`
+}
+
+function resolveJournalDirectory(templatePath: string): string {
+  const absolute = path.isAbsolute(templatePath) ? templatePath : path.resolve(process.cwd(), templatePath)
+  const baseName = path.basename(absolute)
+  if (/\.ndjson$/i.test(baseName)) {
+    return path.dirname(absolute)
+  }
+  return absolute
+}
+
+function resolveGitHubJournalDirectory(templatePath: string): string {
+  const normalized = normalizeGitHubPath(templatePath)
+  const segments = normalized.split('/').filter(Boolean)
+  const last = segments[segments.length - 1]
+  if (last && /\.ndjson$/i.test(last)) {
+    segments.pop()
+  }
+  return segments.join('/')
+}
+
+function resolveJournalPaths(event: AuditEvent): GitHubJournalTarget {
+  const actorLabel = resolveActorLabel(event)
+  const localDirectory = resolveJournalDirectory(JOURNAL_PATH)
+  const localPath = path.join(localDirectory, `journal-${actorLabel}.ndjson`)
+  const githubDirectory = resolveGitHubJournalDirectory(GITHUB_JOURNAL_PATH)
+  const githubPath = githubDirectory ? `${githubDirectory}/journal-${actorLabel}.ndjson` : `journal-${actorLabel}.ndjson`
+  return { localPath, githubPath }
+}
+
+function isGitHubJournalFlushEnabled(): boolean {
+  return env.AGENT_GITHUB_JOURNAL_FLUSH_INTERVAL_MS > 0
+}
+
+function isGitHubJournalEnabled(): boolean {
+  return (
+    env.AGENT_GITHUB_JOURNAL_ENABLED &&
+    env.GITHUB_TOKEN.length > 0 &&
+    normalizeGitHubPath(GITHUB_JOURNAL_PATH).length > 0 &&
+    normalizeGitHubBranch().length > 0 &&
+    sanitizeLine(env.GITHUB_REPO_OWNER, 120).length > 0 &&
+    sanitizeLine(env.GITHUB_REPO_NAME, 120).length > 0
+  )
+}
+
+async function ensureGitHubJournalFileState(
+  pathValue: string,
+  branch: string,
+): Promise<{ sha?: string; content: string }> {
+  const headers = githubApiHeaders()
+  const readUrl = githubContentsUrl(pathValue, branch, true)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), env.GITHUB_JOURNAL_TIMEOUT_MS)
+
+  try {
+    const response = await (async () => {
+      try {
+        return await fetch(readUrl, { headers, signal: controller.signal })
+      } finally {
+        clearTimeout(timeout)
+      }
+    })()
+
+    if (response.status === 404) {
+      return { content: '' }
+    }
+    if (!response.ok) {
+      const raw = await response.text()
+      throw new Error(`GitHub journal read failed status=${response.status} body=${sanitizeLine(raw, 320)}`)
+    }
+    const payload = (await response.json()) as GitHubContentPayload
+    const sha = sanitizeLine(payload.sha ?? '', 80)
+    let content = ''
+    if (typeof payload.content === 'string' && payload.content.trim()) {
+      content = Buffer.from(payload.content.replace(/\s+/g, ''), 'base64').toString('utf8')
+    }
+    return { sha, content }
+  } catch (error) {
+    throw error
+  }
+}
+
+async function syncGitHubJournalFile(remotePath: string, nextContent: string, action: string): Promise<void> {
+  if (!isGitHubJournalEnabled()) {
+    return
+  }
+
+  const branch = normalizeGitHubBranch()
+  const pathValue = normalizeGitHubPath(remotePath)
+  if (!pathValue) {
+    return
+  }
+
+  const headers = githubApiHeaders()
+  const contentsUrl = githubContentsUrl(pathValue, branch)
+
+  try {
+    const { sha: existingSha } = await ensureGitHubJournalFileState(pathValue, branch)
+    const putPayload = {
+      message: `chore(agent-journal): ${sanitizeLine(action, 120)} [${new Date().toISOString()}]`,
+      content: Buffer.from(nextContent).toString('base64'),
+      branch,
+      ...(existingSha ? { sha: existingSha } : {})
+    }
+    const putController = new AbortController()
+    const putTimeout = setTimeout(() => putController.abort(), env.GITHUB_JOURNAL_TIMEOUT_MS)
+    const response = await (async () => {
+      try {
+        return await fetch(contentsUrl, {
+          method: 'PUT',
+          headers,
+          signal: putController.signal,
+          body: JSON.stringify(putPayload)
+        })
+      } finally {
+        clearTimeout(putTimeout)
+      }
+    })()
+    if (!response.ok) {
+      const raw = await response.text()
+      throw new Error(`GitHub journal write failed status=${response.status} body=${sanitizeLine(raw, 320)}`)
+    }
+  } catch (error) {
+    console.error(`agent journal github sync failed path=${pathValue}`, error)
+  }
+}
+
+async function appendGitHubJournalLine(line: string, action: string, remotePath: string): Promise<void> {
+  const normalizedPath = normalizeGitHubPath(remotePath)
+  if (!normalizedPath) {
+    return
+  }
+
+  try {
+    const branch = normalizeGitHubBranch()
+    const state = await ensureGitHubJournalFileState(normalizedPath, branch)
+    const nextText = state.content ? `${state.content.replace(/\s*$/, '')}\n${line}` : line
+    await syncGitHubJournalFile(normalizedPath, nextText, `append ${sanitizeLine(action, 120)}`)
+  } catch (error) {
+    console.error(`agent journal github append failed path=${normalizedPath}`, error)
+  }
+}
+
+function markGitHubJournalForIntervalFlush(target: GitHubJournalTarget): void {
+  if (!isGitHubJournalFlushEnabled()) {
+    return
+  }
+  pendingGitHubJournalTargets.set(target.githubPath, target)
+}
+
+async function flushGitHubJournalFiles(): Promise<void> {
+  if (!isGitHubJournalEnabled() || !isGitHubJournalFlushEnabled()) {
+    return
+  }
+
+  await journalWriteChain
+  const targets = Array.from(pendingGitHubJournalTargets.values())
+  if (targets.length === 0) {
+    return
+  }
+  pendingGitHubJournalTargets = new Map()
+
+  for (const target of targets) {
+    try {
+      const localText = await fs.readFile(target.localPath, 'utf8')
+      await syncGitHubJournalFile(target.githubPath, localText, 'interval sync')
+    } catch (error) {
+      console.error(`agent journal github interval sync failed path=${target.githubPath}`, error)
+    }
+  }
+}
+
+function scheduleGitHubJournalIntervalFlush(): void {
+  if (githubJournalFlushTimer) {
+    return
+  }
+  if (!isGitHubJournalEnabled() || !isGitHubJournalFlushEnabled()) {
+    return
+  }
+
+  const intervalMs = Math.max(30_000, env.AGENT_GITHUB_JOURNAL_FLUSH_INTERVAL_MS)
+  githubJournalFlushTimer = setInterval(() => {
+    githubJournalFlushChain = githubJournalFlushChain.then(() => flushGitHubJournalFiles())
+  }, intervalMs)
+}
+
+function ensureJournalDirectoryForPath(filePath: string): Promise<void> {
+  const directory = path.dirname(filePath)
+  const cached = journalDirectoryReady.get(directory)
+  if (cached) {
+    return cached
+  }
+  const next = fs.mkdir(directory, { recursive: true }).then(() => undefined)
+  journalDirectoryReady.set(directory, next)
+  return next
+}
 
 function normalizeProposalNotional(value: number): number {
   if (!Number.isFinite(value)) {
     return 0
   }
   return Number(Math.abs(value).toFixed(PROPOSAL_NOTIONAL_PRECISION))
+}
+
+function deriveAuditLevel(event: AuditEvent): AuditLevel {
+  if (event.action === 'agent.error') {
+    return 'ERROR'
+  }
+  if (event.action === 'agent.proposal.invalid') {
+    return 'WARN'
+  }
+  if (event.action === 'risk.report') {
+    const posture = String((event.details as Record<string, unknown>).posture ?? '').toUpperCase()
+    if (posture === 'RED') {
+      return 'WARN'
+    }
+    return 'INFO'
+  }
+  if (event.action === 'agent.proposal') {
+    return 'WARN'
+  }
+  return 'INFO'
+}
+
+function isDiscordNotificationEnabled(): boolean {
+  if (!env.DISCORD_WEBHOOK_ENABLED || !env.DISCORD_WEBHOOK_URL) {
+    return false
+  }
+
+  if (DISCORD_ACTION_SET.size === 0) {
+    return false
+  }
+
+  return true
+}
+
+function isDiscordActionAllowed(action: string): boolean {
+  if (!isDiscordNotificationEnabled()) {
+    return false
+  }
+
+  const normalized = sanitizeLine(action, 120).toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  if (DISCORD_ACTION_SET.has('*')) {
+    return true
+  }
+
+  return DISCORD_ACTION_SET.has(normalized)
+}
+
+function summarizeDetailsForDiscord(value: unknown, maxLength: number): string {
+  try {
+    const raw = JSON.stringify(value)
+    if (!raw) {
+      return ''
+    }
+    return raw.length > maxLength ? `${raw.slice(0, maxLength)}...` : raw
+  } catch {
+    return sanitizeLine(String(value), maxLength)
+  }
+}
+
+function queueJournalWrite(event: AuditEvent): void {
+  const shouldWriteGitHub = env.AGENT_GITHUB_JOURNAL_ENABLED && isGitHubJournalEnabled()
+  const shouldWriteLocal = env.AGENT_JOURNAL_ENABLED || (shouldWriteGitHub && isGitHubJournalFlushEnabled())
+  if (!shouldWriteLocal && !shouldWriteGitHub) {
+    return
+  }
+  const { localPath, githubPath } = resolveJournalPaths(event)
+
+  const record = {
+    ...event,
+    source: 'agent-runner',
+    level: deriveAuditLevel(event),
+    writtenAt: new Date().toISOString()
+  }
+  const line = (() => {
+    try {
+      return `${JSON.stringify(record)}\n`
+    } catch {
+      return `${JSON.stringify({
+        ...record,
+        details: typeof record.details === 'object' ? '[unserializable]' : String(record.details)
+      })}\n`
+    }
+  })()
+  const localPromise = async () => {
+    if (!shouldWriteLocal) {
+      return
+    }
+
+    try {
+      await ensureJournalDirectoryForPath(localPath)
+      await fs.appendFile(localPath, line, 'utf8')
+    } catch (error) {
+      console.error(`agent journal append failed path=${localPath}`, error)
+    }
+  }
+  const githubPromise = async () => {
+    if (!shouldWriteGitHub) {
+      return
+    }
+
+    if (isGitHubJournalFlushEnabled()) {
+      markGitHubJournalForIntervalFlush({ localPath, githubPath })
+      return
+    }
+
+    await appendGitHubJournalLine(line, String(record.action), githubPath)
+  }
+
+  journalWriteChain = journalWriteChain.then(localPromise)
+  githubJournalWriteChain = githubJournalWriteChain.then(githubPromise)
+}
+
+function discordFingerprint(event: AuditEvent): string {
+  return `${event.resource}:${event.action}:${event.correlationId}`
+}
+
+async function notifyDiscord(event: AuditEvent): Promise<void> {
+  if (!isDiscordActionAllowed(event.action)) {
+    return
+  }
+
+  const action = sanitizeLine(event.action, 120)
+  const correlationId = sanitizeLine(event.correlationId, 120)
+  const fingerprint = discordFingerprint(event)
+  const nowMs = Date.now()
+  const lastSent = lastDiscordNotifyByFingerprint.get(fingerprint) ?? 0
+  if (nowMs - lastSent < env.DISCORD_WEBHOOK_COOLDOWN_MS) {
+    return
+  }
+
+  const details = summarizeDetailsForDiscord(event.details, 1100)
+  const level = deriveAuditLevel(event)
+  const prefix = level === 'ERROR' ? '[CRITICAL]' : level === 'WARN' ? '[WARN]' : '[INFO]'
+  const message = [
+    `${prefix} ${level} | **${action}**`,
+    `resource: ${event.resource}`,
+    `actor: ${event.actorType}/${event.actorId}`,
+    `correlation: ${correlationId}`,
+    `time: ${event.ts}`,
+    details ? `\`\`\`json\n${details}\n\`\`\`` : ''
+  ].filter(Boolean).join('\n')
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), env.DISCORD_WEBHOOK_TIMEOUT_MS)
+  try {
+    const response = await fetch(env.DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message }),
+      signal: controller.signal
+    })
+
+    if (!response.ok) {
+      console.error(`discord webhook failed status=${response.status} action=${action}`)
+      return
+    }
+
+    lastDiscordNotifyByFingerprint.set(fingerprint, nowMs)
+  } catch (error) {
+    console.error(`discord webhook error action=${action}`, error)
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 let codexDisabledUntilMs = 0
@@ -200,6 +653,23 @@ function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal
   return Number(Math.max(100, baseTargetNotional * scale).toFixed(2))
 }
 
+function leverageAwareBaseTargetNotionalUsd(fallbackBaseUsd: number): number {
+  const base = Math.max(100, Number(fallbackBaseUsd) || 0)
+  const accountValueUsd = Number((lastStateUpdate as { accountValueUsd?: unknown } | null)?.accountValueUsd)
+  if (!Number.isFinite(accountValueUsd) || accountValueUsd <= 0) {
+    return base
+  }
+
+  const policy = resolveRiskLimitsForContext()
+  const leverageCap = Math.max(0.1, policy.maxLeverage)
+  const rawTarget = Number.isFinite(policy.targetLeverage) && policy.targetLeverage > 0 ? policy.targetLeverage : leverageCap
+  const targetLeverage = clamp(rawTarget, 0.1, leverageCap)
+
+  const leverageTarget = accountValueUsd * targetLeverage
+  const cappedByExposure = policy.maxExposureUsd > 0 ? Math.min(leverageTarget, policy.maxExposureUsd) : leverageTarget
+  return Number(Math.max(base, cappedByExposure).toFixed(2))
+}
+
 function bucketNotional(notionalUsd: number): 'XS' | 'S' | 'M' | 'L' | 'XL' {
   const n = Math.abs(notionalUsd)
   if (n < 50) return 'XS'
@@ -230,12 +700,10 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
   return { expectedSlippageBps: expected, maxSlippageBps: max }
 }
 
-const BASE_LONG_SYMBOL = 'HYPE'
-
 const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
-  `- Objective: maintain LONG ${BASE_LONG_SYMBOL} and SHORT basket-only exposure with market-neutral behavior.`,
-  '- Market-neutral execution safety dominates all recommendations.',
+  '- Objective: create fully discretionary long, short, and pair structures with explicit rationale and bounded risk.',
+  '- Do not assume any fixed alpha symbol or fixed directional bias.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
   '- If context is stale, contradictory, or incomplete, choose conservative actions.',
   '- Never invent symbols, metrics, or events not present in context.',
@@ -243,16 +711,49 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Prioritize stability and avoid unnecessary churn.',
   '- Use latest risk decisions to drive recovery: when a recent DENY cites DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE, require immediate risk-reduction first.',
   '- If risk posture requires reduction, do not scale up notional or propose growth-facing changes.',
-  '- Preserve market neutrality and risk budgets: prioritize reduced gross first, then re-enable sizing only after reduced-risk state is confirmed.',
+  '- Preserve risk budgets: prioritize reduced gross/uncertainty first, then re-enable sizing only after reduced-risk state is confirmed.',
   '- All non-EXIT proposals must state expected gross/notional outcome and never exceed recovery constraints.',
   '- Treat SAFE_MODE and DEPENDENCY_FAILURE as hard-reduce states: request only flat/close actions until state is cleared.',
   '- Budget caps are explicit in floor context: max leverage/exposure/drawdown/slippage are hard constraints; do not propose beyond them.',
   '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and available recovery command is /flatten.',
-  '- Read the floor context memory every cycle: active directive, target risk caps, allocation multipliers, and latest risk/posture tape before sizing any basket leg.',
+  '- Read the floor context memory every cycle: active directive, target risk caps, recent risk/posture tape, and current exposure before sizing any leg.',
   '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.',
-  '- Proposals must reference current positions summary (gross/net/mode), target basket notional, and estimated leverage before proposing any new growth leg.',
+  '- Proposals must reference current positions summary (gross/net/mode), estimated leverage, and strategy thesis before proposing any directional exposure.',
   '- Execution interactions are limited to runtime channels: /flatten and /risk-policy are available for safety interventions when caps should be tightened or growth blocked.'
 ]
+
+const AGENT_DATA_SOURCES_PRESET: string[] = [
+  'Mandatory research stack for this system:',
+  '1) Hyperliquid orderbook + market controls',
+  '   - https://api.hyperliquid.xyz/info',
+  '   - https://api.hyperliquid.xyz/exchange',
+  '   - https://api.hyperliquid.xyz/ws',
+  '   - /apps/runtime (market-data consumer + risk gate)',
+  '2) Social + narrative intelligence',
+  '   - Twitter/X v2 recent search: https://api.twitter.com/2/tweets/search/recent',
+  '   - Twitter/X docs: https://docs.x.com/x-api',
+  `   - Credentials file (server): ${env.OPENCLAW_TWITTER_CREDS_PATH}`,
+  '3) OpenClaw local data tooling (structured outputs)',
+  `   - ${env.OPENCLAW_MARKET_DATA_PATH} snapshot`,
+  `   - ${env.OPENCLAW_MARKET_DATA_PATH} funding`,
+  `   - ${env.OPENCLAW_MARKET_DATA_PATH} tvl`,
+  '4) Reference + SDK integration stack',
+  '   - https://api.llama.fi',
+  '   - https://yields.llama.fi',
+  '   - https://docs.hyperliquid.xyz',
+  '5) Broad market + sentiment context',
+  '   - https://api.coingecko.com/api/v3/coins/list',
+  '   - https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1',
+  '   - https://api.coingecko.com/api/v3/global',
+  '   - https://api.coingecko.com/api/v3/global/decentralized_finance_defi',
+  '   - https://api.alternative.me/fng/',
+  `   - Brave Search API: ${env.BRAVE_API_URL}`,
+  '   - https://data-api.binance.com',
+]
+
+function buildAgentSourceAppendix(): string[] {
+  return [...AGENT_DATA_SOURCES_PRESET]
+}
 
 const FLOOR_TAPE_CONTEXT_LINES = 12
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
@@ -546,6 +1047,7 @@ function ageBucket(ms: number | null): 'fresh' | 'aging' | 'stale' | 'absent' {
 
 function resolveRiskLimitsForContext(): {
   maxLeverage: number
+  targetLeverage: number
   maxDrawdownPct: number
   maxExposureUsd: number
   maxSlippageBps: number
@@ -556,6 +1058,11 @@ function resolveRiskLimitsForContext(): {
   const policy = lastStateUpdate?.riskPolicy
   return {
     maxLeverage: Number.isFinite(policy?.maxLeverage as number | undefined) ? (policy?.maxLeverage as number) : env.RISK_MAX_LEVERAGE,
+    targetLeverage: Number.isFinite(policy?.targetLeverage as number | undefined)
+      ? (policy?.targetLeverage as number)
+      : Number.isFinite(policy?.maxLeverage as number | undefined)
+        ? (policy?.maxLeverage as number)
+        : env.RISK_MAX_LEVERAGE,
     maxDrawdownPct: Number.isFinite(policy?.maxDrawdownPct as number | undefined) ? (policy?.maxDrawdownPct as number) : env.RISK_MAX_DRAWDOWN_PCT,
     maxExposureUsd: Number.isFinite(policy?.maxExposureUsd as number | undefined) ? (policy?.maxExposureUsd as number) : env.RISK_MAX_NOTIONAL_USD,
     maxSlippageBps: Number.isFinite(policy?.maxSlippageBps as number | undefined) ? (policy?.maxSlippageBps as number) : env.RISK_MAX_SLIPPAGE_BPS,
@@ -569,7 +1076,7 @@ function resolveRiskLimitsForContext(): {
   }
 }
 
-function summarizeActiveBasketContext(context: BasketSelection['context'] | undefined): Record<string, unknown> | null {
+function summarizeActiveBasketContext(context: UniverseSelection['context'] | undefined): Record<string, unknown> | null {
   if (!context) {
     return null
   }
@@ -609,7 +1116,12 @@ function toPromptPayload(value: unknown): string {
 function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now()
   const signals = summarizeLatestSignals(now)
-  const marketUniverse = [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols]
+  const marketUniverse = [
+    ...new Set([
+      ...activeBasket.symbols,
+      ...lastPositions.map((position) => String(position.symbol ?? '').trim().toUpperCase()).filter(Boolean)
+    ])
+  ]
   const marketFeed = tickStalenessMs(marketUniverse)
   const signalAges = Object.values(signals)
     .flatMap((entries) => entries.map((entry) => entry.ageMs ?? null))
@@ -621,7 +1133,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   const basketAgeMs = msSince(Date.parse(activeBasket.selectedAt), now)
 
   return {
-    objective: `LONG ${BASE_LONG_SYMBOL} vs SHORT basket exposure, deterministic market-neutral + risk-first execution.`,
+    objective: `Fully discretionary long, short, and pair structure planning with bounded risk and explicit thesis.`,
     generatedAt: new Date(now).toISOString(),
     mode: lastMode,
     requestedMode: requestedModeFromEnv(),
@@ -646,8 +1158,8 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
     signals: signals,
     positions: summarizePositionsForPrompt(lastPositions),
     directive: activeDirective,
-    basket: {
-      symbols: activeBasket.basketSymbols,
+    universe: {
+      symbols: activeBasket.symbols,
       rationale: activeBasket.rationale,
       selectedAt: activeBasket.selectedAt,
       ageMs: basketAgeMs,
@@ -657,35 +1169,40 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
     pivot:
       basketPivot === null
         ? null
-    : {
-        startedAt: new Date(basketPivot.startedAtMs).toISOString(),
-        expiresAt: new Date(basketPivot.expiresAtMs).toISOString(),
-        remainingMs: basketPivot.expiresAtMs - Date.now(),
-        symbols: basketPivot.basketSymbols
-      },
-    floorAgents: {
-      heartbeatMs: STRATEGY_CONTEXT_MAX_AGE_MS,
-      roles: summarizeInterAgentContext(now),
-      lastReports: {
-        research: compactReportFields(lastResearchReport, ['headline', 'regime', 'recommendation', 'confidence', 'computedAt']),
+      : {
+          startedAt: new Date(basketPivot.startedAtMs).toISOString(),
+          expiresAt: new Date(basketPivot.expiresAtMs).toISOString(),
+          remainingMs: basketPivot.expiresAtMs - Date.now(),
+          symbols: basketPivot.basketSymbols
+        },
+	    floorAgents: {
+	      heartbeatMs: STRATEGY_CONTEXT_MAX_AGE_MS,
+	      roles: summarizeInterAgentContext(now),
+	      lastReports: {
+	        research: compactReportFields(lastResearchReport, ['headline', 'regime', 'recommendation', 'confidence', 'computedAt']),
         risk: compactReportFields(lastRiskReport, ['headline', 'posture', 'risks', 'confidence', 'computedAt']),
         scribe: compactReportFields(lastScribeAnalysis, ['headline', 'thesis', 'risks', 'confidence', 'computedAt']),
         strategistDirective: {
           decision: activeDirective.decision,
-          confidence: activeDirective.confidence,
+          plan: activeDirective.plan === null ? null : {
+            timeHorizonHours: activeDirective.plan.timeHorizonHours,
+            riskBudget: activeDirective.plan.riskBudget,
+            notes: activeDirective.plan.notes
+          },
           decidedAt: activeDirective.decidedAt,
           rationale: activeDirective.rationale,
-          targetNotionalMultiplier: activeDirective.targetNotionalMultiplier
+          confidence: activeDirective.confidence
         },
         latestProposal: summarizeProposalForContext(lastProposal)
-      },
-      tape: summarizeFloorTapeForPrompt(now).slice(-FLOOR_TAPE_CONTEXT_LINES)
-    },
-    memory: {
-      lastProposal: lastProposal
-        ? {
-          proposalId: lastProposal.proposalId,
-          actionType: lastProposal.actions?.[0]?.type,
+	      },
+	      tape: summarizeFloorTapeForPrompt(now).slice(-FLOOR_TAPE_CONTEXT_LINES)
+	    },
+	    intel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
+	    memory: {
+	      lastProposal: lastProposal
+	        ? {
+	          proposalId: lastProposal.proposalId,
+	          actionType: lastProposal.actions?.[0]?.type,
           summary: lastProposal.summary,
           requestedMode: lastProposal.requestedMode,
           confidence: lastProposal.confidence
@@ -696,13 +1213,10 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
       scribe: compactReportFields(lastScribeAnalysis, ['headline', 'thesis', 'risks', 'confidence', 'computedAt'])
     },
     governance: {
-      basketSize: env.AGENT_BASKET_SIZE,
+      universeSize: env.AGENT_UNIVERSE_SIZE,
       featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
-      targetNotionalUsd: env.BASKET_TARGET_NOTIONAL_USD,
-      notionalBounds: {
-        min: env.AGENT_NOTIONAL_MULTIPLIER_MIN,
-        max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
-      },
+      targetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD,
+      minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
       riskLimits: {
         ...resolveRiskLimitsForContext()
       },
@@ -1003,6 +1517,9 @@ function buildAgentPrompt(params: {
     '',
     ...COMMON_AGENT_PROMPT_PREAMBLE,
     '',
+    'Data-source stack you can pull from autonomously:',
+    ...buildAgentSourceAppendix(),
+    '',
     'Role-specific constraints:',
     ...params.rules.map((rule) => `- ${rule}`),
     '',
@@ -1023,7 +1540,7 @@ const coinGecko = coinGeckoApiKey
   })
   : null
 
-type BasketCandidate = {
+type UniverseCandidate = {
   symbol: string
   maxLeverage: number
   dayNtlVlmUsd: number
@@ -1034,8 +1551,25 @@ type BasketCandidate = {
   markPx: number
 }
 
-type BasketSelection = {
-  basketSymbols: string[]
+type DirectivePlan = {
+  legs: DiscretionaryLeg[]
+  timeHorizonHours: number | null
+  riskBudget: {
+    maxGrossNotionalUsd: number | null
+    maxNetNotionalUsd: number | null
+    maxLeverage: number | null
+  }
+  notes: string
+}
+
+type DiscretionaryLeg = {
+  symbol: string
+  side: 'LONG' | 'SHORT'
+  notionalUsd: number
+}
+
+type UniverseSelection = {
+  symbols: string[]
   rationale: string
   selectedAt: string
   context?: {
@@ -1052,11 +1586,11 @@ type BasketSelection = {
   }
 }
 
-type StrategistDirectiveDecision = 'MAINTAIN' | 'ROTATE' | 'EXIT'
+type StrategistDirectiveDecision = 'OPEN' | 'REBALANCE' | 'EXIT' | 'HOLD'
 
 type StrategistDirective = {
   decision: StrategistDirectiveDecision
-  targetNotionalMultiplier: number
+  plan: DirectivePlan | null
   rationale: string
   confidence: number
   decidedAt: string
@@ -1069,8 +1603,6 @@ function basketFromPositions(positions: OperatorPosition[]): string[] {
   for (const position of positions) {
     const symbol = String(position.symbol ?? '').trim()
     if (!symbol) continue
-    if (symbol.toUpperCase() === BASE_LONG_SYMBOL) continue
-
     const key = symbol.toUpperCase()
     if (seen.has(key)) continue
     seen.add(key)
@@ -1108,25 +1640,25 @@ function syncActiveBasketFromPositions(positions: OperatorPosition[]): void {
     return
   }
 
-  if (sameBasket(activeBasket.basketSymbols, heldBasket)) {
+  if (sameBasket(activeBasket.symbols, heldBasket)) {
     return
   }
 
   activeBasket = {
-    basketSymbols: heldBasket,
+    symbols: heldBasket,
     rationale: 'synced from live positions',
     selectedAt: new Date().toISOString()
   }
 }
 
-let activeBasket: BasketSelection = {
-  basketSymbols: [],
+let activeBasket: UniverseSelection = {
+  symbols: [],
   rationale: 'seeded from dynamic strategy',
   selectedAt: new Date(0).toISOString()
 }
 let activeDirective: StrategistDirective = {
-  decision: 'MAINTAIN',
-  targetNotionalMultiplier: 1,
+  decision: 'HOLD',
+  plan: null,
   rationale: 'default directive',
   confidence: 0.3,
   decidedAt: new Date(0).toISOString()
@@ -1150,12 +1682,11 @@ async function fetchUniverseAssetsCached(nowMs: number): Promise<HyperliquidUniv
 
 function buildBasketCandidates(params: {
   assets: HyperliquidUniverseAsset[]
-  perLegShortNotionalUsd: number
-  basketSize: number
-}): BasketCandidate[] {
+  perSymbolLiquidityBudgetUsd: number
+  universeSize: number
+}): UniverseCandidate[] {
   const all = params.assets
     .filter((asset) => asset.symbol && !asset.isDelisted)
-    .filter((asset) => asset.symbol.toUpperCase() !== BASE_LONG_SYMBOL)
     .map((asset) => ({
       symbol: asset.symbol,
       maxLeverage: asset.maxLeverage,
@@ -1169,12 +1700,12 @@ function buildBasketCandidates(params: {
     .filter((asset) => Number.isFinite(asset.dayNtlVlmUsd) && asset.dayNtlVlmUsd > 0)
     .sort((a, b) => b.dayNtlVlmUsd - a.dayNtlVlmUsd)
 
-  const minDayNtlVlmUsd = Math.max(0, params.perLegShortNotionalUsd) * 100
+  const minDayNtlVlmUsd = Math.max(0, params.perSymbolLiquidityBudgetUsd) * 100
   const filtered = minDayNtlVlmUsd > 0 ? all.filter((asset) => asset.dayNtlVlmUsd >= minDayNtlVlmUsd) : all
 
   // If we filter too aggressively for the configured size, fall back to the raw top-of-book list.
-  const pool = filtered.length >= params.basketSize ? filtered : all
-  return pool.slice(0, env.AGENT_BASKET_CANDIDATE_LIMIT)
+  const pool = filtered.length >= params.universeSize ? filtered : all
+  return pool.slice(0, env.AGENT_UNIVERSE_CANDIDATE_LIMIT)
 }
 
 async function generateBasketSelection(params: {
@@ -1201,17 +1732,14 @@ async function generateBasketSelection(params: {
 
   const prompt = [
     buildAgentPrompt({
-      role: 'basket-selector',
-      mission: `Select the short basket for the next ${BASE_LONG_SYMBOL}-hedged relative value cycle.`,
+      role: 'universe-selector',
+      mission: 'Select a high-quality discretionary opportunity set for the next strategy cycle.',
       rules: [
         'Choose ONLY from the provided candidate symbols.',
-        `Do NOT include ${BASE_LONG_SYMBOL}.`,
         'Prefer high liquidity (day notional volume + open interest).',
-        'Prefer candidates with positive or neutral funding (all else equal).',
-        `Prefer baskets with lower relative drift and higher correlation to ${BASE_LONG_SYMBOL}.`,
-        'Use CoinGecko context only when present, especially coverage and sector drift.',
-        'Prefer diversified, liquid selections over concentrated micro-cap names.',
-        'If context is weak, keep a conservative, stable basket.'
+        'Prefer symbols with clear and recent signal clarity, but avoid crowded or unstable conditions.',
+        'Favor diversified, liquid selections over concentrated micro-cap names.',
+        'If context is weak, keep the opportunity set smaller and more conservative.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: {
@@ -1241,7 +1769,7 @@ async function generateBasketSelection(params: {
   }
 }
 
-function validateBasketSelection(params: { requested: string[]; allowed: BasketCandidate[]; size: number }): string[] {
+function validateBasketSelection(params: { requested: string[]; allowed: UniverseCandidate[]; size: number }): string[] {
   const allowedByUpper = new Map<string, string>()
   for (const candidate of params.allowed) {
     allowedByUpper.set(candidate.symbol.toUpperCase(), candidate.symbol)
@@ -1250,9 +1778,6 @@ function validateBasketSelection(params: { requested: string[]; allowed: BasketC
   const picked: string[] = []
   for (const raw of params.requested) {
     const upper = String(raw).trim().toUpperCase()
-    if (!upper || upper === BASE_LONG_SYMBOL) {
-      continue
-    }
     const canonical = allowedByUpper.get(upper)
     if (!canonical) {
       continue
@@ -1285,8 +1810,8 @@ async function maybeSelectBasket(params: {
 
   const needsRefresh =
     params.force ||
-    activeBasket.basketSymbols.length !== env.AGENT_BASKET_SIZE ||
-    nowMs - Date.parse(activeBasket.selectedAt) > env.AGENT_BASKET_REFRESH_MS
+    activeBasket.symbols.length !== env.AGENT_UNIVERSE_SIZE ||
+    nowMs - Date.parse(activeBasket.selectedAt) > env.AGENT_UNIVERSE_REFRESH_MS
   if (!needsRefresh) {
     return
   }
@@ -1294,16 +1819,17 @@ async function maybeSelectBasket(params: {
   basketSelectInFlight = true
   try {
     const universe = await fetchUniverseAssetsCached(nowMs)
-    const perLegShortNotionalUsd = Number((params.targetNotionalUsd / Math.max(1, env.AGENT_BASKET_SIZE)).toFixed(2))
+    const perSymbolLiquidityBudgetUsd = Number((params.targetNotionalUsd / Math.max(1, env.AGENT_UNIVERSE_SIZE)).toFixed(2))
     const candidates = buildBasketCandidates({
       assets: universe,
-      perLegShortNotionalUsd,
-      basketSize: env.AGENT_BASKET_SIZE
+      perSymbolLiquidityBudgetUsd,
+      universeSize: env.AGENT_UNIVERSE_SIZE
     })
     const candidateSymbols = candidates.map((candidate) => candidate.symbol)
+    const baseSymbol = candidateSymbols[0] ?? 'BTC'
     const pricePack = await computePriceFeaturePack({
       infoUrl: env.HL_INFO_URL,
-      baseSymbol: BASE_LONG_SYMBOL,
+      baseSymbol,
       symbols: candidateSymbols,
       windowMin: env.AGENT_FEATURE_WINDOW_MIN,
       interval: '1m',
@@ -1385,12 +1911,11 @@ async function maybeSelectBasket(params: {
     const input = {
       ts: new Date().toISOString(),
       mode: lastMode,
-      basketSize: env.AGENT_BASKET_SIZE,
+      universeSize: env.AGENT_UNIVERSE_SIZE,
       targetNotionalUsd: params.targetNotionalUsd,
-      perLegShortNotionalUsd,
       candidateFilter: {
         // Pre-filter candidates by daily notional volume as a rough proxy for tradability at size.
-        minDayNtlVlmUsd: Number((Math.max(0, perLegShortNotionalUsd) * 100).toFixed(2))
+        minDayNtlVlmUsd: Number((Math.max(0, perSymbolLiquidityBudgetUsd) * 100).toFixed(2))
       },
       featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
       priceBase: pricePack.base,
@@ -1468,13 +1993,13 @@ async function maybeSelectBasket(params: {
       return
     }
 
-    const validated = validateBasketSelection({ requested: chosen.basketSymbols, allowed: candidates, size: env.AGENT_BASKET_SIZE })
-    if (validated.length !== env.AGENT_BASKET_SIZE) {
+    const validated = validateBasketSelection({ requested: chosen.basketSymbols, allowed: candidates, size: env.AGENT_UNIVERSE_SIZE })
+    if (validated.length !== env.AGENT_UNIVERSE_SIZE) {
       await publishTape({
         correlationId: ulid(),
         role: 'ops',
         level: 'WARN',
-        line: `basket selection invalid (size=${validated.length}); skipping basket refresh`
+        line: `universe selection invalid (size=${validated.length}); skipping universe refresh`
       })
       return
     }
@@ -1516,7 +2041,7 @@ async function maybeSelectBasket(params: {
     }
 
     activeBasket = {
-      basketSymbols: finalBasket,
+      symbols: finalBasket,
       rationale: chosen.rationale || 'selected',
       selectedAt: new Date().toISOString(),
       context: {
@@ -1535,12 +2060,12 @@ async function maybeSelectBasket(params: {
       }
     }
 
-    void maybePublishWatchlist({ symbols: [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols], reason: 'basket selected' }).catch(() => undefined)
+    void maybePublishWatchlist({ symbols: activeBasket.symbols, reason: 'universe selected' }).catch(() => undefined)
 
     await publishTape({
       correlationId: ulid(),
       role: 'strategist',
-      line: `basket selected: ${activeBasket.basketSymbols.join(',')} (size=${activeBasket.basketSymbols.length})`
+      line: `universe selected: ${activeBasket.symbols.join(',')} (size=${activeBasket.symbols.length})`
     })
 
     await publishAudit({
@@ -1548,11 +2073,11 @@ async function maybeSelectBasket(params: {
       ts: new Date().toISOString(),
       actorType: 'internal_agent',
       actorId: roleActorId('strategist'),
-      action: 'basket.selected',
-      resource: 'agent.basket',
+      action: 'universe.selected',
+      resource: 'agent.universe',
       correlationId: ulid(),
       details: {
-        basketSymbols: activeBasket.basketSymbols,
+        symbols: activeBasket.symbols,
         rationale: activeBasket.rationale,
         targetNotionalUsd: params.targetNotionalUsd,
         candidateCount: candidates.length,
@@ -1564,7 +2089,7 @@ async function maybeSelectBasket(params: {
       correlationId: ulid(),
       role: 'ops',
       level: 'WARN',
-      line: `basket selection failed: ${String(error).slice(0, 140)}`
+      line: `universe selection failed: ${String(error).slice(0, 140)}`
     })
   } finally {
     basketSelectInFlight = false
@@ -1580,10 +2105,97 @@ function signedNotionalBySymbol(positions: OperatorPosition[]): Map<string, numb
   return currentBySymbol
 }
 
-function buildTargetProposal(params: {
+function normalizeDirectivePlan(params: {
+  plan: DirectivePlan | null
+  fallbackTargetNotionalUsd: number
+}): DirectivePlan | null {
+  const rawPlan = params.plan
+  if (!rawPlan || !Array.isArray(rawPlan.legs) || rawPlan.legs.length === 0) {
+    return null
+  }
+
+  const minLegUsd = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
+  const fallbackTargetNotionalUsd = Math.max(0, params.fallbackTargetNotionalUsd)
+  const netCap = Number(rawPlan.riskBudget?.maxNetNotionalUsd)
+  const grossCap = Number(rawPlan.riskBudget?.maxGrossNotionalUsd)
+
+  const bySymbol = new Map<string, number>()
+  for (const leg of rawPlan.legs) {
+    const symbol = String(leg?.symbol ?? '').trim().toUpperCase()
+    if (!symbol) {
+      continue
+    }
+    const side = String((leg as { side?: unknown }).side)
+    if (side !== 'LONG' && side !== 'SHORT') {
+      continue
+    }
+    const notionalUsd = Math.abs(Number((leg as { notionalUsd?: unknown }).notionalUsd))
+    if (!Number.isFinite(notionalUsd) || notionalUsd < minLegUsd) {
+      continue
+    }
+    const signedNotionalUsd = side === 'LONG' ? notionalUsd : -notionalUsd
+    bySymbol.set(symbol, (bySymbol.get(symbol) ?? 0) + signedNotionalUsd)
+  }
+
+  if (bySymbol.size === 0) {
+    return null
+  }
+
+  let normalizedLegs = [...bySymbol.entries()]
+    .map(([symbol, signedNotionalUsd]) => ({
+      symbol,
+      side: signedNotionalUsd >= 0 ? ('LONG' as const) : ('SHORT' as const),
+      notionalUsd: Math.abs(signedNotionalUsd)
+    }))
+    .filter((leg) => leg.notionalUsd >= minLegUsd)
+
+  const grossUsd = normalizedLegs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
+  const netUsd = Math.abs(normalizedLegs.reduce((sum, leg) => sum + (leg.side === 'LONG' ? leg.notionalUsd : -leg.notionalUsd), 0))
+
+  let scale = 1
+  const effectiveGrossCap = Number.isFinite(grossCap) && grossCap > 0 ? grossCap : fallbackTargetNotionalUsd
+  if (grossUsd > 0 && effectiveGrossCap > 0) {
+    scale = Math.min(scale, effectiveGrossCap / grossUsd)
+  }
+  if (netUsd > 0 && Number.isFinite(netCap) && netCap > 0) {
+    scale = Math.min(scale, netCap / netUsd)
+  }
+  scale = clamp(scale, 0, 1)
+
+  if (scale < 1) {
+    normalizedLegs = normalizedLegs
+      .map((leg) => ({ ...leg, notionalUsd: normalizeProposalNotional(leg.notionalUsd * scale) }))
+      .filter((leg) => leg.notionalUsd >= minLegUsd)
+  }
+
+  if (normalizedLegs.length === 0) {
+    return null
+  }
+
+  return {
+    legs: normalizedLegs,
+    timeHorizonHours: Number(rawPlan.timeHorizonHours) || null,
+    riskBudget: {
+      maxGrossNotionalUsd:
+        typeof rawPlan.riskBudget?.maxGrossNotionalUsd === 'number' && Number.isFinite(rawPlan.riskBudget.maxGrossNotionalUsd) && rawPlan.riskBudget.maxGrossNotionalUsd > 0
+          ? rawPlan.riskBudget.maxGrossNotionalUsd
+          : null,
+      maxNetNotionalUsd:
+        typeof rawPlan.riskBudget?.maxNetNotionalUsd === 'number' && Number.isFinite(rawPlan.riskBudget.maxNetNotionalUsd) && rawPlan.riskBudget.maxNetNotionalUsd > 0
+          ? rawPlan.riskBudget.maxNetNotionalUsd
+          : null,
+      maxLeverage:
+        typeof rawPlan.riskBudget?.maxLeverage === 'number' && Number.isFinite(rawPlan.riskBudget.maxLeverage) && rawPlan.riskBudget.maxLeverage > 0
+          ? rawPlan.riskBudget.maxLeverage
+          : null
+    },
+    notes: typeof rawPlan.notes === 'string' ? rawPlan.notes.slice(0, 1_000) : ''
+  }
+}
+
+function buildDiscretionaryProposal(params: {
   createdBy: string
-  basketSymbols: string[]
-  targetNotionalUsd: number
+  plan: DirectivePlan
   positions: OperatorPosition[]
   signals: PluginSignal[]
   requestedMode: 'SIM' | 'LIVE'
@@ -1592,26 +2204,26 @@ function buildTargetProposal(params: {
   rationale?: string
   summaryPrefix?: string
 }): StrategyProposal | null {
-  const basketSymbols = params.basketSymbols
-    .map((s) => s.trim())
-    .filter((s) => s && s.toUpperCase() !== BASE_LONG_SYMBOL)
-
-  if (basketSymbols.length === 0) {
+  if (params.plan.legs.length === 0) {
     return null
   }
 
   const desiredBySymbol = new Map<string, number>()
-  desiredBySymbol.set(BASE_LONG_SYMBOL, params.targetNotionalUsd)
-  const perBasket = params.targetNotionalUsd / basketSymbols.length
-  for (const symbol of basketSymbols) {
-    desiredBySymbol.set(symbol, -perBasket)
+  for (const leg of params.plan.legs) {
+    const symbol = String(leg.symbol).trim().toUpperCase()
+    if (!symbol) {
+      continue
+    }
+    const signedNotional = leg.side === 'LONG' ? leg.notionalUsd : -leg.notionalUsd
+    const previous = desiredBySymbol.get(symbol) ?? 0
+    desiredBySymbol.set(symbol, previous + signedNotional)
   }
 
-  // Any currently-held symbols not in the desired set must be closed (target=0),
-  // enabling mid-trade basket pivots without leaving dangling legs.
+  // Close unmentioned current symbols to avoid stale drift.
   for (const position of params.positions) {
-    if (!desiredBySymbol.has(position.symbol)) {
-      desiredBySymbol.set(position.symbol, 0)
+    const symbol = String(position.symbol).trim().toUpperCase()
+    if (symbol && !desiredBySymbol.has(symbol)) {
+      desiredBySymbol.set(symbol, 0)
     }
   }
 
@@ -1640,7 +2252,7 @@ function buildTargetProposal(params: {
     return null
   }
 
-  // Place reducing legs first to minimize transient gross exposure and to work well under reduce-only risk mode.
+  // Place reducing legs first to minimize transient gross exposure under risk constraints.
   deltas.sort((a, b) => {
     if (a.reduces !== b.reduces) return a.reduces ? -1 : 1
     return a.symbol.localeCompare(b.symbol)
@@ -1659,11 +2271,12 @@ function buildTargetProposal(params: {
 
   const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
   const proposalId = ulid()
-
   const actionType = params.positions.length > 0 ? 'REBALANCE' : 'ENTER'
-  const summaryPrefix = params.summaryPrefix ?? 'agent delta-to-target'
+  const summaryPrefix = params.summaryPrefix ?? 'agent discretion'
   const confidence = typeof params.confidence === 'number' ? clamp(params.confidence, 0, 1) : 0.65
-  const rationale = params.rationale ?? `agent-driven rebalance to target exposure (${BASE_LONG_SYMBOL} vs basket)`
+  const rationale =
+    params.rationale ??
+    (typeof params.plan.notes === 'string' && params.plan.notes.length > 0 ? params.plan.notes : 'agent-driven discretionary proposal')
 
   return {
     proposalId,
@@ -1771,7 +2384,7 @@ async function generateAnalysis(params: {
   if (params.llm === 'none') {
     return {
       headline: 'Delta-to-target rebalance',
-      thesis: `Maintain market-neutral ${BASE_LONG_SYMBOL} vs basket exposure by rebalancing notionals to the target.`,
+      thesis: 'Maintain discretionary directional balance by rebalancing symbol-level notionals to the requested plan.',
       risks: ['Funding regime shift', 'Liquidity slippage during volatility', 'Model-free signal blindness'],
       confidence: 0.4
     }
@@ -1837,7 +2450,7 @@ async function generateResearchReport(params: {
     return {
       headline: 'Research pulse',
       regime: 'range / mean-reversion bias',
-      recommendation: 'keep basket stable; watch correlation + funding for regime shifts',
+      recommendation: 'keep pair structure stable; watch correlation + funding for regime shifts',
       confidence: 0.35
     }
   }
@@ -1847,11 +2460,11 @@ async function generateResearchReport(params: {
       role: 'research-agent',
       mission: 'Classify current market regime and return one actionable recommendation.',
       rules: [
-        'Use only context and observed signals; do not speculate on external events.',
-        'Output one recommendation, not a portfolio plan.',
-        'If data indicates regime shift, indicate it explicitly in regime.',
-        'Prefer basket-stability guidance when correlation deteriorates or signals are mixed.'
-      ],
+      'Use only context and observed signals; do not speculate on external events.',
+      'Output one recommendation, not a portfolio plan.',
+      'If data indicates regime shift, indicate it explicitly in regime.',
+      'Prefer position-structure stability guidance when correlation deteriorates or signals are mixed.'
+    ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
     })
@@ -1948,40 +2561,78 @@ async function generateStrategistDirective(params: {
   llm: LlmChoice
   model: string
   input: Record<string, unknown>
-}): Promise<{ decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }> {
+}): Promise<{ decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }> {
+  const planSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      legs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            symbol: { type: 'string' },
+            side: { type: 'string', enum: ['LONG', 'SHORT'] },
+            notionalUsd: { type: 'number' }
+          },
+          required: ['symbol', 'side', 'notionalUsd']
+        },
+        minItems: 1,
+        maxItems: 12
+      },
+      timeHorizonHours: { type: ['number', 'null'] },
+      riskBudget: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          maxGrossNotionalUsd: { type: ['number', 'null'] },
+          maxNetNotionalUsd: { type: ['number', 'null'] },
+          maxLeverage: { type: ['number', 'null'] }
+        },
+        required: ['maxGrossNotionalUsd', 'maxNetNotionalUsd', 'maxLeverage']
+      },
+      notes: { type: 'string' }
+    },
+    required: ['legs', 'timeHorizonHours', 'riskBudget', 'notes']
+  } as const
+
   const schema = {
     type: 'object',
     additionalProperties: false,
     properties: {
-      decision: { type: 'string', enum: ['MAINTAIN', 'ROTATE', 'EXIT'] },
-      targetNotionalMultiplier: { type: 'number' },
+      decision: { type: 'string', enum: ['OPEN', 'REBALANCE', 'EXIT', 'HOLD'] },
+      plan: planSchema,
       rationale: { type: 'string' },
       confidence: { type: 'number' }
     },
-    required: ['decision', 'targetNotionalMultiplier', 'rationale', 'confidence']
+    required: ['decision', 'rationale', 'confidence']
   } as const
 
   if (params.llm === 'none') {
     return {
-      decision: 'MAINTAIN',
-      targetNotionalMultiplier: 1,
+      decision: 'HOLD',
+      plan: null,
       rationale: 'llm disabled',
       confidence: 0.25
     }
   }
 
   const prompt = [
-    buildAgentPrompt({
-      role: 'strategist-directive agent',
-      mission: 'Choose the best directive for the next cycle and optionally scale notional.',
-      rules: [
-        'Allowed decisions: MAINTAIN, ROTATE, EXIT only.',
-        'Prefer MAINTAIN unless there is clear evidence to rotate or exit.',
-        'Use ROTATE only when hedge quality or liquidity improves materially.',
-        'Use EXIT if correlation breaks, volatility is extreme, or risk posture is RED.',
+	    buildAgentPrompt({
+	      role: 'strategist-directive agent',
+	      mission: 'Choose the best execution directive and provide an explicit discretionary long/short plan (directional or paired) when active.',
+	      rules: [
+	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
+	        'OPEN: if a new discretionary position set should be established.',
+	        'REBALANCE: revise existing exposure using explicit plan legs.',
+        'HOLD: keep current exposure and plan should be omitted.',
+        'EXIT: flatten all exposure immediately (LLM should still include no plan).',
+        'When context is favorable for risk-taking, build one explicit plan with leg-level notional.',
+        'When uncertainty or risk posture is constrained, prefer HOLD or EXIT with concise rationale.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), force EXIT / flat-first behavior.',
-        'Respect min/max notional multipliers and avoid growth in SAFE_MODE.',
-        'Prefer lower multipliers when uncertainty rises.'
+        'Risk budgets and timeHorizonHours should be realistic and conservative by design.',
+        'Do not propose both plan and decision HOLD.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -1990,12 +2641,12 @@ async function generateStrategistDirective(params: {
 
   const raw =
     params.llm === 'claude'
-      ? await runClaudeStructured<{ decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }>({
+      ? await runClaudeStructured<{ decision: StrategistDirectiveDecision; plan?: DirectivePlan; rationale: string; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model
       })
-      : await runCodexStructured<{ decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }>({
+      : await runCodexStructured<{ decision: StrategistDirectiveDecision; plan?: DirectivePlan; rationale: string; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
@@ -2003,11 +2654,24 @@ async function generateStrategistDirective(params: {
       })
 
   const decision: StrategistDirectiveDecision =
-    raw.decision === 'EXIT' || raw.decision === 'ROTATE' || raw.decision === 'MAINTAIN' ? raw.decision : 'MAINTAIN'
+    raw.decision === 'EXIT' || raw.decision === 'REBALANCE' || raw.decision === 'OPEN' || raw.decision === 'HOLD'
+      ? raw.decision
+      : 'HOLD'
+
+  let plan: DirectivePlan | null = null
+  if (raw.plan && (decision === 'OPEN' || decision === 'REBALANCE')) {
+    plan = normalizeDirectivePlan({
+      plan: raw.plan as DirectivePlan | null,
+      fallbackTargetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD
+    })
+  }
+  if ((decision === 'OPEN' || decision === 'REBALANCE') && plan === null) {
+    plan = null
+  }
 
   return {
     decision,
-    targetNotionalMultiplier: Number(raw.targetNotionalMultiplier),
+    plan,
     rationale: String(raw.rationale ?? '').slice(0, 600),
     confidence: clamp(Number(raw.confidence), 0, 1)
   }
@@ -2040,41 +2704,50 @@ let lastStrategyProposalSignature = ''
 let lastStateRiskMessage: RuntimeStateRiskMessage | null = null
 let lastStateUpdateAtMs = 0
 let lastStateUpdate:
-  | {
-    mode?: string
-    pnlPct?: number
-    realizedPnlUsd?: number
-    driftState?: string
-    lastUpdateAt?: string
-    message?: string
-    riskPolicy?: {
-      maxLeverage?: number
-      maxDrawdownPct?: number
-      maxExposureUsd?: number
-      maxSlippageBps?: number
-      staleDataMs?: number
-      liquidityBufferPct?: number
-      notionalParityTolerance?: number
-    }
-  }
-  | null = {
-    riskPolicy: {
-      maxLeverage: env.RISK_MAX_LEVERAGE,
-      maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
-      maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
-      maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
-      staleDataMs: env.RISK_STALE_DATA_MS,
-      liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-      notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
-    }
-  }
+	| {
+	    mode?: string
+	    pnlPct?: number
+	    realizedPnlUsd?: number
+	    accountValueUsd?: number
+	    driftState?: string
+	    lastUpdateAt?: string
+	    message?: string
+	    riskPolicy?: {
+	      maxLeverage?: number
+	      targetLeverage?: number
+	      maxDrawdownPct?: number
+	      maxExposureUsd?: number
+	      maxSlippageBps?: number
+	      staleDataMs?: number
+	      liquidityBufferPct?: number
+	      notionalParityTolerance?: number
+	    }
+	  }
+	  | null = {
+	    riskPolicy: {
+	      maxLeverage: env.RISK_MAX_LEVERAGE,
+	      targetLeverage: env.RISK_MAX_LEVERAGE,
+	      maxDrawdownPct: env.RISK_MAX_DRAWDOWN_PCT,
+	      maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
+	      maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
+	      staleDataMs: env.RISK_STALE_DATA_MS,
+	      liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+	      notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+	    }
+	  }
 let lastResearchReport: { headline: string; regime: string; recommendation: string; confidence: number; computedAt: string } | null = null
 let lastRiskReport: { headline: string; posture: 'GREEN' | 'AMBER' | 'RED'; risks: string[]; confidence: number; computedAt: string } | null = null
 let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
+let lastExternalIntel: ExternalIntelPack | null = null
 let autoHaltActive = false
 let autoHaltHealthySinceMs = 0
+let lastRiskDecisionAuditSignature = ''
+let lastRiskDecisionAuditAtMs = 0
 
 async function publishAudit(event: AuditEvent): Promise<void> {
+  queueJournalWrite(event)
+  void notifyDiscord(event)
+
   await bus.publish('hlp.audit.events', {
     type: 'AGENT_ANALYSIS',
     stream: 'hlp.audit.events',
@@ -2260,7 +2933,7 @@ async function runOpsAgent(): Promise<void> {
   }
   lastOpsAt = now
 
-  const universe = [BASE_LONG_SYMBOL, ...activeBasket.basketSymbols]
+  const universe = [...activeBasket.symbols]
   const { maxAgeMs, missing } = tickStalenessMs(universe)
 
   const level: 'INFO' | 'WARN' | 'ERROR' = maxAgeMs > 15000 || missing.length > 0 ? 'WARN' : 'INFO'
@@ -2333,27 +3006,61 @@ async function runResearchAgent(): Promise<void> {
   const latestVol = latestSignalFromPack(signalPack, 'volatility')
   const latestCorr = latestSignalFromPack(signalPack, 'correlation')
   const latestFunding = latestSignalFromPack(signalPack, 'funding')
-  const regime =
-    latestVol && Math.abs(latestVol.value) > 15
-      ? 'high vol'
-      : latestCorr && latestCorr.value < 0.1
-        ? 'correlation break risk'
-        : 'stable'
+	  const regime =
+	    latestVol && Math.abs(latestVol.value) > 15
+	      ? 'high vol'
+	      : latestCorr && latestCorr.value < 0.1
+	        ? 'correlation break risk'
+	        : 'stable'
 
-  const input = {
-    ts: new Date().toISOString(),
-    mode: lastMode,
-    basketSymbols: activeBasket.basketSymbols.join(','),
-    signals: {
-      all: signalPack,
-      latest: {
-        vol: latestVol?.value ?? null,
-        corr: latestCorr?.value ?? null,
-        funding: latestFunding?.value ?? null
-      }
-    },
-    inferredRegime: regime
-  }
+	  let intelSummary: Record<string, unknown> | null = null
+	  if (env.AGENT_INTEL_ENABLED) {
+	    try {
+	      lastExternalIntel = await buildExternalIntelPack({
+	        symbols: activeBasket.symbols,
+	        twitterCredsPath: env.OPENCLAW_TWITTER_CREDS_PATH,
+	        twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
+	        twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
+	        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
+	        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS
+	      })
+	      intelSummary = summarizeExternalIntel(lastExternalIntel)
+
+	      await publishAudit({
+	        id: ulid(),
+	        ts: new Date().toISOString(),
+	        actorType: 'internal_agent',
+	        actorId: roleActorId('research'),
+	        action: 'intel.refresh',
+	        resource: 'agent.intel',
+	        correlationId: ulid(),
+	        details: intelSummary
+	      })
+	    } catch (error) {
+	      await publishTape({
+	        correlationId: ulid(),
+	        role: 'ops',
+	        level: 'WARN',
+	        line: `intel refresh failed: ${String(error).slice(0, 140)}`
+	      })
+	    }
+	  }
+
+	  const input = {
+	    ts: new Date().toISOString(),
+	    mode: lastMode,
+	    universeSymbols: activeBasket.symbols.join(','),
+	    externalIntel: intelSummary,
+	    signals: {
+	      all: signalPack,
+	      latest: {
+	        vol: latestVol?.value ?? null,
+	        corr: latestCorr?.value ?? null,
+	        funding: latestFunding?.value ?? null
+	      }
+	    },
+	    inferredRegime: regime
+	  }
 
   const llm = llmForRole('research', now)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
@@ -2442,19 +3149,20 @@ async function runRiskAgent(): Promise<void> {
   const signalPack = summarizeLatestSignals(now)
   const latestVol = latestSignalFromPack(signalPack, 'volatility')
 
-  const input = {
-    ts: new Date().toISOString(),
-    mode: lastMode,
-    drift: summary.drift,
-    postureHint: summary.posture,
-    vol1hPct: latestVol?.value ?? null,
-    signalCoverage: {
-      types: Object.keys(signalPack).length,
-      signalCount: Object.values(signalPack).reduce((count, entries) => count + entries.length, 0)
-    },
-    signals: signalPack,
-    lastRiskDecision
-  }
+	  const input = {
+	    ts: new Date().toISOString(),
+	    mode: lastMode,
+	    drift: summary.drift,
+	    postureHint: summary.posture,
+	    vol1hPct: latestVol?.value ?? null,
+	    signalCoverage: {
+	      types: Object.keys(signalPack).length,
+	      signalCount: Object.values(signalPack).reduce((count, entries) => count + entries.length, 0)
+	    },
+	    signals: signalPack,
+	    externalIntel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
+	    lastRiskDecision
+	  }
 
   const llm = llmForRole('risk', now)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
@@ -2565,7 +3273,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
     lastDirectiveAt = nowMs
     activeDirective = {
       decision: 'EXIT',
-      targetNotionalMultiplier: 1,
+      plan: null,
       rationale: 'SAFE_MODE: force exit to flat',
       confidence: 1,
       decidedAt: new Date().toISOString()
@@ -2596,7 +3304,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
   directiveInFlight = true
   try {
     const summary = summarizePositionsForAgents(params.positions)
-    const heldBasket = basketFromPositions(params.positions)
+    const heldSymbols = basketFromPositions(params.positions)
     const signalPack = summarizeLatestSignals(nowMs)
     const latestVol = latestSignalFromPack(signalPack, 'volatility')
     const latestCorr = latestSignalFromPack(signalPack, 'correlation')
@@ -2609,9 +3317,9 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       drift: summary.drift,
       postureHint: summary.posture,
       targetNotionalUsd: params.targetNotionalUsd,
-      heldBasketSymbols: heldBasket,
-      activeBasket: {
-        basketSymbols: activeBasket.basketSymbols,
+      heldSymbols,
+      activeUniverse: {
+        symbols: activeBasket.symbols,
         rationale: activeBasket.rationale,
         selectedAt: activeBasket.selectedAt,
         context: activeBasket.context ?? null
@@ -2622,29 +3330,26 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
         notionalBucket: bucketNotional(position.notionalUsd),
         updatedAt: position.updatedAt
       })),
-      signals: {
-        all: signalPack,
-        latest: {
-          volatility: latestVol?.value ?? null,
-          correlation: latestCorr?.value ?? null,
-          funding: latestFunding?.value ?? null
-        }
-      },
-      lastRiskDecision,
-      lastResearchReport,
-      lastRiskReport,
-      lastScribeAnalysis,
-      multiplierBounds: {
-        min: env.AGENT_NOTIONAL_MULTIPLIER_MIN,
-        max: env.AGENT_NOTIONAL_MULTIPLIER_MAX
-      },
-      currentDirective: activeDirective
-    }
+	      signals: {
+	        all: signalPack,
+	        latest: {
+	          volatility: latestVol?.value ?? null,
+	          correlation: latestCorr?.value ?? null,
+	          funding: latestFunding?.value ?? null
+	        }
+	      },
+	      externalIntel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
+	      lastRiskDecision,
+	      lastResearchReport,
+	      lastRiskReport,
+	      lastScribeAnalysis,
+	      currentDirective: activeDirective
+	    }
 
     const llm = llmForRole('strategist', nowMs)
     const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
 
-    let raw: { decision: StrategistDirectiveDecision; targetNotionalMultiplier: number; rationale: string; confidence: number }
+    let raw: { decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }
     try {
       raw = await generateStrategistDirective({ llm, model, input })
     } catch (primaryError) {
@@ -2690,15 +3395,9 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       }
     }
 
-    const mult = clamp(
-      Number(raw.targetNotionalMultiplier),
-      env.AGENT_NOTIONAL_MULTIPLIER_MIN,
-      env.AGENT_NOTIONAL_MULTIPLIER_MAX
-    )
-
     activeDirective = {
       decision: raw.decision,
-      targetNotionalMultiplier: Number.isFinite(mult) ? mult : 1,
+      plan: raw.decision === 'OPEN' || raw.decision === 'REBALANCE' ? raw.plan : null,
       rationale: raw.rationale || 'directive',
       confidence: clamp(Number(raw.confidence), 0, 1),
       decidedAt: new Date().toISOString()
@@ -2708,7 +3407,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
     await publishTape({
       correlationId: ulid(),
       role: 'strategist',
-      line: `directive: ${activeDirective.decision} mult=${activeDirective.targetNotionalMultiplier.toFixed(2)}`
+      line: `directive: ${activeDirective.decision}${activeDirective.plan ? ` with ${activeDirective.plan.legs.length} legs` : ' (no plan)'}`
     })
 
     await publishAudit({
@@ -2746,15 +3445,17 @@ async function runStrategistCycle(): Promise<void> {
     return
   }
 
-  if (lastMode === 'SAFE_MODE' && lastPositions.length === 0) {
-    return
-  }
+	  if (lastMode === 'SAFE_MODE' && lastPositions.length === 0) {
+	    return
+	  }
 
-  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-  const baseTargetNotionalUsd = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, signals)
-  const tactics = computeExecutionTactics({ signals })
-  const nowMs = Date.now()
-  const safeFlatBasket = activeBasket.basketSymbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_BASKET_REFRESH_MS
+	  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+	  const leverageAwareBase = leverageAwareBaseTargetNotionalUsd(env.AGENT_TARGET_NOTIONAL_USD)
+	  const baseTargetNotionalUsd = computeTargetNotional(leverageAwareBase, signals)
+	  const tactics = computeExecutionTactics({ signals })
+	  const nowMs = Date.now()
+	  const hasFreshUniverse =
+	    activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
 
   syncActiveBasketFromPositions(lastPositions)
   await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: baseTargetNotionalUsd, positions: lastPositions })
@@ -2782,7 +3483,7 @@ async function runStrategistCycle(): Promise<void> {
     if (activeDirective.decision !== 'EXIT') {
       activeDirective = {
         decision: 'EXIT',
-        targetNotionalMultiplier: 1,
+        plan: null,
         rationale: riskRecovery.reasonMessage,
         confidence: 1,
         decidedAt: new Date().toISOString()
@@ -2794,10 +3495,7 @@ async function runStrategistCycle(): Promise<void> {
   }
 
   const scaledTargetNotionalUsd = Number(
-    Math.max(
-      100,
-      baseTargetNotionalUsd * clamp(activeDirective.targetNotionalMultiplier, env.AGENT_NOTIONAL_MULTIPLIER_MIN, env.AGENT_NOTIONAL_MULTIPLIER_MAX)
-    ).toFixed(2)
+    Math.max(100, baseTargetNotionalUsd).toFixed(2)
   )
 
   let proposal: StrategyProposal | null = null
@@ -2830,9 +3528,9 @@ async function runStrategistCycle(): Promise<void> {
         lastMode !== 'HALT'
       ) {
         activeDirective = {
-          decision: 'MAINTAIN',
-          targetNotionalMultiplier: clamp(activeDirective.targetNotionalMultiplier, env.AGENT_NOTIONAL_MULTIPLIER_MIN, env.AGENT_NOTIONAL_MULTIPLIER_MAX),
-          rationale: 'recovered to flat: resume autonomous maintenance',
+          decision: 'HOLD',
+          plan: null,
+          rationale: 'recovered to flat: resume discretionary holding',
           confidence: 0.8,
           decidedAt: new Date().toISOString()
         }
@@ -2841,7 +3539,7 @@ async function runStrategistCycle(): Promise<void> {
         await publishTape({
           correlationId: ulid(),
           role: 'strategist',
-          line: `directive: MAINTAIN (recovery complete, resume trading)`
+          line: 'directive: HOLD (recovery complete, resume discretionary operation)'
         })
       }
       return
@@ -2862,15 +3560,28 @@ async function runStrategistCycle(): Promise<void> {
       confidence: activeDirective.confidence,
       rationale: activeDirective.rationale
     })
-  } else {
-    // When flat, ensure we have a fresh basket selected before attempting entry.
-    if (lastPositions.length === 0) {
-      if (!safeFlatBasket) {
-        await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions, force: true })
+  } else if (activeDirective.decision === 'OPEN' || activeDirective.decision === 'REBALANCE') {
+    if (!activeDirective.plan) {
+      const noActionLine = `no action (mode=${lastMode} missing plan for ${activeDirective.decision})`
+      const now = Date.now()
+      const shouldPublishNoAction =
+        noActionLine !== lastStrategistNoActionSignature || now - lastStrategistNoActionAtMs >= STRATEGIST_NO_ACTION_SUPPRESS_MS
+      if (shouldPublishNoAction) {
+        lastStrategistNoActionAtMs = now
+        lastStrategistNoActionSignature = noActionLine
+        await publishTape({
+          correlationId: ulid(),
+          role: 'scout',
+          line: noActionLine
+        })
       }
+      return
+    }
 
-      if (!safeFlatBasket && activeBasket.basketSymbols.length === 0) {
-        const noActionLine = `no action (mode=${lastMode} awaiting fresh basket selection)`
+    if (lastPositions.length === 0 && !hasFreshUniverse) {
+      await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions, force: true })
+      if (activeBasket.symbols.length === 0) {
+        const noActionLine = `no action (mode=${lastMode} awaiting fresh universe selection)`
         const now = Date.now()
         const shouldPublishNoAction =
           noActionLine !== lastStrategistNoActionSignature || now - lastStrategistNoActionAtMs >= STRATEGIST_NO_ACTION_SUPPRESS_MS
@@ -2887,42 +3598,32 @@ async function runStrategistCycle(): Promise<void> {
       }
     }
 
-    let desiredBasketSymbols: string[]
-
-    if (activeDirective.decision === 'ROTATE') {
-      // Force a fresh basket selection, even mid-trade.
-      await maybeSelectBasket({ targetNotionalUsd: scaledTargetNotionalUsd, signals, positions: lastPositions, force: true })
-      desiredBasketSymbols = activeBasket.basketSymbols
-      basketPivot = {
-        basketSymbols: desiredBasketSymbols,
-        startedAtMs: now,
-        expiresAtMs: now + 5 * 60_000
-      }
-    } else {
-      if (lastPositions.length > 0 && basketPivot && now < basketPivot.expiresAtMs) {
-        desiredBasketSymbols = basketPivot.basketSymbols
-      } else {
-        desiredBasketSymbols = lastPositions.length > 0 ? basketFromPositions(lastPositions) : activeBasket.basketSymbols
-      }
-    }
-
-    proposal = buildTargetProposal({
+    proposal = buildDiscretionaryProposal({
       createdBy: roleActorId('strategist'),
-      basketSymbols: desiredBasketSymbols,
-      targetNotionalUsd: scaledTargetNotionalUsd,
+      plan: activeDirective.plan,
       positions: lastPositions,
       signals,
       requestedMode: requestedModeFromEnv(),
       executionTactics: tactics,
       confidence: activeDirective.confidence,
       rationale: activeDirective.rationale,
-      summaryPrefix: activeDirective.decision === 'ROTATE' ? 'agent rotate basket' : 'agent autonomous'
+      summaryPrefix: activeDirective.decision === 'REBALANCE' ? 'agent rebalance' : 'agent autonomous'
     })
-
-    // ROTATE is a one-shot directive; after emitting the pivot proposal we fall back to MAINTAIN.
-    if (activeDirective.decision === 'ROTATE') {
-      activeDirective = { ...activeDirective, decision: 'MAINTAIN' }
+  } else {
+    const noActionLine = `no action (mode=${lastMode} holding)`
+    const now = Date.now()
+    const shouldPublishNoAction =
+      noActionLine !== lastStrategistNoActionSignature || now - lastStrategistNoActionAtMs >= STRATEGIST_NO_ACTION_SUPPRESS_MS
+    if (shouldPublishNoAction) {
+      lastStrategistNoActionAtMs = now
+      lastStrategistNoActionSignature = noActionLine
+      await publishTape({
+        correlationId: ulid(),
+        role: 'scout',
+        line: noActionLine
+      })
     }
+    return
   }
   if (!proposal) {
     const noActionLine = `no action (mode=${lastMode})`
@@ -2982,6 +3683,28 @@ async function runStrategistCycle(): Promise<void> {
   })
 
   await publishProposal({ actorId: roleActorId('strategist'), proposal: parsed.proposal })
+  await publishAudit({
+    id: ulid(),
+    ts: new Date().toISOString(),
+    actorType: 'internal_agent',
+    actorId: roleActorId('strategist'),
+    action: 'agent.proposal',
+    resource: 'agent.proposal',
+    correlationId: parsed.proposal.proposalId,
+    details: {
+      summary: parsed.proposal.summary,
+      decision: activeDirective.decision,
+      requestedMode: parsed.proposal.requestedMode,
+      confidence: parsed.proposal.confidence,
+      plan: parsed.proposal.actions[0]?.legs?.map((leg) => ({
+        symbol: leg.symbol,
+        side: leg.side,
+        notionalUsd: leg.notionalUsd
+      })),
+      riskRecoveryActive: riskRecovery.active,
+      riskRecoverySignature: riskRecovery.signature
+    }
+  })
   await publishTape({
     correlationId: parsed.proposal.proposalId,
     role: 'strategist',
@@ -3001,20 +3724,21 @@ async function runStrategistCycle(): Promise<void> {
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNotionalUsd: number }): Promise<void> {
   const nowMs = Date.now()
-  const universe = new Set<string>([BASE_LONG_SYMBOL, ...activeBasket.basketSymbols])
+  const universe = new Set<string>([...activeBasket.symbols, ...lastPositions.map((position) => position.symbol)])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
   const signalPack = summarizeLatestSignals(nowMs)
-  const analysisInput = {
-    ts: new Date().toISOString(),
-    mode: lastMode,
-    targetNotionalUsd: context.targetNotionalUsd,
-    basketSymbols: activeBasket.basketSymbols.join(','),
-    basketContext: activeBasket.context ?? null,
-    signals: signalPack,
-    ticks: tickSnapshot,
-    positions: lastPositions,
-    proposal
-  }
+	  const analysisInput = {
+	    ts: new Date().toISOString(),
+	    mode: lastMode,
+	    targetNotionalUsd: context.targetNotionalUsd,
+	    universeSymbols: activeBasket.symbols.join(','),
+	    basketContext: activeBasket.context ?? null,
+	    signals: signalPack,
+	    externalIntel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
+	    ticks: tickSnapshot,
+	    positions: lastPositions,
+	    proposal
+	  }
 
   const llm = llmForRole('scribe', nowMs)
   const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
@@ -3138,25 +3862,27 @@ const start = async (): Promise<void> => {
         }
 
         const riskPolicyPayload = typeof payload.riskPolicy === 'object' && payload.riskPolicy !== null ? payload.riskPolicy as Record<string, unknown> : null
-        lastStateUpdate = {
-          mode: typeof payload.mode === 'string' ? payload.mode : undefined,
-          pnlPct: typeof payload.pnlPct === 'number' ? payload.pnlPct : undefined,
-          realizedPnlUsd: typeof payload.realizedPnlUsd === 'number' ? payload.realizedPnlUsd : undefined,
-          driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
-          lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
-          message: typeof payload.message === 'string' ? payload.message : undefined,
-          riskPolicy: riskPolicyPayload
-            ? {
-              maxLeverage: typeof riskPolicyPayload.maxLeverage === 'number' ? riskPolicyPayload.maxLeverage : undefined,
-              maxDrawdownPct: typeof riskPolicyPayload.maxDrawdownPct === 'number' ? riskPolicyPayload.maxDrawdownPct : undefined,
-              maxExposureUsd: typeof riskPolicyPayload.maxExposureUsd === 'number' ? riskPolicyPayload.maxExposureUsd : undefined,
-              maxSlippageBps: typeof riskPolicyPayload.maxSlippageBps === 'number' ? riskPolicyPayload.maxSlippageBps : undefined,
-              staleDataMs: typeof riskPolicyPayload.staleDataMs === 'number' ? riskPolicyPayload.staleDataMs : undefined,
-              liquidityBufferPct: typeof riskPolicyPayload.liquidityBufferPct === 'number' ? riskPolicyPayload.liquidityBufferPct : undefined,
-              notionalParityTolerance: typeof riskPolicyPayload.notionalParityTolerance === 'number' ? riskPolicyPayload.notionalParityTolerance : undefined
-            }
-            : undefined
-        }
+	        lastStateUpdate = {
+	          mode: typeof payload.mode === 'string' ? payload.mode : undefined,
+	          pnlPct: typeof payload.pnlPct === 'number' ? payload.pnlPct : undefined,
+	          realizedPnlUsd: typeof payload.realizedPnlUsd === 'number' ? payload.realizedPnlUsd : undefined,
+	          accountValueUsd: typeof payload.accountValueUsd === 'number' ? payload.accountValueUsd : undefined,
+	          driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
+	          lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
+	          message: typeof payload.message === 'string' ? payload.message : undefined,
+	          riskPolicy: riskPolicyPayload
+	            ? {
+	              maxLeverage: typeof riskPolicyPayload.maxLeverage === 'number' ? riskPolicyPayload.maxLeverage : undefined,
+	              targetLeverage: typeof riskPolicyPayload.targetLeverage === 'number' ? riskPolicyPayload.targetLeverage : undefined,
+	              maxDrawdownPct: typeof riskPolicyPayload.maxDrawdownPct === 'number' ? riskPolicyPayload.maxDrawdownPct : undefined,
+	              maxExposureUsd: typeof riskPolicyPayload.maxExposureUsd === 'number' ? riskPolicyPayload.maxExposureUsd : undefined,
+	              maxSlippageBps: typeof riskPolicyPayload.maxSlippageBps === 'number' ? riskPolicyPayload.maxSlippageBps : undefined,
+	              staleDataMs: typeof riskPolicyPayload.staleDataMs === 'number' ? riskPolicyPayload.staleDataMs : undefined,
+	              liquidityBufferPct: typeof riskPolicyPayload.liquidityBufferPct === 'number' ? riskPolicyPayload.liquidityBufferPct : undefined,
+	              notionalParityTolerance: typeof riskPolicyPayload.notionalParityTolerance === 'number' ? riskPolicyPayload.notionalParityTolerance : undefined
+	            }
+	            : undefined
+	        }
       }
       if (payload?.mode) {
         lastMode = String(payload.mode)
@@ -3215,8 +3941,32 @@ const start = async (): Promise<void> => {
           notionalImbalancePct: Number(payload.computed.notionalImbalancePct)
         } : undefined
       }
-    }
+
+      // High-signal audit hook for monitoring + journals.
+      const decision = lastRiskDecision.decision
+      if (decision === 'DENY' || decision === 'ALLOW_REDUCE_ONLY') {
+        const codes = parseRiskReasonCodes(lastRiskDecision).slice().sort()
+        const signature = `${decision}|${codes.join('|')}`
+        const nowMs = Date.now()
+        if (signature !== lastRiskDecisionAuditSignature || nowMs - lastRiskDecisionAuditAtMs > 120_000) {
+          lastRiskDecisionAuditSignature = signature
+          lastRiskDecisionAuditAtMs = nowMs
+          void publishAudit({
+            id: ulid(),
+            ts: new Date().toISOString(),
+            actorType: 'system',
+            actorId: 'runtime-risk',
+            action: 'risk.decision',
+            resource: 'runtime.risk',
+            correlationId: envelope.correlationId ?? ulid(),
+            details: lastRiskDecision
+          }).catch(() => undefined)
+        }
+      }
+      }
   })
+
+  scheduleGitHubJournalIntervalFlush()
 
   let tickRunning = false
   setInterval(() => {

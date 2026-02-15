@@ -15,18 +15,18 @@ function mockContext(config: Record<string, string | undefined> = {}): PluginCon
 
 function mockFetch() {
   const candles = [
-    { t: 1, T: 2, s: 'HYPE', i: '1m', o: '100', c: '100', h: '100', l: '100', v: '1', n: 1 },
-    { t: 2, T: 3, s: 'HYPE', i: '1m', o: '100', c: '101', h: '101', l: '100', v: '1', n: 1 },
-    { t: 3, T: 4, s: 'HYPE', i: '1m', o: '101', c: '99', h: '101', l: '99', v: '1', n: 1 },
-    { t: 4, T: 5, s: 'HYPE', i: '1m', o: '99', c: '100', h: '100', l: '99', v: '1', n: 1 },
-    { t: 5, T: 6, s: 'HYPE', i: '1m', o: '100', c: '102', h: '102', l: '100', v: '1', n: 1 },
-    { t: 6, T: 7, s: 'HYPE', i: '1m', o: '102', c: '101', h: '102', l: '101', v: '1', n: 1 },
-    { t: 7, T: 8, s: 'HYPE', i: '1m', o: '101', c: '103', h: '103', l: '101', v: '1', n: 1 }
+    { t: 1, T: 2, s: 'BTC', i: '1m', o: '100', c: '100', h: '100', l: '100', v: '1', n: 1 },
+    { t: 2, T: 3, s: 'BTC', i: '1m', o: '100', c: '101', h: '101', l: '100', v: '1', n: 1 },
+    { t: 3, T: 4, s: 'BTC', i: '1m', o: '101', c: '99', h: '101', l: '99', v: '1', n: 1 },
+    { t: 4, T: 5, s: 'BTC', i: '1m', o: '99', c: '100', h: '100', l: '99', v: '1', n: 1 },
+    { t: 5, T: 6, s: 'BTC', i: '1m', o: '100', c: '102', h: '102', l: '100', v: '1', n: 1 },
+    { t: 6, T: 7, s: 'BTC', i: '1m', o: '102', c: '101', h: '102', l: '101', v: '1', n: 1 },
+    { t: 7, T: 8, s: 'BTC', i: '1m', o: '101', c: '103', h: '103', l: '101', v: '1', n: 1 }
   ]
 
   const fundingHistory = [
-    { coin: 'HYPE', fundingRate: '0.00001234', premium: '0', time: 1 },
-    { coin: 'HYPE', fundingRate: '0.00002345', premium: '0', time: 2 }
+    { coin: 'BTC', fundingRate: '0.00001234', premium: '0', time: 1 },
+    { coin: 'BTC', fundingRate: '0.00002345', premium: '0', time: 2 }
   ]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

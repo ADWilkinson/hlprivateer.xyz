@@ -2,6 +2,7 @@ import './globals.css'
 import { IBM_Plex_Mono } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
+import { SiteNav } from './ui/SiteNav'
 
 const terminalFont = IBM_Plex_Mono({
   subsets: ['latin'],
@@ -10,13 +11,13 @@ const terminalFont = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: '[HL] PRIVATEER - Live Trading Floor',
+  title: '[HL] PRIVATEER - Agentic Discretionary Desk',
   description:
-    'Agentic autonomous HYPE long/short fund with deterministic controls, live telemetry, and x402 integration access.',
+    'Agentic discretionary long/short + pair trading desk with deterministic controls, live telemetry, and x402 integration access.',
   openGraph: {
-    title: '[HL] PRIVATEER - Live Trading Floor',
+    title: '[HL] PRIVATEER - Agentic Discretionary Desk',
     description:
-      'Agentic autonomous HYPE long/short fund with deterministic risk controls, live telemetry, and x402 integration access.',
+      'Agentic autonomous long/short + pair-trading desk with deterministic risk controls, live telemetry, and x402 integration access.',
     url: 'https://hlprivateer.xyz',
     siteName: '[HL] PRIVATEER',
     type: 'website',
@@ -36,7 +37,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body
         className={`${terminalFont.className} min-h-screen bg-hlpBg text-hlpFg antialiased ascii-texture`}
       >
-        {children}
+        <SiteNav />
+        <div className='min-h-screen'>{children}</div>
       </body>
     </html>
   )

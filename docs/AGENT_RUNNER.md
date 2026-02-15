@@ -33,29 +33,36 @@ Outputs published:
 Core:
 - `REDIS_URL`, `REDIS_STREAM_PREFIX`
 - `AGENT_ID` (default `agent-runner`)
-- `AGENT_PROPOSAL_INTERVAL_MS` (default 30000)
-- `AGENT_ANALYSIS_INTERVAL_MS` (default 60000)
-- `AGENT_RESEARCH_INTERVAL_MS` (default 180000)
-- `AGENT_RISK_INTERVAL_MS` (default 30000)
+- `AGENT_PROPOSAL_INTERVAL_MS` (default 3600000; proposal cadence, clamped to <= 1h)
+- `AGENT_ANALYSIS_INTERVAL_MS` (default 3600000; clamped to <= 1h)
+- `AGENT_RESEARCH_INTERVAL_MS` (default 3600000; clamped to <= 1h)
+- `AGENT_RISK_INTERVAL_MS` (default 3600000; clamped to <= 1h)
 - `AGENT_OPS_INTERVAL_MS` (default 5000)
 - `OPS_AUTO_HALT` (default false; when true, ops-agent may publish `/halt` on severe stale data)
-- `AGENT_DIRECTIVE_INTERVAL_MS` (default 15m; LLM-guided strategist pivots: rotate basket / scale notional / exit)
-- `AGENT_NOTIONAL_MULTIPLIER_MIN`, `AGENT_NOTIONAL_MULTIPLIER_MAX` (bounds for strategist scaling decisions)
+- `AGENT_DIRECTIVE_INTERVAL_MS` (default 3600000; strategist refresh cadence, clamped to <= 1h)
 
 Strategy knobs (shared with runtime):
-- `BASKET_TARGET_NOTIONAL_USD`
+- `AGENT_TARGET_NOTIONAL_USD` (minimum strategy capital floor; default `100`)
+- `AGENT_MIN_REBALANCE_LEG_USD` (minimum per-leg execution size in USD)
 - `DRY_RUN`, `ENABLE_LIVE_OMS` (used by the agent-runner to mark proposals as `requestedMode=LIVE` when live is enabled)
 - `RUNTIME_FLAT_DUST_NOTIONAL_USD` (dust threshold; positions smaller than this are treated as flat to avoid recovery loops)
 
-Basket selection (dynamic short basket vs HYPE):
-- `AGENT_BASKET_SIZE`
-- `AGENT_BASKET_CANDIDATE_LIMIT`
-- `AGENT_BASKET_REFRESH_MS` (basket refresh cadence; strategist may also force a rotate mid-trade)
+Universe selection:
+- `AGENT_UNIVERSE_SIZE`
+- `AGENT_UNIVERSE_CANDIDATE_LIMIT`
+- `AGENT_UNIVERSE_REFRESH_MS` (universe refresh cadence; strategist may propose a new universe when directive logic requests)
 - `AGENT_FEATURE_WINDOW_MIN`, `AGENT_FEATURE_CONCURRENCY`
 - Optional spot/sector enrichment: `COINGECKO_API_KEY`, `COINGECKO_BASE_URL`, `COINGECKO_TIMEOUT_MS`
 
-Legacy / seed:
-- `BASKET_SYMBOLS` (CSV) is a seed only; runtime trade entry is agent-driven and will not open new exposure from this env var.
+OpenClaw integration:
+- `OPENCLAW_HOME`
+- `OPENCLAW_MARKET_DATA_PATH`
+- `OPENCLAW_TWITTER_CREDS_PATH` (defaults to `/home/dappnode/.openclaw/workspace/.twitter_creds.json`)
+- `TWITTER_BEARER_TOKEN` (optional override; otherwise creds are loaded from OpenClaw)
+- `AGENT_INTEL_ENABLED` (default true; enables external intel refresh)
+- `AGENT_INTEL_TWITTER_ENABLED` (default true)
+- `AGENT_INTEL_TWITTER_MAX_RESULTS` (default 8)
+- `AGENT_INTEL_TIMEOUT_MS` (default 8000)
 
 LLM:
 - Docker auth mounts (required for non-interactive Claude/Codex):
@@ -101,7 +108,7 @@ The runner uses `codex exec` with:
 This is designed to be non-interactive automation. If Codex fails (missing binary, auth, transient error), the runner retries via Claude (Opus) and emits a floor-tape warning; if Claude also fails, it falls back to deterministic output.
 
 ## Development Workflow
-1. Run the stack locally in SIM:
+1. Run the stack locally in non-live mode:
 ```bash
 cp config/.env.example config/.env
 bun install
@@ -117,6 +124,7 @@ journalctl -u hlprivateer-agent-runner.service -f --no-pager
 - Watch the public UI tape, or
 - Inspect the audit API (`/v1/operator/audit`) as an operator.
 
-4. Iterate safely:
-- Keep runtime in `DRY_RUN=true` until the proposal+execution loop is stable.
+4. Operate in production mode:
+- Set `DRY_RUN=false` and `ENABLE_LIVE_OMS=true` only after live-mode controls and risk policy are confirmed.
+- Remember: the runtime is the only component that can execute orders, and it is still hard-gated by the risk engine.
 - Remember: the runtime is the only component that can execute orders, and it is still hard-gated by the risk engine.

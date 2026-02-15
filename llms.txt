@@ -40,7 +40,7 @@ External-agent execution map:
 
 Mandatory constraints for all agent-generated changes:
 - Never bypass risk engine for order execution.
-- Preserve pair-trade invariant: LONG HYPE vs SHORT basket.
+- Preserve discretionary long/short planning with explicit strategy thesis and risk controls.
 - Preserve equal-notional enforcement and risk circuit breakers.
 - Public responses must expose PnL percent only and obfuscated fields.
 - Any privileged command requires audit reason.

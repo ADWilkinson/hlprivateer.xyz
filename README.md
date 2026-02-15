@@ -3,7 +3,7 @@
 Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with deterministic risk gates, ASCII trade floor UI, and x402-based external agent marketplace.
 
 ## What It Does
-- Runs a continuous pair-trade strategy: `LONG HYPE` vs `SHORT basket` (basket selected dynamically by the strategist agent).
+- Runs a continuous discretionary strategy where the strategist AI controls long/short leg structure, universe, and risk-aware time horizon.
 - Streams a public ASCII "trading floor" UI (mode/health/drift/PnL + event tape).
 - Provides operator controls via JWT API: `/halt`, `/resume`, `/flatten`, `/status`, etc.
 - Runs an internal `agent-runner` that proposes rebalances + publishes structured analysis (Claude/Codex CLIs optional).
@@ -15,9 +15,9 @@ Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with determi
 - WebSocket: `wss://ws.hlprivateer.xyz`
 
 ## Core invariants
-- Strategy is always pair-trade: `LONG HYPE` vs `SHORT basket`.
-- The short basket is selected by the strategist agent and only changes when flat (no mid-trade churn).
-- Equal notional across both legs is enforced by deterministic risk checks.
+- Strategy is discretionary with explicit long/short structure selection from the strategist AI.
+- The agent proposes pair-based exposures, leg-level targets, and universe composition each cycle.
+- Deterministic risk checks and parity thresholds govern rebalances and exits.
 - AI can propose, never execute directly.
 - Public output is restricted to PnL percentage and obfuscated stream fields.
 
@@ -46,7 +46,7 @@ docs/
   GITHUB_ISSUES.md
 ```
 
-## Quick Start (SIM / local dev)
+## Quick Start (local dev)
 1. Install Bun 1.2+.
 2. Copy env template:
    - `cp config/.env.example config/.env`

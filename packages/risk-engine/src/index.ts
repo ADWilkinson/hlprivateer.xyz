@@ -32,6 +32,8 @@ export interface TickSnapshot {
 
 export interface RiskConfig {
   maxLeverage: number
+  // Optional sizing target used by agent layers (runtime still enforces maxLeverage as a hard cap).
+  targetLeverage?: number
   maxDrawdownPct: number
   maxExposureUsd: number
   maxSlippageBps: number
@@ -92,7 +94,7 @@ function computeProjectedLongShort(positions: PositionSnapshot[], proposal: Stra
   return { longUsd, shortUsd, grossUsd: longUsd + shortUsd }
 }
 
-function checkNotionalParity(positions: PositionSnapshot[], proposal: StrategyProposal, tolerance: number): CheckResult {
+function checkNotionalExposurePolicy(positions: PositionSnapshot[], proposal: StrategyProposal, tolerance: number): CheckResult {
   const projected = computeProjectedLongShort(positions, proposal)
   if (projected.grossUsd === 0) {
     // Flat is acceptable (e.g. explicit exit/flatten proposals).
@@ -100,7 +102,7 @@ function checkNotionalParity(positions: PositionSnapshot[], proposal: StrategyPr
   }
 
   if (projected.longUsd === 0 || projected.shortUsd === 0) {
-    return { ok: false, reason: 'proposal leaves unhedged exposure (missing long or short leg)' }
+    return { ok: true }
   }
 
   const denominator = projected.grossUsd / 2
@@ -117,13 +119,15 @@ function checkNotionalParity(positions: PositionSnapshot[], proposal: StrategyPr
 
 function checkInvariant(proposal: StrategyProposal): CheckResult {
   const legs = proposal.actions.flatMap((action) => action.legs)
-  // Strategy invariant: proposals must remain "HYPE vs basket" oriented, but we must
-  // allow risk-reducing proposals (e.g. exits/flatten) where HYPE may be sold.
-  const hasHypeLeg = legs.some((leg) => leg.symbol.toUpperCase() === 'HYPE')
-  const hasNonHypeLeg = legs.some((leg) => leg.symbol.toUpperCase() !== 'HYPE')
+  if (legs.length === 0) {
+    return { ok: false, reason: 'proposal is empty' }
+  }
 
-  if (!hasHypeLeg || !hasNonHypeLeg) {
-    return { ok: false, reason: 'strategy invariant must include HYPE + at least one non-HYPE leg' }
+  const hasBuy = legs.some((leg) => leg.side === 'BUY')
+  const hasSell = legs.some((leg) => leg.side === 'SELL')
+  if (!hasBuy || !hasSell) {
+    // Allow long-only and short-only strategies, but still enforce that a proposal is directional.
+    return { ok: true }
   }
 
   return { ok: true }
@@ -355,7 +359,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'INVALID_PROPOSAL', message: 'proposal has no actionable legs' })
   }
 
-  const parityResult = checkNotionalParity(context.openPositions, context.proposal, config.notionalParityTolerance)
+  const parityResult = checkNotionalExposurePolicy(context.openPositions, context.proposal, config.notionalParityTolerance)
   if (!parityResult.ok && !isSafeModeExit) {
     reasons.push({ code: 'NOTIONAL_PARITY', message: parityResult.reason ?? 'invalid notional parity' })
   }

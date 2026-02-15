@@ -2,7 +2,7 @@
 
 This page is the operational checklist to run HL Privateer in **LIVE** mode (real order placement on Hyperliquid).
 
-If you are just developing locally, use `DRY_RUN=true` and follow `README.md` instead.
+For local non-live validation, use `DRY_RUN=true` and follow `README.md`.
 
 ## 0) Preconditions
 - If you use Cloudflare ingress, confirm DNS/TLS and tunnel endpoints are already updated.

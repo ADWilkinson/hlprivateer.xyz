@@ -40,7 +40,7 @@ export const runtimeEnv = z
     REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
     REDIS_STREAM_PREFIX: z.string().default('hlp'),
     CYCLE_MS: z.coerce.number().default(5000),
-    DRY_RUN: booleanFromEnv.default(true),
+    DRY_RUN: booleanFromEnv.default(false),
     DATABASE_URL: z.string().optional(),
     HL_WS_URL: z.string().optional(),
     HL_INFO_URL: z.string().optional(),
@@ -49,6 +49,8 @@ export const runtimeEnv = z
     HL_PRIVATE_KEY: z.string().optional(),
     HL_REQUEST_TIMEOUT_MS: z.coerce.number().default(10_000),
     RISK_MAX_LEVERAGE: z.coerce.number().default(2),
+    // Preferred leverage target used by agent layers for sizing (runtime still enforces max leverage as a hard cap).
+    RISK_TARGET_LEVERAGE: z.coerce.number().positive().default(2),
     RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(5),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
     RISK_MAX_NOTIONAL_USD: z.coerce.number().default(10000),
@@ -58,12 +60,17 @@ export const runtimeEnv = z
     RUNTIME_FLAT_DUST_NOTIONAL_USD: z.coerce
       .number()
       .nonnegative()
-      .default(50)
-      .transform((value) => Math.max(50, value)),
+      .default(100)
+      .transform((value) => Math.max(100, value)),
     // Account value should be sourced from exchange/live state, not hardcoded.
     // Market-data seed only (runtime trade entry is agent-driven).
     BASKET_SYMBOLS: z.string().default(''),
-    BASKET_TARGET_NOTIONAL_USD: z.coerce.number().default(1000),
+    BASKET_TARGET_NOTIONAL_USD: z.coerce.number().default(100),
+    RUNTIME_MIN_LIVE_ACCOUNT_VALUE_USD: z.coerce
+      .number()
+      .positive()
+      .default(100)
+      .transform((value) => Math.max(100, value)),
     RUNTIME_METRICS_PORT: z.coerce.number().default(9400),
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),
     LIVE_MODE_APPROVED: booleanFromEnv.default(false),

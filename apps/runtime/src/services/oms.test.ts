@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSimAdapter } from './oms'
 
 const baseTick = {
-  symbol: 'HYPE',
+  symbol: 'BTC',
   px: 10,
   bid: 9.95,
   ask: 10.05,
@@ -27,14 +27,14 @@ describe('sim adapter', () => {
   it('applies idempotent placement keys', async () => {
     const adapter = createSimAdapter(0, 0)
     const first = await adapter.place({
-      symbol: 'HYPE',
+      symbol: 'BTC',
       side: 'BUY',
       notionalUsd: 1000,
       tick: baseTick,
       idempotencyKey: 'dup-key'
     })
     const second = await adapter.place({
-      symbol: 'HYPE',
+      symbol: 'BTC',
       side: 'BUY',
       notionalUsd: 1000,
       tick: baseTick,
@@ -49,7 +49,7 @@ describe('sim adapter', () => {
     const adapter = createSimAdapter(0, 0)
 
     await adapter.place({
-      symbol: 'HYPE',
+      symbol: 'BTC',
       side: 'BUY',
       notionalUsd: 200,
       tick: baseTick,
@@ -66,7 +66,7 @@ describe('sim adapter', () => {
 
     const snapshot = await adapter.snapshot()
     const symbols = snapshot.positions.map((position) => position.symbol)
-    expect(symbols).toContain('HYPE')
+    expect(symbols).toContain('BTC')
     expect(symbols).toContain('ETH')
     expect(snapshot.positions.some((position) => position.side === 'LONG')).toBe(true)
     expect(snapshot.positions.some((position) => position.side === 'SHORT')).toBe(true)
@@ -75,7 +75,7 @@ describe('sim adapter', () => {
   it('rejects invalid modify input for resolved order', async () => {
     const adapter = createSimAdapter(0, 0)
     const placed = await adapter.place({
-      symbol: 'HYPE',
+      symbol: 'BTC',
       side: 'BUY',
       notionalUsd: 1000,
       tick: baseTick,
@@ -90,7 +90,7 @@ describe('sim adapter', () => {
     const adapter = createSimAdapter(0, 0)
 
     await adapter.place({
-      symbol: 'HYPE',
+      symbol: 'BTC',
       side: 'BUY',
       notionalUsd: 100,
       tick: { ...baseTick, bid: 10, ask: 10 },
@@ -98,7 +98,7 @@ describe('sim adapter', () => {
     })
 
     await adapter.place({
-      symbol: 'HYPE',
+      symbol: 'BTC',
       side: 'SELL',
       notionalUsd: 60,
       tick: { ...baseTick, bid: 12, ask: 12, px: 12 },
@@ -107,7 +107,7 @@ describe('sim adapter', () => {
 
     const snapshot = await adapter.snapshot()
     expect(snapshot.positions.length).toBe(1)
-    expect(snapshot.positions[0]?.symbol).toBe('HYPE')
+    expect(snapshot.positions[0]?.symbol).toBe('BTC')
     expect(snapshot.positions[0]?.side).toBe('LONG')
     expect(snapshot.positions[0]?.qty).toBeGreaterThan(0)
     expect(snapshot.realizedPnlUsd).toBeGreaterThan(0)

@@ -163,7 +163,7 @@ export const PublicPnlResponseSchema = z.object({
 });
 
 export const OperatorCommandSchema = z.object({
-  command: z.enum(["/status", "/positions", "/simulate", "/halt", "/resume", "/flatten", "/explain"]),
+  command: z.enum(["/status", "/positions", "/halt", "/resume", "/flatten", "/explain", "/risk-policy"]),
   args: z.array(z.string()).default([]),
   reason: z.string().min(3)
 });

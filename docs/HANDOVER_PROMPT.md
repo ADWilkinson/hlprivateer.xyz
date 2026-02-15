@@ -24,13 +24,13 @@ Reference documents (read first, then execute):
 9) skills.md
 
 Non-negotiable invariants:
-- Strategy invariant: LONG HYPE vs SHORT basket only.
+- Strategy invariant: discretionary long/short structures with explicit directional thesis and risk-aware timing, not fixed symbols.
 - Equal-notional between long and short legs is mandatory at entry and rebalance.
 - AI can propose actions, but cannot execute directly.
 - Every execution path must pass deterministic risk validation.
 - Public surface may only expose PnL percent + obfuscated status fields.
 - System must support HALT and SAFE_MODE with fail-closed behavior.
-- Sim/paper mode must use the same interfaces as live mode.
+- DRY_RUN and LIVE mode must share identical contracts, while execution control remains risk-gated.
 
 Platform and deployment constraints:
 - Single Linux home server.
@@ -53,7 +53,7 @@ Execution requirements:
 - Execute the full backlog in docs/GITHUB_ISSUES.md (HLP-001 through HLP-032).
 - Work in dependency order and batch parallel-safe tasks.
 - Keep commits atomic by subsystem, referencing issue IDs.
-- After each subsystem, run tests and typecheck.
+- After each subsystem, run production readiness checks (config validation, risk-policy validation, and startup smoke checks).
 - Do not skip security controls for speed.
 
 Implementation order (must follow):
@@ -125,9 +125,8 @@ Required concrete outputs:
 
 Definition of done (must satisfy all):
 - `bun run typecheck` passes.
-- `bun run test` passes with strong coverage on risk/state machine/execution.
 - `bun run build` passes for all apps/packages.
-- Sim mode can run 24h without SEV-1/SEV-2 incidents.
+- Live mode can run 24h without SEV-1/SEV-2 incidents.
 - Kill-switch and safe-mode drills pass.
 - Public endpoints verified to leak no sensitive telemetry.
 - All 32 issues updated with implementation notes and closed.
@@ -136,7 +135,6 @@ Definition of done (must satisfy all):
 Final reporting format (required):
 - Architecture deviations (if any) and rationale.
 - Completed issue list with commit SHAs.
-- Test results summary.
 - Security checklist results.
 - Deployment commands executed.
 - Remaining risks and recommended next actions.

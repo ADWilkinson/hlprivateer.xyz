@@ -8,7 +8,7 @@ This file is the entry point for working on this repo using the Claude CLI (or a
 - `README.md`: quick start and high-level product framing.
 
 ## System/Architecture Docs
-- `docs/SPEC.md`: architecture and invariants (pair trade: `LONG HYPE` vs `SHORT basket`, deterministic risk gates).
+- `docs/SPEC.md`: architecture and invariants (discretionary long/short strategy, deterministic risk gates).
 - `docs/AGENT_RUNNER.md`: agent runner behavior (prompts, structured outputs, proposal flow).
 - `API.md`: HTTP/WS endpoints and payload contracts.
 
@@ -29,4 +29,3 @@ This file is the entry point for working on this repo using the Claude CLI (or a
 - Prefer small, reviewable diffs.
 - Keep runtime fail-closed on dependency errors (risk gates must be deterministic).
 - Do not add placeholders/TODOs in production paths.
-
