@@ -168,6 +168,7 @@ services:
       AGENT_RUNNER_CLAUDE_CFG_DIR: ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}
       XDG_CONFIG_HOME: /home/bun/.config
       CLAUDE_SESSION_DIR: /home/bun/.claude/session
+      RISK_MAX_DRAWDOWN_PCT: 100
       AGENT_JOURNAL_PATH: /app/journals
       OPENCLAW_HOME: /home/bun/.openclaw/workspace
       OPENCLAW_TWITTER_CREDS_PATH: /home/bun/.openclaw/workspace/.twitter_creds.json

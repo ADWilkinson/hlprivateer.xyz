@@ -2713,9 +2713,9 @@ async function generateRiskReport(params: {
         'LEVERAGE PHILOSOPHY: Default to MAXIMUM leverage for capital efficiency. The system should always operate at the highest leverage the risk environment permits.',
         'Only REDUCE leverage when there is a concrete, observable threat (extreme volatility spike, liquidity crisis, correlation breakdown, drawdown approaching hard cap).',
         'When the threat passes, IMMEDIATELY restore leverage to maximum. Do not leave leverage reduced out of caution — capital efficiency is the priority.',
-        'You may TIGHTEN other parameters (lower drawdown cap, reduce exposure) in volatile/uncertain markets while keeping leverage high.',
-        'Example: if volatility is spiking, recommend maxDrawdownPct=3 but keep maxLeverage at current level unless drawdown is critical.',
-        'Example: if drawdown cap is 5% and current PnL is -5.2% but market is stabilizing, recommend maxDrawdownPct=7 to allow recovery trades.',
+        'You may TIGHTEN other parameters (reduce exposure, tighten slippage) in volatile/uncertain markets while keeping leverage high.',
+        'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). Do NOT recommend changes to maxDrawdownPct. The operator accepts full drawdown risk.',
+        'Focus risk management on position sizing, exposure limits, and leverage — not drawdown caps.',
         'Only recommend changes with clear justification tied to observable market conditions. Do not change params arbitrarily.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',

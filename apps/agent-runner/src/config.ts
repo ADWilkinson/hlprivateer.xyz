@@ -93,7 +93,7 @@ export const env = z
     AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(100),
     AGENT_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(100),
     RISK_MAX_LEVERAGE: z.coerce.number().positive().default(20),
-    RISK_MAX_DRAWDOWN_PCT: z.coerce.number().positive().default(20),
+    RISK_MAX_DRAWDOWN_PCT: z.coerce.number().positive().default(100),
     RISK_MAX_NOTIONAL_USD: z.coerce.number().positive().default(50000),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().positive().default(20),
     RISK_STALE_DATA_MS: z.coerce.number().positive().default(3000),
