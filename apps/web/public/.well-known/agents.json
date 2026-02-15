@@ -1,0 +1,112 @@
+{
+  "schema": "https://openagents.com/schema/v1",
+  "name": "HL Privateer",
+  "description": "Open Hyperliquid discretionary desk. A fund of autonomous agents making discretionary trading calls. Follow trades, read analysis, copy positions — pay per call via x402.",
+  "url": "https://hlprivateer.xyz",
+  "logo": "https://hlprivateer.xyz/icon.svg",
+  "provider": {
+    "name": "HL Privateer",
+    "url": "https://hlprivateer.xyz"
+  },
+  "capabilities": [
+    "trading-signals",
+    "position-data",
+    "market-analysis",
+    "copy-trading",
+    "risk-monitoring"
+  ],
+  "api": {
+    "type": "rest",
+    "base_url": "https://api.hlprivateer.xyz",
+    "docs": "https://hlprivateer.xyz/API.md",
+    "websocket": "wss://ws.hlprivateer.xyz",
+    "authentication": {
+      "type": "x402",
+      "network": "eip155:8453",
+      "asset": "USDC",
+      "facilitator": "https://facilitator.payai.network"
+    }
+  },
+  "endpoints": [
+    {
+      "path": "/v1/agent/stream/snapshot",
+      "method": "GET",
+      "description": "Live desk snapshot: mode, PnL, health, positions, ops tape",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/positions",
+      "method": "GET",
+      "description": "Current open positions with symbols, sides, sizes, entries, PnL",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/orders",
+      "method": "GET",
+      "description": "Open orders on the book",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/analysis/latest",
+      "method": "GET",
+      "description": "Latest AI strategist analysis with thesis and signals",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/analysis",
+      "method": "GET",
+      "description": "Analysis history (filterable)",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/data/overview",
+      "method": "GET",
+      "description": "Risk config, signal timeline, account snapshot",
+      "price": "$0.02",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/insights",
+      "method": "GET",
+      "description": "Full dashboard: floor state, risk, analysis, copy summary",
+      "price": "$0.02",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/copy-trade/signals",
+      "method": "GET",
+      "description": "Audit trail of proposals, analysis, risk, and basket events",
+      "price": "$0.03",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/copy-trade/positions",
+      "method": "GET",
+      "description": "Position data formatted for copy-trading",
+      "price": "$0.03",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/public/pnl",
+      "method": "GET",
+      "description": "Current PnL% and mode",
+      "price": "free",
+      "auth": "none"
+    },
+    {
+      "path": "/v1/public/floor-snapshot",
+      "method": "GET",
+      "description": "Public floor snapshot with account value and positions",
+      "price": "free",
+      "auth": "none"
+    }
+  ],
+  "source": "https://github.com/ADWilkinson/hlprivateer.xyz",
+  "llms_txt": "https://hlprivateer.xyz/llms.txt",
+  "contact": "https://github.com/ADWilkinson/hlprivateer.xyz/issues"
+}

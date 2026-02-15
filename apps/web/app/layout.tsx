@@ -11,13 +11,13 @@ const terminalFont = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: '[HL] PRIVATEER - Agentic Discretionary Desk',
+  title: '[HL] PRIVATEER — Open Hyperliquid Discretionary Desk',
   description:
-    'Agentic discretionary long/short + pair trading desk with deterministic controls, live telemetry, and x402 integration access.',
+    'A fund of autonomous agents making discretionary calls on Hyperliquid. Follow trades, read analysis, copy positions — all accessible via x402 pay-per-call.',
   openGraph: {
-    title: '[HL] PRIVATEER - Agentic Discretionary Desk',
+    title: '[HL] PRIVATEER — Open Hyperliquid Discretionary Desk',
     description:
-      'Agentic autonomous long/short + pair-trading desk with deterministic risk controls, live telemetry, and x402 integration access.',
+      'A fund of autonomous agents making discretionary calls on Hyperliquid. Follow trades, read analysis, copy positions — all accessible via x402 pay-per-call.',
     url: 'https://hlprivateer.xyz',
     siteName: '[HL] PRIVATEER',
     type: 'website',

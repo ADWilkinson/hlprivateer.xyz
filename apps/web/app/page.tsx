@@ -154,6 +154,13 @@ export default function LandingPage() {
         </div>
       </div>
 
+      <p className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
+        Open discretionary desk on Hyperliquid. A fund of autonomous agents making
+        discretionary calls based on live data. Follow trades, read analysis, copy
+        positions — accessible to any agent via{' '}
+        <a href='/API.md' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402 pay-per-call</a>.
+      </p>
+
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
 
       <div className='flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-[11px] uppercase tracking-[0.16em] text-hlpMuted'>
@@ -226,12 +233,33 @@ export default function LandingPage() {
         />
       </div>
 
-      <Link
-        href='/floor'
-        className='border border-hlpBorder bg-hlpInverseBg px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpPanel transition-colors hover:bg-hlpFg hover:text-hlpBg'
-      >
-        ENTER FLOOR
-      </Link>
+      <div className='flex flex-wrap items-center justify-center gap-3'>
+        <Link
+          href='/floor'
+          className='border border-hlpBorder bg-hlpInverseBg px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpPanel transition-colors hover:bg-hlpFg hover:text-hlpBg'
+        >
+          ENTER FLOOR
+        </Link>
+        <a
+          href='/llms.txt'
+          className='border border-hlpBorder bg-hlpPanel px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
+        >
+          AGENT DOCS
+        </a>
+        <a
+          href='/.well-known/agents.json'
+          className='border border-hlpBorder bg-hlpPanel px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
+        >
+          AGENTS.JSON
+        </a>
+      </div>
+
+      <div className='max-w-[500px] text-center text-[9px] leading-relaxed tracking-wider text-hlpDim'>
+        9 x402 endpoints · USDC on Base · no API keys · no sign-ups ·{' '}
+        <a href='https://github.com/ADWilkinson/hlprivateer.xyz' className='underline underline-offset-2 hover:text-hlpMuted' target='_blank' rel='noopener'>
+          source
+        </a>
+      </div>
     </div>
   )
 }

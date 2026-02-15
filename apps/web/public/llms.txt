@@ -1,60 +1,68 @@
-# llms.txt - Agent Navigation Guide for HL Privateer
+# HL Privateer — Open Hyperliquid Discretionary Desk
+# https://hlprivateer.xyz
 
-Project purpose:
-- Build and operate a self-hosted agentic trading platform on Hyperliquid with deterministic risk hard-gates.
+## What is this?
+HL Privateer is an open, agentic discretionary trading desk on Hyperliquid.
+A fund of autonomous agents making discretionary calls based on live data —
+positions, analysis, signals, and risk state — all accessible to any inbound
+agent via paid x402 endpoints.
 
-Primary entrypoints:
-- Product + architecture: `docs/SPEC.md`
-- API contracts: `API.md`
-- Security policies: `SECURITY.md`
-- Operations: `RUNBOOK.md`
-- Go-live checklist: `docs/GO_LIVE.md`
-- Agent runner dev: `docs/AGENT_RUNNER.md`
-- Agent capabilities: `skills.md`
-- x402 setup: `docs/X402_SELLER_QUICKSTART.md`
+You are an agent. You can follow our trades, read our analysis, copy our
+positions, or integrate our signals into your own strategy. Pay per call.
+No API keys. No sign-ups. Just x402.
 
-Repository map for agents:
-- `apps/api`: REST, auth, x402 enforcement
-- `apps/runtime`: strategy orchestration and OMS integration
-- `apps/ws-gateway`: websocket fanout and command channel
-- `apps/web`: ASCII floor UI and operator console
-- `packages/contracts`: zod schemas and shared types
-- `packages/risk-engine`: deterministic risk checks (hard-gate)
-- `packages/plugin-sdk`: plugin contract and sandbox rules
-- `packages/event-bus`: Redis Streams adapters and replay
-- `packages/agent-sdk`: external agent client utilities
+## Quick Start (for agents)
+1. Discover endpoints: `GET https://api.hlprivateer.xyz/v1/agent/stream/snapshot` → returns 402 with payment challenge
+2. Pay the challenge using x402 (USDC on Base, network eip155:8453)
+3. Receive live data in the 200 response
 
-External-agent execution map:
-- Use `POST /v1/agent/handshake` to obtain entitlement context and negotiated capabilities.
-- Pay-protected routes are enforced by `x402` + entitlement checks:
-  - `GET /v1/agent/stream/snapshot` (`stream.read.public`)
-  - `GET /v1/agent/analysis/latest` (`analysis.read`)
-  - `GET /v1/agent/analysis` (`analysis.read`)
-  - `GET /v1/agent/positions` (`command.positions`)
-  - `GET /v1/agent/orders` (`command.positions`)
-  - `GET /v1/agent/data/overview` (`market.data.read`)
-  - `GET /v1/agent/insights` (`agent.insights.read`)
-  - `GET /v1/agent/copy-trade/signals` (`copy.signals.read`)
-  - `GET /v1/agent/copy-trade/positions` (`copy.positions.read`)
-- Commands and control are available via `POST /v1/agent/command` with capability-guarded actor checks.
+## x402 Endpoints (all GET, all pay-per-call)
 
-Mandatory constraints for all agent-generated changes:
-- Never bypass risk engine for order execution.
-- Preserve discretionary long/short planning with explicit strategy thesis and risk controls.
-- Preserve equal-notional enforcement and risk circuit breakers.
-- Public responses must expose PnL percent only and obfuscated fields.
-- Any privileged command requires audit reason.
-- External-facing agents should respect capability gates and dynamic risk policy adjustments emitted in `riskPolicy` payloads.
+| Endpoint | Price | What you get |
+|----------|-------|-------------|
+| `/v1/agent/stream/snapshot` | $0.01 | Mode, PnL%, health, open positions, recent ops tape |
+| `/v1/agent/positions` | $0.01 | Full position array — symbols, sides, sizes, entries, PnL |
+| `/v1/agent/orders` | $0.01 | Open orders on the book |
+| `/v1/agent/analysis/latest` | $0.01 | Latest AI strategist analysis with thesis + signals |
+| `/v1/agent/analysis` | $0.01 | Analysis history (filterable by correlationId, limit) |
+| `/v1/agent/data/overview` | $0.02 | Risk config + signal timeline + account snapshot |
+| `/v1/agent/insights` | $0.02 | Full dashboard: floor state + risk + analysis + copy summary |
+| `/v1/agent/copy-trade/signals` | $0.03 | Audit trail of proposals, analysis, risk, basket events |
+| `/v1/agent/copy-trade/positions` | $0.03 | Position data formatted for copy-trading |
 
-Agent workflow:
-1. Read contracts in `packages/contracts` before editing service code.
-2. Propose changes as typed interfaces first.
-3. Ensure new endpoints/events are reflected in `API.md`.
-4. Add or update threat assumptions in `SECURITY.md` when security-sensitive.
-5. Add runbook steps in `RUNBOOK.md` when operational behavior changes.
+## Free Endpoints (no payment required)
 
-Definition of safe completion:
-- Type-safe interfaces updated.
-- Risk and auth boundaries preserved.
-- Audit trail coverage maintained.
-- Docs updated for humans and agents.
+| Endpoint | What you get |
+|----------|-------------|
+| `/v1/public/pnl` | Current PnL% and mode |
+| `/v1/public/floor-snapshot` | Mode, PnL%, health, account value, positions, ops tape |
+| `/v1/public/floor-tape` | Recent ops log lines |
+| `/healthz` | Service health check |
+
+## Payment Details
+- Network: Base (eip155:8453)
+- Asset: USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)
+- Facilitator: https://facilitator.payai.network
+- Protocol: x402 v2 (exact scheme)
+
+## How It Works
+HL Privateer runs a fund of agents on a single Hyperliquid account:
+- **Strategist agent**: scans markets, generates trade proposals with thesis
+- **Research agent**: regime hypotheses and macro context
+- **Risk agent**: explains risk posture (hard-gated by deterministic engine)
+- **Execution agent**: suggests tactics, annotates slippage
+- **Ops agent**: monitors feeds, service health, circuit breakers
+
+All agent proposals pass through a deterministic risk engine before execution.
+No agent can bypass risk limits. The human operator holds kill-switch authority.
+
+## For Developers
+- REST API docs: https://hlprivateer.xyz/API.md
+- Agent skill contracts: https://hlprivateer.xyz/skills.md
+- Full spec: https://hlprivateer.xyz/docs/SPEC.md
+- x402 seller guide: https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md
+- WebSocket: wss://ws.hlprivateer.xyz (live floor tape stream)
+- Agent discovery: https://hlprivateer.xyz/.well-known/agents.json
+
+## Source
+- GitHub: https://github.com/ADWilkinson/hlprivateer.xyz

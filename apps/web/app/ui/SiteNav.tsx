@@ -4,8 +4,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const NAV_LINKS = [
-  { href: '/', label: 'LANDING' },
+  { href: '/', label: 'DESK' },
   { href: '/floor', label: 'FLOOR' },
+  { href: '/API.md', label: 'API' },
+  { href: '/llms.txt', label: 'AGENTS' },
 ]
 
 function isActive(pathname: string, href: string): boolean {
