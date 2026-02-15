@@ -89,7 +89,7 @@ export const env = z
     OPENCLAW_TWITTER_CREDS_PATH: z.string().default('/home/dappnode/.openclaw/workspace/.twitter_creds.json'),
     AGENT_INTEL_ENABLED: booleanFromEnv.default(true),
     AGENT_INTEL_TWITTER_ENABLED: booleanFromEnv.default(true),
-    AGENT_INTEL_TWITTER_MAX_RESULTS: z.coerce.number().int().min(1).max(25).default(8),
+    AGENT_INTEL_TWITTER_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
     AGENT_INTEL_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
     TWITTER_BEARER_TOKEN: z.string().default(''),
     BRAVE_API_KEY: z.string().default(''),

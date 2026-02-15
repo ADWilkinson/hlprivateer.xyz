@@ -182,7 +182,7 @@ async function twitterSearchRecent(params: {
   timeoutMs: number
 }): Promise<TwitterQueryResult> {
   const fetchedAt = new Date().toISOString()
-  const maxResults = clampInt(params.maxResults, 5, 25)
+  const maxResults = clampInt(params.maxResults, 10, 100)
 
   const query = sanitizeLine(params.query, 280)
   const url = new URL('https://api.twitter.com/2/tweets/search/recent')
