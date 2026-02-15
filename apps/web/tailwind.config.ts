@@ -9,33 +9,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        themePanNavy: '#27272A',
-        themePanSky: '#0072B5',
-        themePanChampagne: '#F4EEE8',
-        hlpBg: '#F4EEE8',
-        hlpPanel: '#F4EEE8',
-        hlpSurface: '#F4EEE8',
-        hlpInverseBg: '#2f3034',
-        hlpDeepBg: '#1c1c1f',
-        hlpFg: '#27272A',
-        hlpMuted: '#27272A',
-        hlpDim: '#5B5B60',
+        hlpBg: '#ffffff',
+        hlpPanel: '#ffffff',
+        hlpSurface: '#f4f4f4',
+        hlpInverseBg: '#161616',
+        hlpDeepBg: '#0d0d0d',
+        hlpFg: '#000000',
+        hlpMuted: '#6f6f6f',
+        hlpDim: '#a8a8a8',
         hlpHealthy: '#3D5A45',
         hlpPositive: '#0072B5',
         hlpWarning: '#DC7F5A',
         hlpNegative: '#9E4445',
-        hlpBorder: '#000000',
+        hlpBorder: '#e0e0e0',
         hlpBorderStrong: '#000000',
-        hlpNeutral: '#27272A',
+        hlpNeutral: '#000000',
         hlpAccent: '#0072B5',
-      },
-      borderRadius: {
-        hlp: '8px',
-      },
-      boxShadow: {
-        hlp: '0 0 0 1px rgba(0, 0, 0, 0.18)',
-        'hlp-glow': '0 0 20px rgba(0, 114, 181, 0.08)',
-        'hlp-card': '0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.08)',
       },
       fontFamily: {
         mono: ['var(--font-hlp-mono)', 'IBM Plex Mono', 'SFMono-Regular', 'ui-monospace', 'monospace'],
@@ -59,7 +48,7 @@ const config: Config = {
           to: { opacity: '1', transform: 'translateY(0)' },
         },
         'hlp-hot': {
-          '0%': { backgroundColor: 'rgba(39, 39, 42, 0.12)' },
+          '0%': { backgroundColor: 'rgba(0, 0, 0, 0.06)' },
           '100%': { backgroundColor: 'transparent' },
         },
         'hlp-led': {

@@ -404,6 +404,95 @@ describe('risk-engine', () => {
     expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
   })
 
+  it('allows EXIT proposals in REBALANCE state even with parity drift and drawdown', () => {
+    const decision = evaluateRisk(baseConfig, {
+      state: 'REBALANCE',
+      actorType: 'internal_agent',
+      accountValueUsd: 1008,
+      dependenciesHealthy: true,
+      openPositions: [
+        { symbol: 'BTC', side: 'SHORT', qty: 0.00448, notionalUsd: 303.36 },
+        { symbol: 'ETH', side: 'SHORT', qty: 0.1506, notionalUsd: 301.25 },
+        { symbol: 'SOL', side: 'SHORT', qty: 3.66, notionalUsd: 304.72 },
+        { symbol: 'HYPE', side: 'LONG', qty: 29.15, notionalUsd: 920.38 }
+      ],
+      ticks: {
+        HYPE: { symbol: 'HYPE', px: 31.89, bid: 31.88, ask: 31.9, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        ETH: { symbol: 'ETH', px: 2068, bid: 2067, ask: 2068.15, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        SOL: { symbol: 'SOL', px: 85.41, bid: 85.40, ask: 85.41, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        BTC: { symbol: 'BTC', px: 69500, bid: 69499, ask: 69500, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
+      },
+      proposal: {
+        proposalId: 'p-exit-rebalance',
+        cycleId: 'c1',
+        summary: 'exit to flat from REBALANCE',
+        confidence: 0.95,
+        requestedMode: 'SIM',
+        createdBy: 'agent',
+        actions: [
+          {
+            type: 'EXIT',
+            rationale: 'drawdown breach exit',
+            notionalUsd: 1164.69,
+            expectedSlippageBps: 2,
+            legs: [
+              { symbol: 'BTC', side: 'BUY', notionalUsd: 303.36 },
+              { symbol: 'ETH', side: 'BUY', notionalUsd: 301.25 },
+              { symbol: 'SOL', side: 'BUY', notionalUsd: 304.72 },
+              { symbol: 'HYPE', side: 'SELL', notionalUsd: 920.38 }
+            ]
+          }
+        ]
+      }
+    })
+
+    expect(decision.decision).toBe('ALLOW')
+    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
+    expect(decision.reasons.some((reason) => reason.code === 'DRAWDOWN')).toBe(false)
+  })
+
+  it('denies EXIT proposals that would increase gross exposure', () => {
+    const decision = evaluateRisk(baseConfig, {
+      state: 'REBALANCE',
+      actorType: 'internal_agent',
+      accountValueUsd: 10000,
+      dependenciesHealthy: true,
+      openPositions: [
+        { symbol: 'HYPE', side: 'LONG', qty: 10, notionalUsd: 1000 },
+        { symbol: 'ETH', side: 'SHORT', qty: 5, notionalUsd: 1000 }
+      ],
+      ticks: {
+        HYPE: { symbol: 'HYPE', px: 100, bid: 100, ask: 100, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        ETH: { symbol: 'ETH', px: 2000, bid: 2000, ask: 2000, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        SOL: { symbol: 'SOL', px: 85, bid: 85, ask: 85, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
+      },
+      proposal: {
+        proposalId: 'p-exit-bad',
+        cycleId: 'c1',
+        summary: 'fake exit that adds exposure',
+        confidence: 0.5,
+        requestedMode: 'SIM',
+        createdBy: 'agent',
+        actions: [
+          {
+            type: 'EXIT',
+            rationale: 'bogus exit',
+            notionalUsd: 3000,
+            expectedSlippageBps: 2,
+            legs: [
+              { symbol: 'HYPE', side: 'SELL', notionalUsd: 1000 },
+              { symbol: 'ETH', side: 'BUY', notionalUsd: 1000 },
+              { symbol: 'SOL', side: 'BUY', notionalUsd: 3000 }
+            ]
+          }
+        ]
+      }
+    })
+
+    expect(decision.decision).toBe('DENY')
+    expect(decision.reasons.some((reason) => reason.code === 'DRAWDOWN')).toBe(true)
+  })
+
   it('denies external agents from direct execution path', () => {
     const decision = evaluateRisk(baseConfig, {
       state: 'READY',

@@ -1,5 +1,5 @@
 import { AsciiBadge } from './ascii-kit'
-import { cardClass, collapsibleHeaderClass, inverseControlClass, skeletonPulseClass, statusCellClass, panelRadiusSubtle } from './ascii-style'
+import { cardClass, collapsibleHeaderClass, inverseControlClass, skeletonPulseClass, statusCellClass } from './ascii-style'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -78,7 +78,7 @@ export function StatusStrip({
                 {['MODE', 'WS', 'HEALTH', 'DRIFT', 'FEED AGE', 'HEARTBEAT'].map((label) => (
                   <div className={statusCellClass} key={label}>
                     <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>{label}</span>
-                    <span className={`h-3 w-16 ${panelRadiusSubtle} ${skeletonPulseClass}`} />
+                    <span className={`h-3 w-16 ${skeletonPulseClass}`} />
                   </div>
                 ))}
               </>
@@ -102,7 +102,7 @@ export function StatusStrip({
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEALTH</span>
                   <span className='flex items-center gap-2'>
                     <span className='relative'>
-                      <span className={`block h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[health]}`} />
+                      <span className={`block h-1.5 w-1.5 ${LED_CLASS_BY_STATE[health]}`} />
                     </span>
                     <span className={`text-[11px] font-bold ${LED_TEXT_BY_STATE[health]}`}>{healthLabel}</span>
                   </span>
@@ -110,7 +110,7 @@ export function StatusStrip({
                 <div className={statusCellClass}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DRIFT</span>
                   <span className='flex items-center gap-2'>
-                    <span className={`h-1.5 w-1.5 rounded-full ${LED_CLASS_BY_STATE[drift]}`} />
+                    <span className={`h-1.5 w-1.5 ${LED_CLASS_BY_STATE[drift]}`} />
                     <span className='text-[11px] font-bold'>{driftLabel}</span>
                   </span>
                 </div>

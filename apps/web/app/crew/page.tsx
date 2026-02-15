@@ -93,7 +93,7 @@ export default function CrewPage() {
     <>
       <AsciiBackground />
       <main className={pageShellClass}>
-        <section className='rounded-[6px] border border-hlpBorder bg-hlpInverseBg px-4 py-5 md:px-6'>
+        <section className='border border-hlpBorder bg-hlpInverseBg px-4 py-5 md:px-6'>
           <div className='text-[9px] uppercase tracking-[0.2em] text-hlpPanel/70'>Crew setup</div>
           <h1 className='mt-2 text-[30px] leading-tight text-hlpPanel'>[HL] PRIVATEER — Crew Architecture</h1>
           <p className='mt-3 max-w-4xl text-sm leading-relaxed text-hlpPanel/80'>
@@ -132,7 +132,7 @@ export default function CrewPage() {
           <div className={cardHeaderClass}>Crew telemetry and observability</div>
           <div className='grid gap-2 p-3 sm:grid-cols-2'>
             {TELEMETRY_PILLARS.map((item) => (
-              <div key={item} className='rounded-[3px] border border-hlpBorder bg-hlpSurface/40 px-2 py-2 text-[11px]'>
+              <div key={item} className='border border-hlpBorder bg-hlpSurface/40 px-2 py-2 text-[11px]'>
                 {item}
               </div>
             ))}

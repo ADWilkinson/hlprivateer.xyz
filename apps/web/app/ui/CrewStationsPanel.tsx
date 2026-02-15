@@ -125,14 +125,14 @@ export function CrewStationsPanel({
                       <div>
                         <div className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</div>
                         {isLoading ? (
-                          <span className='mt-0.5 inline-block h-3 w-20 rounded-sm bg-hlpSurface/80' />
+                          <span className='mt-0.5 inline-block h-3 w-20 bg-hlpSurface/80' />
                         ) : (
                           <div className='mt-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpDim'>{lane}</div>
                         )}
                       </div>
                     </div>
                     <span
-                      className={`h-2 w-2 rounded-full shrink-0 ${
+                      className={`h-2 w-2 shrink-0 ${
                         isLoading
                           ? 'bg-hlpMuted'
                           : active
@@ -146,7 +146,7 @@ export function CrewStationsPanel({
 
                 <div className={`${panelBodyPad} space-y-1.5`}>
                   {isLoading ? (
-                    <span className='inline-block h-3 w-20 rounded-sm bg-hlpSurface/80' />
+                    <span className='inline-block h-3 w-20 bg-hlpSurface/80' />
                   ) : (
                     <span
                       className={`text-[8px] uppercase tracking-[0.12em] ${
@@ -161,11 +161,11 @@ export function CrewStationsPanel({
                     </span>
                   )}
 
-                  <div className='h-1.5 w-full rounded-full bg-hlpSurface/75 overflow-hidden' aria-hidden='true'>
-                    {isLoading ? <span className={`block h-full rounded-full ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
+                  <div className='h-1.5 w-full bg-hlpSurface/75 overflow-hidden' aria-hidden='true'>
+                    {isLoading ? <span className={`block h-full ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
                     {!isLoading ? (
                       <span
-                        className='block h-full rounded-full bg-hlpHealthy/80 transition-all duration-500'
+                        className='block h-full bg-hlpHealthy/80 transition-all duration-500'
                         style={{ width: getActivityWidth(beatScore) }}
                       />
                     ) : null}
@@ -177,16 +177,16 @@ export function CrewStationsPanel({
                   </div>
 
                   <div className='min-h-8 overflow-hidden text-[10px] break-words leading-snug text-hlpMuted' title={line}>
-                    {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{line}</span>}
+                    {isLoading ? <span className={`inline-block h-3 w-full ${skeletonPulseClass}`} /> : <span>{line}</span>}
                   </div>
 
                   <div className='text-[8px] uppercase tracking-[0.12em] text-hlpDim/70'>
-                    {isLoading ? <span className={`inline-block h-3 w-full rounded-sm ${skeletonPulseClass}`} /> : <span>{nextGate}</span>}
+                    {isLoading ? <span className={`inline-block h-3 w-full ${skeletonPulseClass}`} /> : <span>{nextGate}</span>}
                   </div>
                 </div>
 
                 <div className={`mt-auto flex flex-wrap items-center justify-between border-t border-hlpBorder ${panelInsetPad} text-[8px] text-hlpDim`}>
-                  <span>{isLoading ? <span className={`inline-block h-3 w-20 rounded-sm ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '--'}</span>
+                  <span>{isLoading ? <span className={`inline-block h-3 w-20 ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '--'}</span>
                   <span>events {isLoading ? '--' : crewSignals[role]}/{maxSignals}</span>
                 </div>
               </article>

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { cardClass, cardHeaderClass, panelRadius, pageShellClass } from './ui/ascii-style'
+import { cardClass, cardHeaderClass, pageShellClass } from './ui/ascii-style'
 import { LandingAsciiDisplay } from './ui/LandingAsciiDisplay'
 import { apiUrl } from '../lib/endpoints'
 
@@ -111,10 +111,10 @@ function SparkBars({ label, values, unit = 'pct' }: { label: string; values: num
           return (
             <div key={`${label}-${index}`} className='relative flex min-h-0 min-w-0 flex-1 flex-col justify-end'>
               <div
-                className='mx-auto w-full rounded-[2px] border border-hlpBorder bg-hlpSurface'
+                className='mx-auto w-full border border-hlpBorder bg-hlpSurface'
                 style={{ height: `${Math.max(h, 4)}%` }}
               >
-                <div className='relative h-full rounded-[2px] bg-hlpInverseBg/20'>
+                <div className='relative h-full bg-hlpInverseBg/20'>
                   <span
                     className='absolute left-1/2 top-0 -translate-x-1/2 text-[7px] tracking-[0.2em] text-hlpMuted'
                     style={{ transform: 'translate(-50%, -16px)' }}
@@ -251,7 +251,7 @@ export default function LandingPage() {
 
   return (
     <div className={pageShellClass}>
-      <section className={`${panelRadius} relative overflow-hidden border border-hlpBorder bg-hlpInverseBg px-3 py-6 sm:px-5 sm:py-8 md:flex md:items-center md:gap-6`}> 
+      <section className='relative overflow-hidden border border-hlpBorder bg-hlpInverseBg px-3 py-6 sm:px-5 sm:py-8 md:flex md:items-center md:gap-6'>
         <div className='relative z-10 space-y-4 md:max-w-2xl'>
           <div className='inline-flex items-center gap-2 border border-hlpBorder bg-hlpPanel/20 px-2 py-1 text-[9px] uppercase tracking-[0.22em] text-hlpPanel/70'>
             [HL] PRIVATEER
@@ -268,13 +268,13 @@ export default function LandingPage() {
           <div className='flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.18em]'>
             <Link
               href='/data'
-              className='inline-flex items-center rounded-[4px] border border-hlpPanel bg-hlpPanel px-3 py-2 font-semibold text-hlpBg transition-colors hover:bg-hlpSurface'
+              className='inline-flex items-center border border-hlpPanel bg-hlpPanel px-3 py-2 font-semibold text-hlpBg transition-colors hover:bg-hlpSurface'
             >
               Open data center
             </Link>
             <Link
               href='/integrations'
-              className='inline-flex items-center rounded-[4px] border border-hlpPanel/40 bg-hlpPanel/10 px-3 py-2 transition-colors hover:bg-hlpPanel/20'
+              className='inline-flex items-center border border-hlpPanel/40 bg-hlpPanel/10 px-3 py-2 transition-colors hover:bg-hlpPanel/20'
             >
               Explore integrations
             </Link>
@@ -290,8 +290,8 @@ export default function LandingPage() {
         </div>
 
         <div className='relative mt-6 min-w-0 md:mt-0 md:flex-1'>
-          <div className='absolute inset-0 rounded-[4px] bg-hlpBg opacity-40' />
-          <LandingAsciiDisplay className='relative z-10 rounded-[4px] border border-hlpPanel/35 bg-hlpPanel/15 p-3' rows={20} cols={54} speedMs={90} />
+          <div className='absolute inset-0 bg-hlpBg opacity-40' />
+          <LandingAsciiDisplay className='relative z-10 border border-hlpPanel/35 bg-hlpPanel/15 p-3' rows={20} cols={54} speedMs={90} />
         </div>
       </section>
 

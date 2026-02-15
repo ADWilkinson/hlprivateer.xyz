@@ -1,4 +1,3 @@
-import { panelRadius } from './ascii-style'
 import { AsciiBadge } from './ascii-kit'
 
 type FloorHeaderProps = {
@@ -29,7 +28,7 @@ export function FloorHeader({ onX402Access }: FloorHeaderProps) {
   }
 
   return (
-    <section className={`relative overflow-hidden ${panelRadius} border border-hlpBorder bg-hlpInverseBg animate-hlp-fade-up`}>
+    <section className='relative overflow-hidden border border-hlpBorder bg-hlpInverseBg animate-hlp-fade-up'>
       <div className='absolute inset-0 overflow-hidden pointer-events-none select-none' aria-hidden='true'>
         <pre className='text-[10px] leading-[1.6] text-hlpPanel/[0.035] whitespace-pre font-mono'>
           {ASCII_TEXTURE}

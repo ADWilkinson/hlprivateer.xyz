@@ -28,14 +28,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#27272A',
+  themeColor: '#ffffff',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang='en' suppressHydrationWarning className={`${terminalFont.variable}`}>
       <body
-        className={`${terminalFont.className} min-h-screen bg-hlpBg text-hlpFg antialiased ascii-texture`}
+        className={`${terminalFont.className} min-h-screen bg-hlpBg text-hlpFg antialiased`}
       >
         <SiteNav />
         <div className='min-h-screen'>{children}</div>

@@ -1744,7 +1744,7 @@ function envelopeId() {
 const DEFAULT_HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
 const DEFAULT_L2_BOOK_CACHE_TTL_MS = 2500
 const DEFAULT_L2_BOOK_LEVELS = 20
-const DEFAULT_L2_BOOK_TIMEOUT_MS = 1200
+const DEFAULT_L2_BOOK_TIMEOUT_MS = 3000
 
 type L2BookSnapshot = {
   bidPx: number

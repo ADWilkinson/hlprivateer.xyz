@@ -3968,6 +3968,7 @@ const start = async (): Promise<void> => {
 
   scheduleGitHubJournalIntervalFlush()
 
+  const HEARTBEAT_PATH = '/tmp/.agent-runner-heartbeat'
   let tickRunning = false
   setInterval(() => {
     if (tickRunning) {
@@ -3997,6 +3998,7 @@ const start = async (): Promise<void> => {
       })
       .finally(() => {
         tickRunning = false
+        fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch(() => undefined)
       })
   }, 1000)
 
@@ -4008,6 +4010,7 @@ const start = async (): Promise<void> => {
   await publishTape({ correlationId: ulid(), role: 'execution', line: 'execution online (tactics)' })
   await publishTape({ correlationId: ulid(), role: 'scribe', line: 'scribe online (analysis)' })
 
+  await fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch(() => undefined)
   console.log(`agent-runner started agentId=${env.AGENT_ID} llm=${env.AGENT_LLM} requestedMode=${requestedModeFromEnv()}`)
 }
 

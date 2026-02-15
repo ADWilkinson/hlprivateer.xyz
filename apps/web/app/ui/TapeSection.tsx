@@ -52,13 +52,13 @@ export function TapeSection({
                 >
                   <span className='w-3 shrink-0 text-[10px]'>&nbsp;</span>
                   <span className='min-w-0 flex-[0_0_66px] shrink-0'>
-                    <span className={`inline-block h-3 w-12 rounded-sm ${skeletonPulseClass}`} />
+                    <span className={`inline-block h-3 w-12 ${skeletonPulseClass}`} />
                   </span>
                   <span className='min-w-0 flex-[0_0_44px] shrink-0'>
-                    <span className={`inline-block h-3 w-8 rounded-sm ${skeletonPulseClass}`} />
+                    <span className={`inline-block h-3 w-8 ${skeletonPulseClass}`} />
                   </span>
                   <span className='min-w-0 flex-1'>
-                    <span className='inline-block h-3 w-full rounded-sm bg-hlpSurface/70' />
+                    <span className='inline-block h-3 w-full bg-hlpSurface/70' />
                   </span>
                 </div>
               ))

@@ -1,0 +1,74 @@
+# Agent Runner - Development Context
+
+## Overview
+LLM orchestration service running multi-agent strategy loops. 7 agent roles produce structured proposals published to Redis event bus for runtime consumption.
+
+## Key Files
+```
+src/
+├── index.ts              # 4000+ line orchestrator: all 7 roles, scheduling, journaling
+├── config.ts             # Env schema with per-role LLM overrides, *_FILE secrets
+├── llm.ts                # Claude/Codex CLI wrappers for structured output
+├── hyperliquid.ts        # Hyperliquid universe metadata + funding + OI
+├── coingecko.ts          # Sector breadth, TVL, volume snapshots
+├── intel.ts              # Twitter/X narrative velocity via bearer token
+├── price-features.ts     # Historical price metrics (returns, vol, momentum)
+└── exposure.ts           # Position analysis, flat detection, dust filtering
+```
+
+## Agent Roles
+
+| Role | Cadence | Purpose | LLM |
+|------|---------|---------|-----|
+| Scout | 1s heartbeat | Tick collection, feed freshness, watchlist | No |
+| Research | Hourly | Regime, funding, correlation, social, macro | Yes |
+| Risk | Hourly | Posture (GREEN/YELLOW/RED), policy recommendations | Optional |
+| Strategist | Hourly | Long/short/pair directives, sizing, horizon | Yes |
+| Execution | Event-driven | Transform plans into `StrategyProposal` | Optional |
+| Scribe | Hourly | Audit narrative, rationale synthesis | Yes |
+| Ops | Continuous | Floor stability, auto-halt, watchdog | No |
+
+## LLM Integration (`llm.ts`)
+Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structured output. Multi-strategy JSON extraction from stdout (handles ANSI, markdown fences, nested JSON). Timeouts: 90s claude, 120s codex. Temporary settings isolation (disables hooks).
+
+**Config**: `AGENT_LLM` (global default), per-role overrides (`AGENT_RESEARCH_LLM`, etc.), `CLAUDE_MODEL=opus`, `CODEX_MODEL=gpt-5.3-codex-spark`.
+
+## Data Sources
+- **Hyperliquid**: Universe metadata, funding rates, open interest, orderbook
+- **CoinGecko**: Sector breadth (DeFi, L1, Memes), TVL, volume
+- **Twitter/X**: Narrative velocity, mention counts (via `TWITTER_BEARER_TOKEN`)
+- **Price Features**: Returns (1h/4h/24h/7d), volatility, momentum, RSI-like indicators
+
+## Proposal Flow
+1. Fetch Hyperliquid universe → filter top N by volume/OI
+2. Enrich with CoinGecko + Twitter intel
+3. Compute price features (4h window)
+4. Build LLM prompt with all context
+5. Call `runCodexStructured` with `StrategyProposalSchema`
+6. Validate with `parseStrategyProposal()` — invalid → journal error, no publish
+7. Publish to `hlp.strategy.proposals` stream
+
+## Journaling
+- **Local**: NDJSON per role (`journals/journal-<role>.ndjson`), append-only
+- **GitHub**: Optional sync to repo via API (`GITHUB_TOKEN` + repo config)
+- **Discord**: Webhook alerts with cooldown, filtered by action type
+
+## Event Bus
+**Publishes**: `hlp.strategy.proposals`, `hlp.ui.events` (floor tape), `hlp.audit.events`
+**Consumes**: `hlp.risk.decisions`, `hlp.execution.fills`
+
+## Key Environment Variables
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AGENT_LLM` | codex | Global LLM ('claude'/'codex'/'none') |
+| `AGENT_PROPOSAL_INTERVAL_MS` | 3600000 | Hourly cycle |
+| `AGENT_UNIVERSE_SIZE` | 6 | Top N assets |
+| `AGENT_UNIVERSE_CANDIDATE_LIMIT` | 240 | Broad pool |
+| `AGENT_INTEL_ENABLED` | - | Enable intel pack |
+| `DRY_RUN` | false | SIM mode |
+
+## Development
+- `AGENT_LLM=none` skips LLM calls (dry run)
+- `DRY_RUN=true` forces SIM mode
+- `AGENT_PROPOSAL_INTERVAL_MS=300000` (5min) for faster testing
+- Check `journals/journal-ops.ndjson` for floor status

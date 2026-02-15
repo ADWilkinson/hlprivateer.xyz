@@ -68,7 +68,7 @@ export function AsciiBackground() {
       ctx.textBaseline = 'middle'
 
       for (const p of particles.current) {
-        ctx.fillStyle = `rgba(39, 39, 42, ${p.opacity})`
+        ctx.fillStyle = `rgba(0, 0, 0, ${p.opacity})`
         ctx.fillText(p.char, p.x, p.y)
 
         p.y -= p.speed

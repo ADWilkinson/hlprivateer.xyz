@@ -171,7 +171,7 @@ export function X402AgentMaterialsPanel({
 
           <div className='grid gap-2'>
             <div className='text-[9px] uppercase tracking-[0.14em] text-hlpDim'>Direct curl access</div>
-            <div className='rounded-[4px] border border-hlpBorder overflow-hidden'>
+            <div className='border border-hlpBorder overflow-hidden'>
               <div className='px-3 py-1.5 text-[8px] uppercase tracking-[0.2em] text-hlpDim bg-hlpSurface border-b border-hlpBorder'>llms / openspec / agents</div>
               <div className='space-y-0.5 px-2 py-2'>
                 {curlCommands.map((entry) => (
@@ -180,7 +180,7 @@ export function X402AgentMaterialsPanel({
                     href={entry.href}
                     target='_blank'
                     rel='noreferrer'
-                    className='block rounded-[3px] px-2 py-1.5 font-mono text-[10px] break-all text-hlpAccent transition-colors hover:bg-hlpSurface/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
+                    className='block px-2 py-1.5 font-mono text-[10px] break-all text-hlpAccent transition-colors hover:bg-hlpSurface/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
                   >
                     {entry.command}
                   </a>

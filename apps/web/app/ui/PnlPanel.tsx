@@ -8,7 +8,6 @@ import {
   monitorClass,
   panelBodyPad,
   panelHeaderPad,
-  panelRadiusSubtle,
   skeletonPulseClass,
 } from './ascii-style'
 import { type Snapshot } from './floor-dashboard'
@@ -218,7 +217,7 @@ function HeroStat({
     <div className={heroCardClass}>
           <div className='text-[9px] sm:text-[8px] uppercase tracking-[0.2em] text-hlpPanel/50 mb-1.5'>{label}</div>
       {isLoading ? (
-        <span className={`inline-block h-7 w-24 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
+        <span className={`inline-block h-7 w-24 ${skeletonPulseClass}`} />
       ) : (
         <div className={`text-[20px] sm:text-[24px] md:text-[28px] font-bold tracking-[0.06em] leading-none ${colorClass}`}>
           {value}
@@ -265,20 +264,20 @@ function SparklineCard({
       </div>
       <div className='px-3 pb-3 pt-2'>
         {isLoading ? (
-          <div className='grid min-h-[204px] items-center gap-3 rounded-sm bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
+          <div className='grid min-h-[204px] items-center gap-3 bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
             <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
-            <span className={`h-4 w-44 ${skeletonPulseClass} ${panelRadiusSubtle}`} />
-            <span className='inline-block h-32 w-full rounded-sm bg-hlpPanel/85 animate-pulse' />
+            <span className={`h-4 w-44 ${skeletonPulseClass}`} />
+            <span className='inline-block h-32 w-full bg-hlpSurface animate-pulse' />
           </div>
         ) : (
-          <div className='relative h-[262px] w-full overflow-hidden rounded-sm border border-hlpPanel bg-hlpPanel/95'>
+          <div className='relative h-[262px] w-full overflow-hidden border border-hlpBorder bg-hlpBg'>
             <svg viewBox={`0 0 ${stats.width} ${stats.height}`} preserveAspectRatio='none' className='h-full w-full'>
               <line
                 x1={stats.padX}
                 x2={stats.padX}
                 y1={stats.padY}
                 y2={stats.xAxisY}
-                className='stroke-hlpPanel/70'
+                className='stroke-hlpBorder'
                 strokeWidth='0.32'
               />
               <line
@@ -286,7 +285,7 @@ function SparklineCard({
                 x2={stats.width - stats.padX}
                 y1={stats.xAxisY}
                 y2={stats.xAxisY}
-                className='stroke-hlpPanel/70'
+                className='stroke-hlpBorder'
                 strokeWidth='0.32'
               />
 
@@ -381,7 +380,7 @@ function SparklineCard({
                 x2={stats.currentPointX}
                 y1={stats.padY}
                 y2={stats.xAxisY}
-                className='stroke-hlpPanel/45'
+                className='stroke-hlpDim'
                 strokeWidth='0.22'
               />
               <circle
@@ -397,9 +396,9 @@ function SparklineCard({
                 y={currentLabelY - 7}
                 width={currentLabelWidth}
                 height='14'
-                rx='3'
-                fill='rgba(244, 238, 232, 0.95)'
-                stroke='rgba(39, 39, 42, 0.2)'
+                rx='0'
+                fill='rgba(255, 255, 255, 0.95)'
+                stroke='rgba(0, 0, 0, 0.12)'
                 strokeWidth='0.35'
               />
               <text

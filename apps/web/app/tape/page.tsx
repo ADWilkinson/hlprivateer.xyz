@@ -184,7 +184,7 @@ export default function TapePage() {
           <div className={cardHeaderClass}>
             <div>live tape stream</div>
             <div className='flex items-center gap-2'>
-              <Link href='/' className='rounded-[3px] border border-hlpBorder px-2 py-1 text-[9px] uppercase tracking-[0.16em]'>
+              <Link href='/' className='border border-hlpBorder px-2 py-1 text-[9px] uppercase tracking-[0.16em]'>
                 Back
               </Link>
               <span className='text-hlpMuted'>{tape.length} entries</span>

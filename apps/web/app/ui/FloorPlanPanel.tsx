@@ -283,10 +283,10 @@ export function FloorPlanPanel({
             <div className={sectionStripClass}>
               {isLoading ? (
                 <>
-                  <span className={`${skeletonPulseClass} h-5 w-32 rounded-sm`} />
-                  <span className={`${skeletonPulseClass} h-5 w-36 rounded-sm`} />
-                  <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
-                  <span className={`${skeletonPulseClass} h-5 w-28 rounded-sm`} />
+                  <span className={`${skeletonPulseClass} h-5 w-32`} />
+                  <span className={`${skeletonPulseClass} h-5 w-36`} />
+                  <span className={`${skeletonPulseClass} h-5 w-28`} />
+                  <span className={`${skeletonPulseClass} h-5 w-28`} />
                 </>
               ) : (
                 <>
@@ -305,7 +305,7 @@ export function FloorPlanPanel({
                   className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
                   key={`node-${entry.key}`}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${entry.dotClass}`} />
+                  <span className={`h-1.5 w-1.5 ${entry.dotClass}`} />
                   <span>{entry.label}</span>
                   <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
                 </span>
@@ -316,7 +316,7 @@ export function FloorPlanPanel({
                   className='inline-flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-[0.14em] text-hlpMuted'
                   key={`edge-${entry.key}`}
                 >
-                  <span className={`h-1.5 w-2 rounded-sm border ${entry.dotClass.replace('stroke-', 'border-')}`} />
+                  <span className={`h-1.5 w-2 border ${entry.dotClass.replace('stroke-', 'border-')}`} />
                   <span>{entry.label}</span>
                   <span className='uppercase tracking-[0.14em] text-hlpMuted/70'>({entry.detail})</span>
                 </span>

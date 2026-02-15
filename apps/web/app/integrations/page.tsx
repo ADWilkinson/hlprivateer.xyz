@@ -92,7 +92,7 @@ function SourceCard({ title, links, note }: { title: string; links: string[]; no
               href={link}
               target='_blank'
               rel='noreferrer'
-              className='block rounded-[3px] border border-hlpBorder bg-hlpSurface/35 px-2 py-1 text-hlpAccent transition-colors hover:bg-hlpSurface'
+              className='block border border-hlpBorder bg-hlpSurface/35 px-2 py-1 text-hlpAccent transition-colors hover:bg-hlpSurface'
             >
               {link}
             </a>
@@ -115,7 +115,7 @@ function ToolCard({ tool }: { tool: (typeof OPENCLAW_TOOLS)[number] }) {
         <p className='mt-2 text-[11px] leading-relaxed'>{tool.note}</p>
         <ul className='mt-3 space-y-1 text-[10px]'>
           {tool.commands.map((cmd) => (
-            <li key={cmd} className='rounded-[3px] border border-hlpBorder/80 bg-hlpSurface/40 px-2 py-1 font-mono text-hlpMuted'>
+            <li key={cmd} className='border border-hlpBorder/80 bg-hlpSurface/40 px-2 py-1 font-mono text-hlpMuted'>
               {cmd}
             </li>
           ))}
@@ -128,7 +128,7 @@ function ToolCard({ tool }: { tool: (typeof OPENCLAW_TOOLS)[number] }) {
 export default function IntegrationsPage() {
   return (
     <div className={pageShellClass}>
-      <section className='rounded-[6px] border border-hlpBorder bg-hlpInverseBg px-4 py-5 md:px-6'>
+      <section className='border border-hlpBorder bg-hlpInverseBg px-4 py-5 md:px-6'>
         <div className='inline-flex items-center gap-2 border border-hlpBorder bg-hlpPanel/10 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-hlpPanel/70'>
           data, integrations, and crew telemetry stack
         </div>
@@ -171,10 +171,10 @@ export default function IntegrationsPage() {
           {AGENT_ENDPOINTS.map((route) => (
             <div
               key={route.route}
-              className='rounded-[4px] border border-hlpBorder bg-hlpSurface/30 px-2 py-1.5 text-[11px]'
+              className='border border-hlpBorder bg-hlpSurface/30 px-2 py-1.5 text-[11px]'
             >
               <div className='inline-flex items-center gap-2 text-[9px] uppercase tracking-[0.12em] text-hlpMuted'>
-                <span className='rounded-sm border border-hlpBorder px-1 py-0.5'>{route.method}</span>
+                <span className='border border-hlpBorder px-1 py-0.5'>{route.method}</span>
                 <span>{route.route}</span>
               </div>
               <p className='mt-1 text-hlpFg'>{route.purpose}</p>
@@ -189,7 +189,7 @@ export default function IntegrationsPage() {
           {OBSERVABILITY.map(([label, value]) => (
             <div
               key={label}
-              className='rounded-[4px] border border-hlpBorder bg-hlpSurface/40 px-2 py-2 break-all'
+              className='border border-hlpBorder bg-hlpSurface/40 px-2 py-2 break-all'
             >
               <div className='text-[9px] uppercase tracking-[0.16em] text-hlpMuted'>{label}</div>
               <div className='mt-1 text-sm'>{value}</div>
