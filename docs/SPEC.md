@@ -12,12 +12,14 @@
 
 ### 1.2 Target users/personas
 - Human operator (primary): owns risk budget, config, kill-switch authority, and incident response.
-- Internal agents:
-  - `research-agent`: synthesizes new market context and pair-leg hypotheses.
-  - `risk-agent`: explains risk posture, but cannot bypass hard-gates.
-  - `execution-agent`: proposes execution tactics under slippage/liquidity constraints.
-  - `ops-agent`: monitors service health, replay, and anomaly alerts.
-  - `market-data-agent`: detects stale feeds/regime shifts.
+- Internal agents (7 roles):
+  - `scout`: tick collection, feed freshness monitoring, watchlist management.
+  - `research`: synthesizes new market context, regime analysis, and pair-leg hypotheses.
+  - `risk`: explains risk posture (GREEN/YELLOW/RED), but cannot bypass hard-gates.
+  - `strategist`: proposes long/short/pair directives with sizing and horizon.
+  - `execution`: transforms strategy plans into structured `StrategyProposal` orders.
+  - `scribe`: audit narrative synthesis, rationale documentation per proposal.
+  - `ops`: monitors service health, floor stability, auto-halt watchdog.
 - External agents/bots:
   - `subscriber-agent`: consumes obfuscated/public stream.
   - `premium-agent`: pays via x402 to unlock tiered endpoints/commands.
@@ -165,13 +167,16 @@ External:
 - Stream names:
   - `hlp.market.raw`
   - `hlp.market.normalized`
+  - `hlp.market.watchlist`
   - `hlp.strategy.proposals`
+  - `hlp.plugin.signals`
   - `hlp.risk.decisions`
   - `hlp.execution.commands`
   - `hlp.execution.fills`
   - `hlp.audit.events`
   - `hlp.ui.events`
   - `hlp.payments.events`
+  - `hlp.commands`
 - Event envelope (all streams):
 
 ```ts
@@ -187,6 +192,8 @@ export interface EventEnvelope<T = unknown> {
   actorId: string;
   payload: T;
   signature?: string; // optional HMAC for tamper evidence
+  riskMode?: string; // SIM or LIVE
+  sensitive?: boolean; // marks payload as containing sensitive data
 }
 ```
 
@@ -268,7 +275,7 @@ export interface OrderManager {
   - Normalizer assigns monotonic sequence numbers and server timestamps.
 - Order placement/cancel/modify:
   - All calls require `riskDecisionId` and `idempotencyKey`.
-  - OMS enforces state transitions: `NEW -> ACK -> PARTIAL_FILL -> FILLED|CANCELLED|REJECTED`.
+  - OMS enforces state transitions: `NEW -> WORKING -> PARTIALLY_FILLED -> FILLED|CANCELLED|FAILED`.
 - Fill tracking/reconciliation:
   - Poll open orders every 3s as fallback.
   - Reconcile exchange fills with local ledger every 30s.
@@ -293,10 +300,19 @@ export interface StrategyProposal {
   confidence: number; // 0-1
   actions: Array<{
     type: "ENTER" | "EXIT" | "REBALANCE" | "HOLD";
-    legs: Array<{ symbol: string; side: "BUY" | "SELL"; notionalUsd: number }>;
     rationale: string;
+    notionalUsd: number;
+    legs: Array<{
+      symbol: string;
+      side: "BUY" | "SELL";
+      notionalUsd: number;
+      targetRatio?: number; // 0-1
+    }>;
+    expectedSlippageBps: number;
+    maxSlippageBps?: number;
   }>;
-  requiredDataFreshnessMs: number;
+  createdBy: string;
+  requestedMode: "SIM" | "LIVE";
 }
 ```
 
@@ -313,12 +329,19 @@ export interface StrategyProposal {
 
 ### 4.3 Deterministic risk engine (hard gate)
 
-Risk checks (all must pass):
-- Position and leverage limits.
-- Max account drawdown.
-- Equal-notional enforcement between long and short legs.
-- Slippage cap, volatility circuit breaker, stale data, liquidity floor.
-- Exposure caps per symbol and total gross exposure.
+Risk checks (sequential, all run unconditionally):
+1. **DEPENDENCY_FAILURE**: external dependencies unavailable and `failClosedOnDependencyError` enabled.
+2. **SYSTEM_GATED**: system is in HALT state.
+3. **ACTOR_NOT_ALLOWED**: external agents blocked from direct execution.
+4. **INVALID_PROPOSAL**: proposal has no actionable legs.
+5. **NOTIONAL_PARITY**: long/short imbalance exceeds `notionalParityTolerance`.
+6. **SLIPPAGE_BREACH**: expected/max slippage exceeds `maxSlippageBps`.
+7. **LEVERAGE**: projected gross/accountValue exceeds `maxLeverage`.
+8. **DRAWDOWN**: projected drawdown% exceeds `maxDrawdownPct`.
+9. **EXPOSURE**: projected gross exposure exceeds `maxExposureUsd`.
+10. **LIQUIDITY**: leg notional * `liquidityBufferPct` exceeds L2 book depth.
+11. **SAFE_MODE**: proposal would increase gross notional (only risk-reducing allowed).
+12. **STALE_DATA**: tick age exceeds `staleDataMs`.
 
 Decision contract:
 
@@ -341,27 +364,47 @@ export interface RiskDecision {
 Hard-gate pseudocode:
 
 ```ts
-export function validateProposal(input: RiskInput): RiskDecision {
-  if (input.systemState === "HALT") return deny("System halted");
-  if (input.marketDataAgeMs > cfg.maxStaleMs) return deny("Stale market data");
-  if (input.volatilityZ > cfg.maxVolZ) return deny("Volatility circuit breaker");
-  if (input.liquidityScore < cfg.minLiquidityScore) return deny("Liquidity too thin");
+export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDecisionResult {
+  const reasons = [];
 
-  const imbalance = computeNotionalImbalance(input.legs);
-  if (imbalance > cfg.maxNotionalImbalancePct) return deny("Leg notional mismatch");
+  if (!context.dependenciesHealthy && config.failClosedOnDependencyError)
+    reasons.push("DEPENDENCY_FAILURE");
+  if (context.state === "HALT") reasons.push("SYSTEM_GATED");
+  if (context.actorType === "external_agent") reasons.push("ACTOR_NOT_ALLOWED");
+  if (noActionableLegs(context.proposal)) reasons.push("INVALID_PROPOSAL");
+  if (notionalImbalance > config.notionalParityTolerance) reasons.push("NOTIONAL_PARITY");
+  if (slippage > config.maxSlippageBps) reasons.push("SLIPPAGE_BREACH");
+  if (projectedLeverage > config.maxLeverage) reasons.push("LEVERAGE");
+  if (projectedDrawdown > config.maxDrawdownPct) reasons.push("DRAWDOWN");
+  if (grossExposure > config.maxExposureUsd) reasons.push("EXPOSURE");
+  if (bookDepth < legNotional * config.liquidityBufferPct) reasons.push("LIQUIDITY");
+  if (state === "SAFE_MODE" && wouldIncreaseExposure) reasons.push("SAFE_MODE");
+  if (tickAge > config.staleDataMs) reasons.push("STALE_DATA");
 
-  const projected = projectExposure(input);
-  if (projected.leverage > cfg.maxLeverage) return deny("Leverage limit");
-  if (projected.grossExposureUsd > cfg.maxGrossExposureUsd) return deny("Exposure cap");
-  if (projected.drawdownPct > cfg.maxDrawdownPct) return deny("Drawdown cap");
+  // Exit proposals exempt from DRAWDOWN + NOTIONAL_PARITY if reducing exposure
+  return hasBlockers ? "DENY" : state === "SAFE_MODE" ? "ALLOW_REDUCE_ONLY" : "ALLOW";
+}
+```
 
-  return allow(projected);
+Risk configuration:
+
+```ts
+interface RiskConfig {
+  maxLeverage: number;              // e.g. 2
+  targetLeverage?: number;          // optional sizing hint for agent layers
+  maxDrawdownPct: number;           // e.g. 5
+  maxExposureUsd: number;           // e.g. 10000
+  maxSlippageBps: number;           // e.g. 20
+  staleDataMs: number;              // e.g. 3000
+  liquidityBufferPct: number;       // e.g. 1.1
+  notionalParityTolerance: number;  // e.g. 0.015
+  failClosedOnDependencyError: boolean;
 }
 ```
 
 - Kill switch and safe mode:
   - `HALT`: reject all new orders; allow cancel/flatten only.
-  - `SAFE_MODE`: deny new entries, allow rebalances that reduce risk.
+  - `SAFE_MODE`: deny new entries, allow rebalances that reduce risk. Exit proposals that reduce gross notional are exempted from DRAWDOWN and NOTIONAL_PARITY checks.
 - Human override controls:
   - AuthZ role `operator_admin` required.
   - All overrides require reason code and expire automatically.
@@ -408,7 +451,7 @@ export interface PluginContext {
 ### 4.5 ASCII Trade Floor UI (visual + real-time)
 
 Roles/avatars:
-- `RCH` Research, `RSK` Risk, `EXE` Execution, `OPS` Ops, `MKT` Market Data, `CON` Concierge.
+- `SCT` Scout, `RCH` Research, `RSK` Risk, `STR` Strategist, `EXE` Execution, `SCR` Scribe, `OPS` Ops.
 
 Render rules:
 - Each event maps to lane + severity color + sound cue (optional).
@@ -563,15 +606,20 @@ Encryption-at-rest and backups:
 Public:
 - `GET /v1/public/pnl`
 - `GET /v1/public/floor-snapshot`
+- `GET /v1/public/floor-tape`
 
 Operator:
+- `POST /v1/operator/login` (bootstrap auth with `OPERATOR_LOGIN_SECRET`)
+- `POST /v1/operator/refresh` (JWT token refresh)
 - `GET /v1/operator/status`
 - `GET /v1/operator/positions`
 - `GET /v1/operator/orders?status=open`
+- `GET /v1/operator/audit?from=&to=`
 - `POST /v1/operator/command` (`halt`, `resume`, `risk-policy`, `flatten`)
 - `PATCH /v1/operator/config/risk`
-- `GET /v1/operator/audit?from=&to=`
 - `POST /v1/operator/replay/start`
+- `GET /v1/operator/replay` (query replay events)
+- `GET /v1/operator/replay/export` (export audit range)
 
 External agents:
 - `POST /v1/agent/handshake`
@@ -579,7 +627,6 @@ External agents:
 - `GET /v1/agent/stream/snapshot`
 - `GET /v1/agent/analysis`
 - `GET /v1/agent/insights`
-- `GET /v1/agent/copy/trade`
 - `GET /v1/agent/positions`
 - `GET /v1/agent/orders`
 - `POST /v1/agent/command`
@@ -590,6 +637,9 @@ Deprecated compatibility aliases:
 - `GET /v1/agent/data/overview`
 - `GET /v1/agent/copy-trade/signals`
 - `GET /v1/agent/copy-trade/positions`
+
+Internal:
+- `GET /v1/security/refresh-secrets` (operator-only, hot-reload secrets)
 
 Example public response:
 
@@ -608,27 +658,33 @@ Connection/auth handshake:
 - Operator: JWT with role claims (`operator_view`, `operator_admin`).
 - External agent: API key + entitlement token or x402 proof session.
 
-Message envelope:
+Client → Server messages:
 
 ```ts
-export const WsEnvelopeSchema = z.object({
-  type: z.string(),
-  ts: z.string().datetime(),
-  requestId: z.string().optional(),
-  channel: z.string().optional(),
-  payload: z.unknown()
-});
+// Subscribe to a channel
+{ type: "sub.add", channel: "public" | "operator" | "agent" | "replay" | "audit", token?: string }
+// Unsubscribe
+{ type: "sub.remove", channel: string }
+// Execute a command
+{ type: "cmd.exec", command: string, args: string[] }
+// Keep-alive
+{ type: "ping" }
 ```
 
-Event types:
-- `market.tick`
-- `strategy.proposal`
-- `risk.decision`
-- `execution.order`
-- `execution.fill`
-- `ui.floor`
-- `payment.entitlement`
-- `system.alert`
+Server → Client messages:
+
+```ts
+// Subscription acknowledgment
+{ type: "sub.ack", channel: string, accepted: boolean }
+// Event broadcast
+{ type: "event", channel: string, payload: unknown }
+// Command result
+{ type: "cmd.result", requestId: string, result: CommandResult }
+// Error
+{ type: "error", requestId: string, code: string, message: string }
+// Keep-alive response
+{ type: "pong" }
+```
 
 Example websocket payload:
 
@@ -767,6 +823,7 @@ hlprivateer.xyz/
     api/
     runtime/
     ws-gateway/
+    agent-runner/
     web/
   packages/
     contracts/
@@ -795,6 +852,7 @@ hlprivateer.xyz/
 - `apps/api`: 4000 (REST, auth, x402 enforcement).
 - `apps/ws-gateway`: 4100 (WS channels).
 - `apps/runtime`: no public port (internal worker).
+- `apps/agent-runner`: no public port (internal LLM orchestration worker).
 - Postgres: 5432 localhost only.
 - Redis: 6379 localhost only.
 
@@ -806,6 +864,7 @@ hlprivateer.xyz/
 - `hlprivateer-api.service`
 - `hlprivateer-runtime.service`
 - `hlprivateer-ws.service`
+- `hlprivateer-agent-runner.service`
 - `cloudflared.service` (or a dedicated `hlprivateer-cloudflared.service` if you prefer per-app tunnel isolation)
 
 ### 8.5 Cloudflare Tunnel config outline
@@ -874,10 +933,12 @@ Rebalancing and exits:
   - manual flatten.
 
 Risk rules:
-- Stop-loss per cycle and global max drawdown.
-- Max gross exposure and per-asset exposure.
-- Volatility filter suspends entries above threshold.
-- Stale data and thin book circuit breakers.
+- Global max drawdown and max gross exposure.
+- Max leverage cap (gross notional / account value).
+- Notional parity enforcement (long/short imbalance tolerance).
+- Max slippage cap per action.
+- Stale data and thin book (liquidity) circuit breakers.
+- External agent execution blocked at risk layer.
 
 Dry-run behavior:
 - Same API contracts and event streams.
