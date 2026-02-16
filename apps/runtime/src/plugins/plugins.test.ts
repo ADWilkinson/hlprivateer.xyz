@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import funding from './funding'
 import correlation from './correlation'
 import volatility from './volatility'
+import { setPostInfo } from './hyperliquid'
 import type { PluginContext } from '@hl/privateer-plugin-sdk'
 
 function mockContext(config: Record<string, string | undefined> = {}): PluginContext {
@@ -11,6 +12,13 @@ function mockContext(config: Record<string, string | undefined> = {}): PluginCon
     getConfig: (key: string) => config[key],
     logger: () => undefined
   }
+}
+
+function setupMockPostInfo() {
+  setPostInfo(async <T>(body: unknown): Promise<T> => {
+    const response = await fetch('http://mock', { method: 'POST', body: JSON.stringify(body) })
+    return response.json() as T
+  })
 }
 
 function mockFetch() {
@@ -47,6 +55,7 @@ function mockFetch() {
 describe('runtime plugins', () => {
   it('funding plugin emits funding signal', async () => {
     mockFetch()
+    setupMockPostInfo()
     await funding.initialize(mockContext())
     const signals = await funding.poll()
     expect(signals.length).toBeGreaterThan(0)
@@ -56,6 +65,7 @@ describe('runtime plugins', () => {
 
   it('correlation plugin emits correlation signal', async () => {
     mockFetch()
+    setupMockPostInfo()
     await correlation.initialize(mockContext({ BASKET_SYMBOLS: 'BTC,ETH' }))
     const signals = await correlation.poll()
     expect(signals.length).toBeGreaterThan(0)
@@ -65,6 +75,7 @@ describe('runtime plugins', () => {
 
   it('volatility plugin emits volatility signal', async () => {
     mockFetch()
+    setupMockPostInfo()
     await volatility.initialize(mockContext())
     const signals = await volatility.poll()
     expect(signals.length).toBeGreaterThan(0)

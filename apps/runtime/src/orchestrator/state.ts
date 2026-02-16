@@ -26,6 +26,7 @@ import { canTransition } from '../state-machine'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
+import type { HlClient } from '@hl/privateer-hl-client'
 type RateLimitLevel = 'warn' | 'error'
 
 function createRateLimitedLogger(intervalMs: number) {
@@ -88,6 +89,7 @@ interface LoopConfig {
   env: RuntimeEnv
   bus: EventBus
   store: RuntimeStore
+  hlClient?: HlClient
 }
 
 export interface RuntimeState {
@@ -240,7 +242,7 @@ function setModeGauge(mode: TradeState): void {
   runtimeCycleMode.labels({ mode }).set(1)
 }
 
-export async function createRuntime({ env, bus, store }: LoopConfig): Promise<RuntimeHandle> {
+export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): Promise<RuntimeHandle> {
   if (env.ENABLE_LIVE_OMS && !env.LIVE_MODE_APPROVED) {
     throw new Error('live mode requires explicit operator approval (set LIVE_MODE_APPROVED=true)')
   }
@@ -262,7 +264,7 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
   const readRuntimeRiskPolicy = (): RuntimeRiskPolicy => ({ ...runtimeRiskPolicy })
 
   const adapter = env.ENABLE_LIVE_OMS
-    ? createLiveAdapter(env, () => readRuntimeRiskPolicy().maxSlippageBps)
+    ? createLiveAdapter(env, () => readRuntimeRiskPolicy().maxSlippageBps, hlClient)
     : createSimAdapter(() => readRuntimeRiskPolicy().maxSlippageBps, 25)
   const marketAdapter = await createMarketAdapterLazy(env, bus)
   const pluginManager = await createRuntimePluginManager(bus)
@@ -815,7 +817,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
 
         // On-demand fallback for symbols outside the WS subscription set (dynamic baskets).
         const snapshot = await fetchHyperliquidL2BookSnapshotCached({
-          infoUrl: env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL,
+          postInfo: hlClient?.postInfo,
+          infoUrl: env.HL_INFO_URL,
           coin: symbol,
           cache: l2BookDepthCache
         })
@@ -1021,7 +1024,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
       const dependenciesHealthy = dependencyHealth.ok && databaseHealth
 
       await augmentTicksWithL2BookDepth({
-        infoUrl: env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL,
+        postInfo: hlClient?.postInfo,
+        infoUrl: env.HL_INFO_URL,
         proposal,
         ticks,
         cache: l2BookDepthCache
@@ -1505,7 +1509,8 @@ export async function createRuntime({ env, bus, store }: LoopConfig): Promise<Ru
         let tick = await marketAdapter.latest(position.symbol)
         if (!tick) {
           const snapshot = await fetchHyperliquidL2BookSnapshotCached({
-            infoUrl: env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL,
+            postInfo: hlClient?.postInfo,
+            infoUrl: env.HL_INFO_URL,
             coin: position.symbol,
             cache: l2BookDepthCache
           })
@@ -1887,7 +1892,8 @@ interface HyperliquidL2BookResponse {
 }
 
 async function augmentTicksWithL2BookDepth(params: {
-  infoUrl: string
+  postInfo?: <T>(body: unknown) => Promise<T>
+  infoUrl?: string
   proposal: StrategyProposal
   ticks: Record<string, NormalizedTick>
   cache: L2BookDepthCache
@@ -1905,6 +1911,7 @@ async function augmentTicksWithL2BookDepth(params: {
   await Promise.all(
     [...symbols].map(async (symbol) => {
       const snapshot = await fetchHyperliquidL2BookSnapshotCached({
+        postInfo: params.postInfo,
         infoUrl: params.infoUrl,
         coin: symbol,
         cache: params.cache,
@@ -1941,6 +1948,37 @@ function applyL2BookSnapshotToTick(tick: NormalizedTick, snapshot: L2BookSnapsho
   tick.updatedAt = snapshot.updatedAtIso
   tick.bidSize = snapshot.bidPx > 0 ? snapshot.bidDepthUsd / snapshot.bidPx : 0
   tick.askSize = snapshot.askPx > 0 ? snapshot.askDepthUsd / snapshot.askPx : 0
+}
+
+async function fetchHyperliquidL2BookSnapshotViaClient(
+  postInfo: <T>(body: unknown) => Promise<T>,
+  coin: string,
+  levels: number
+): Promise<L2BookSnapshot | null> {
+  try {
+    const payload = await postInfo<Partial<HyperliquidL2BookResponse>>({ type: 'l2Book', coin })
+    const book = coerceL2BookResponse(payload)
+    if (!book) return null
+
+    const bids = Array.isArray(book.levels[0]) ? book.levels[0] : []
+    const asks = Array.isArray(book.levels[1]) ? book.levels[1] : []
+    const bestBid = parseFiniteNumber(bids[0]?.px) ?? 0
+    const bestAsk = parseFiniteNumber(asks[0]?.px) ?? 0
+    const px = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : Math.max(bestBid, bestAsk)
+    if (!Number.isFinite(px) || px <= 0) return null
+
+    return {
+      bidPx: bestBid > 0 ? bestBid : px,
+      askPx: bestAsk > 0 ? bestAsk : px,
+      px,
+      bidDepthUsd: sumLevelsUsd(bids, levels),
+      askDepthUsd: sumLevelsUsd(asks, levels),
+      updatedAtIso: isoFromEpoch(book.time)
+    }
+  } catch (error) {
+    console.warn('[runtime-state] hyperliquid l2Book fetch via client failed', { coin }, error) // eslint-disable-line no-console
+    return null
+  }
 }
 
 async function fetchHyperliquidL2BookSnapshot(infoUrl: string, coin: string, levels: number, timeoutMs: number): Promise<L2BookSnapshot | null> {
@@ -2003,7 +2041,8 @@ async function fetchHyperliquidL2BookSnapshot(infoUrl: string, coin: string, lev
 }
 
 async function fetchHyperliquidL2BookSnapshotCached(params: {
-  infoUrl: string
+  postInfo?: <T>(body: unknown) => Promise<T>
+  infoUrl?: string
   coin: string
   cache: L2BookDepthCache
   ttlMs?: number
@@ -2032,7 +2071,9 @@ async function fetchHyperliquidL2BookSnapshotCached(params: {
     }
   }
 
-  const snapshot = await fetchHyperliquidL2BookSnapshot(params.infoUrl, params.coin, levels, timeoutMs)
+  const snapshot = params.postInfo
+    ? await fetchHyperliquidL2BookSnapshotViaClient(params.postInfo, params.coin, levels)
+    : await fetchHyperliquidL2BookSnapshot(params.infoUrl ?? DEFAULT_HL_INFO_URL, params.coin, levels, timeoutMs)
   if (!snapshot) {
     return null
   }

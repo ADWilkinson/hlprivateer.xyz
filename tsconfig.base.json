@@ -17,6 +17,7 @@
       "@hl/privateer-risk-engine": ["./packages/risk-engine/src"],
       "@hl/privateer-plugin-sdk": ["./packages/plugin-sdk/src"],
       "@hl/privateer-agent-sdk": ["./packages/agent-sdk/src"],
+      "@hl/privateer-hl-client": ["./packages/hl-client/src"],
       "@hl/privateer-runtime": ["./apps/runtime/src"],
       "@hl/privateer-api": ["./apps/api/src"],
       "@hl/privateer-ws-gateway": ["./apps/ws-gateway/src"],

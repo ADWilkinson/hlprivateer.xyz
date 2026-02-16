@@ -5,6 +5,7 @@ import { RedisEventBus, InMemoryEventBus } from '@hl/privateer-event-bus'
 import type { EventEnvelope, AuditEvent, OperatorPosition, StrategyProposal } from '@hl/privateer-contracts'
 import { parseStrategyProposal } from '@hl/privateer-contracts'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
+import { createHlClient } from '@hl/privateer-hl-client'
 import { env } from './config'
 import { buildFlatSignature, meaningfulPositions } from './exposure'
 import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliquid'
@@ -1808,6 +1809,12 @@ const coinGecko = coinGeckoApiKey
   })
   : null
 
+const hlClient = createHlClient({
+  tokensPerMinute: 200,
+  startupDelayMs: 5000,
+  infoUrl: env.HL_INFO_URL,
+})
+
 type UniverseCandidate = {
   symbol: string
   maxLeverage: number
@@ -1943,7 +1950,7 @@ async function fetchUniverseAssetsCached(nowMs: number): Promise<HyperliquidUniv
     return cachedUniverse.assets
   }
 
-  const assets = await fetchMetaAndAssetCtxs(env.HL_INFO_URL)
+  const assets = await fetchMetaAndAssetCtxs(hlClient.postInfo)
   cachedUniverse = { assets, fetchedAtMs: nowMs }
   return assets
 }
@@ -2096,12 +2103,11 @@ async function maybeSelectBasket(params: {
     const candidateSymbols = candidates.map((candidate) => candidate.symbol)
     const baseSymbol = candidateSymbols[0] ?? 'BTC'
     const pricePack = await computePriceFeaturePack({
-      infoUrl: env.HL_INFO_URL,
+      postInfo: hlClient.postInfo,
       baseSymbol,
       symbols: candidateSymbols,
       windowMin: env.AGENT_FEATURE_WINDOW_MIN,
       interval: '1m',
-      timeoutMs: 1500,
       concurrency: env.AGENT_FEATURE_CONCURRENCY
     })
 

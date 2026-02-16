@@ -1,5 +1,5 @@
 import { PluginContext, PluginRuntime } from '@hl/privateer-plugin-sdk'
-import { fetchCandleSnapshot, parseFiniteNumber } from './hyperliquid'
+import { fetchCandleSnapshot, parseFiniteNumber, getPostInfo } from './hyperliquid'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -71,7 +71,6 @@ export default {
       return []
     }
 
-    const infoUrl = ctx.getConfig('HL_INFO_URL')
     const baseSymbol = (ctx.getConfig('HLP_CORR_BASE') ?? 'BTC').trim() || 'BTC'
     const basketCsv = ctx.getConfig('BASKET_SYMBOLS')
     if (!basketCsv) {
@@ -92,12 +91,13 @@ export default {
     const endTime = Date.now()
     const startTime = endTime - windowMin * 60_000
 
+    const postInfo = getPostInfo()
     const baseCandles = await fetchCandleSnapshot({
       coin: baseSymbol,
       interval: '1m',
       startTime,
       endTime,
-      infoUrl: infoUrl || undefined
+      postInfo
     })
     const baseReturns = returnsByTs(baseCandles)
     if (baseReturns.size < 5) {
@@ -111,7 +111,7 @@ export default {
         interval: '1m',
         startTime,
         endTime,
-        infoUrl: infoUrl || undefined
+        postInfo
       })
       const otherReturns = returnsByTs(candles)
       const left: number[] = []

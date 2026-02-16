@@ -49,49 +49,8 @@ function parseFiniteNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function postJson<T>(url: string, body: unknown, timeoutMs?: number, retries = 3): Promise<T> {
-  const effectiveTimeoutMs =
-    typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
-      ? timeoutMs
-      : 2500
-
-  let lastError: unknown
-
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs)
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      })
-      if (!response.ok) {
-        throw new Error(`hyperliquid info http ${response.status}`)
-      }
-      return (await response.json()) as T
-    } catch (error) {
-      lastError = error
-      if (attempt >= retries) {
-        break
-      }
-      const backoffMs = 150 * (attempt + 1) + Math.floor(Math.random() * 150)
-      await sleep(backoffMs)
-    } finally {
-      clearTimeout(timeout)
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
-}
-
-export async function fetchMetaAndAssetCtxs(infoUrl: string): Promise<HyperliquidUniverseAsset[]> {
-  const payload = await postJson<[HyperliquidMetaResponse, HyperliquidAssetCtx[]]>(infoUrl, {
+export async function fetchMetaAndAssetCtxs(postInfo: <T>(body: unknown) => Promise<T>): Promise<HyperliquidUniverseAsset[]> {
+  const payload = await postInfo<[HyperliquidMetaResponse, HyperliquidAssetCtx[]]>({
     type: 'metaAndAssetCtxs'
   })
 
@@ -149,14 +108,13 @@ export interface HyperliquidCandle {
 }
 
 export async function fetchCandleSnapshot(params: {
-  infoUrl: string
   coin: string
   interval: string
   startTime: number
   endTime: number
-  timeoutMs?: number
+  postInfo: <T>(body: unknown) => Promise<T>
 }): Promise<HyperliquidCandle[]> {
-  return await postJson<HyperliquidCandle[]>(params.infoUrl, {
+  return params.postInfo<HyperliquidCandle[]>({
     type: 'candleSnapshot',
     req: {
       coin: params.coin,
@@ -164,5 +122,5 @@ export async function fetchCandleSnapshot(params: {
       startTime: params.startTime,
       endTime: params.endTime
     }
-  }, params.timeoutMs)
+  })
 }

@@ -28,6 +28,7 @@
       "dependencies": {
         "@hl/privateer-contracts": "workspace:*",
         "@hl/privateer-event-bus": "workspace:*",
+        "@hl/privateer-hl-client": "workspace:*",
         "@hl/privateer-plugin-sdk": "workspace:*",
         "ulid": "^2.3.0",
         "zod": "^3.24.1",
@@ -76,6 +77,7 @@
       "dependencies": {
         "@hl/privateer-contracts": "workspace:*",
         "@hl/privateer-event-bus": "workspace:*",
+        "@hl/privateer-hl-client": "workspace:*",
         "@hl/privateer-plugin-sdk": "workspace:*",
         "@hl/privateer-risk-engine": "workspace:*",
         "@nktkas/hyperliquid": "0.31.0",
@@ -174,6 +176,17 @@
         "@hl/privateer-contracts": "workspace:*",
         "ioredis": "^5.5.0",
         "ulid": "^2.3.0",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.3",
+        "vitest": "^2.1.8",
+      },
+    },
+    "packages/hl-client": {
+      "name": "@hl/privateer-hl-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@nktkas/hyperliquid": "0.31.0",
       },
       "devDependencies": {
         "typescript": "^5.7.3",
@@ -295,6 +308,8 @@
     "@hl/privateer-contracts": ["@hl/privateer-contracts@workspace:packages/contracts"],
 
     "@hl/privateer-event-bus": ["@hl/privateer-event-bus@workspace:packages/event-bus"],
+
+    "@hl/privateer-hl-client": ["@hl/privateer-hl-client@workspace:packages/hl-client"],
 
     "@hl/privateer-plugin-sdk": ["@hl/privateer-plugin-sdk@workspace:packages/plugin-sdk"],
 

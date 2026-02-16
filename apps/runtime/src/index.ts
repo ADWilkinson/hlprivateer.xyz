@@ -5,6 +5,8 @@ import { createRuntime } from './orchestrator/state'
 import { RedisEventBus, InMemoryEventBus } from '@hl/privateer-event-bus'
 import { createRuntimeStore } from './db/persistence'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
+import { createHlClient } from '@hl/privateer-hl-client'
+import { setPostInfo } from './plugins/hyperliquid'
 
 const METRICS_PATH = '/metrics'
 const HEALTH_PATH = '/health'
@@ -32,12 +34,21 @@ function startMetricsServer(port: number): void {
   })
 }
 
+const hlClient = createHlClient({
+  isTestnet: env.HL_IS_TESTNET,
+  apiUrl: env.HL_API_URL,
+  timeout: env.HL_REQUEST_TIMEOUT_MS,
+  infoUrl: env.HL_INFO_URL,
+  tokensPerMinute: 600,
+})
+setPostInfo(hlClient.postInfo)
+
 const bus = env.REDIS_URL
   ? new RedisEventBus(env.REDIS_URL, env.REDIS_STREAM_PREFIX)
   : new InMemoryEventBus()
 
 void createRuntimeStore(env.DATABASE_URL)
-  .then((runtimeStore) => createRuntime({ env, bus, store: runtimeStore }))
+  .then((runtimeStore) => createRuntime({ env, bus, store: runtimeStore, hlClient }))
   .then(async (runtime) => {
     await initializeTelemetry('hlprivateer-runtime')
     console.log(`runtime started mode=READY`) // eslint-disable-line no-console

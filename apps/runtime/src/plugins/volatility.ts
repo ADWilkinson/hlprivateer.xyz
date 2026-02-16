@@ -1,5 +1,5 @@
 import { PluginContext, PluginRuntime } from '@hl/privateer-plugin-sdk'
-import { fetchCandleSnapshot, parseFiniteNumber } from './hyperliquid'
+import { fetchCandleSnapshot, parseFiniteNumber, getPostInfo } from './hyperliquid'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -33,7 +33,6 @@ export default {
       return []
     }
 
-    const infoUrl = ctx.getConfig('HL_INFO_URL')
     const symbol = (ctx.getConfig('HLP_VOL_SYMBOL') ?? 'BTC').trim() || 'BTC'
     const windowMinRaw = ctx.getConfig('HLP_VOL_WINDOW_MIN')
     const windowMin = clamp(Number(windowMinRaw ?? 60), 10, 360)
@@ -46,7 +45,7 @@ export default {
       interval: '1m',
       startTime,
       endTime,
-      infoUrl: infoUrl || undefined
+      postInfo: getPostInfo()
     })
 
     const closes = candles

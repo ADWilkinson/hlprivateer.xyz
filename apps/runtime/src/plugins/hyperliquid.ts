@@ -1,20 +1,14 @@
 const DEFAULT_HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
 
 export interface HyperliquidCandle {
-  // Start time (ms)
   t: number
-  // End time (ms)
   T: number
-  // Symbol
   s: string
-  // Interval string (e.g. "1m")
   i: string
-  // Open / close / high / low
   o: string
   c: string
   h: string
   l: string
-  // Volume + trade count
   v: string
   n: number
 }
@@ -26,45 +20,25 @@ export interface HyperliquidFundingEntry {
   time: number
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms))
+let _postInfo: (<T>(body: unknown) => Promise<T>) | null = null
+
+export function setPostInfo(fn: <T>(body: unknown) => Promise<T>): void {
+  _postInfo = fn
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const timeoutMs = 2500
-  const retries = 3
-  let lastError: unknown
+export function getPostInfo(): <T>(body: unknown) => Promise<T> {
+  if (!_postInfo) throw new Error('hl-client postInfo not initialized')
+  return _postInfo
+}
 
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      })
-
-      if (!response.ok) {
-        throw new Error(`hyperliquid info http ${response.status}`)
-      }
-
-      return (await response.json()) as T
-    } catch (error) {
-      lastError = error
-      if (attempt >= retries) {
-        break
-      }
-      // Mitigate occasional TLS/DNS edge failures by retrying with jitter.
-      const backoffMs = 150 * (attempt + 1) + Math.floor(Math.random() * 150)
-      await sleep(backoffMs)
-    } finally {
-      clearTimeout(timeout)
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+async function fallbackPost<T>(infoUrl: string, body: unknown): Promise<T> {
+  const response = await fetch(infoUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`hyperliquid info http ${response.status}`)
+  return (await response.json()) as T
 }
 
 export async function fetchCandleSnapshot(params: {
@@ -72,31 +46,31 @@ export async function fetchCandleSnapshot(params: {
   interval: string
   startTime: number
   endTime: number
+  postInfo?: <T>(body: unknown) => Promise<T>
   infoUrl?: string
 }): Promise<HyperliquidCandle[]> {
-  const infoUrl = params.infoUrl ?? DEFAULT_HL_INFO_URL
-  return await postJson<HyperliquidCandle[]>(infoUrl, {
+  const body = {
     type: 'candleSnapshot',
     req: {
       coin: params.coin,
       interval: params.interval,
       startTime: params.startTime,
-      endTime: params.endTime
-    }
-  })
+      endTime: params.endTime,
+    },
+  }
+  if (params.postInfo) return params.postInfo(body)
+  return fallbackPost(params.infoUrl ?? DEFAULT_HL_INFO_URL, body)
 }
 
 export async function fetchFundingHistory(params: {
   coin: string
   startTime: number
+  postInfo?: <T>(body: unknown) => Promise<T>
   infoUrl?: string
 }): Promise<HyperliquidFundingEntry[]> {
-  const infoUrl = params.infoUrl ?? DEFAULT_HL_INFO_URL
-  return await postJson<HyperliquidFundingEntry[]>(infoUrl, {
-    type: 'fundingHistory',
-    coin: params.coin,
-    startTime: params.startTime
-  })
+  const body = { type: 'fundingHistory', coin: params.coin, startTime: params.startTime }
+  if (params.postInfo) return params.postInfo(body)
+  return fallbackPost(params.infoUrl ?? DEFAULT_HL_INFO_URL, body)
 }
 
 export function parseFiniteNumber(value: unknown): number | null {

@@ -1,30 +1,20 @@
 {
-  "name": "@hl/privateer-agent-runner",
+  "name": "@hl/privateer-hl-client",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "dev": "bunx tsx watch src/index.ts",
     "build": "bunx tsc -p tsconfig.json",
-    "start": "bun run dist/index.js",
     "typecheck": "bunx tsc --noEmit",
     "test": "bunx vitest run --passWithNoTests",
     "lint": "bunx vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@hl/privateer-contracts": "workspace:*",
-    "@hl/privateer-event-bus": "workspace:*",
-    "@hl/privateer-hl-client": "workspace:*",
-    "@hl/privateer-plugin-sdk": "workspace:*",
-    "ulid": "^2.3.0",
-    "zod": "^3.24.1"
+    "@nktkas/hyperliquid": "0.31.0"
   },
   "devDependencies": {
-    "@types/node": "^22.13.1",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   }
 }
-

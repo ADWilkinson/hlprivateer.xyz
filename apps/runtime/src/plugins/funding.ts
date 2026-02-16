@@ -1,5 +1,5 @@
 import { PluginContext, PluginRuntime } from '@hl/privateer-plugin-sdk'
-import { fetchFundingHistory, parseFiniteNumber } from './hyperliquid'
+import { fetchFundingHistory, parseFiniteNumber, getPostInfo } from './hyperliquid'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -24,7 +24,6 @@ export default {
       return []
     }
 
-    const infoUrl = ctx.getConfig('HL_INFO_URL')
     const symbol = (ctx.getConfig('HLP_FUNDING_SYMBOL') ?? 'BTC').trim() || 'BTC'
     const windowDaysRaw = ctx.getConfig('HLP_FUNDING_WINDOW_DAYS')
     const windowDays = clamp(Number(windowDaysRaw ?? 7), 1, 30)
@@ -33,7 +32,7 @@ export default {
     const history = await fetchFundingHistory({
       coin: symbol,
       startTime,
-      infoUrl: infoUrl || undefined
+      postInfo: getPostInfo()
     })
 
     const latest = history.length > 0 ? history[history.length - 1] : undefined

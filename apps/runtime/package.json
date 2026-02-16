@@ -15,6 +15,7 @@
   "dependencies": {
     "@hl/privateer-contracts": "workspace:*",
     "@hl/privateer-event-bus": "workspace:*",
+    "@hl/privateer-hl-client": "workspace:*",
     "@hl/privateer-plugin-sdk": "workspace:*",
     "@hl/privateer-risk-engine": "workspace:*",
     "@nktkas/hyperliquid": "0.31.0",

@@ -1,6 +1,7 @@
 import { OperatorOrderSchema, OperatorOrder, OperatorPosition } from '@hl/privateer-contracts'
 import { NormalizedTick } from '@hl/privateer-contracts'
 import { fetchJsonWithRetry, withRetry } from "@hl/privateer-plugin-sdk"
+import type { HlClient } from '@hl/privateer-hl-client'
 
 import { createHash } from 'node:crypto'
 import { ulid } from 'ulid'
@@ -11,7 +12,6 @@ import type { RuntimeEnv } from '../config'
 
 type SlippageBpsProvider = number | (() => number)
 
-const DEFAULT_HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
 
 function resolveSlippageBps(provider: SlippageBpsProvider): number {
   const raw = typeof provider === 'function' ? provider() : provider
@@ -293,21 +293,18 @@ interface InternalPosition {
   updatedAt: string
 }
 
-export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number = () => 0): ExecutionAdapter {
+export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number = () => 0, hlClient?: HlClient): ExecutionAdapter {
   const privateKey = env.HL_PRIVATE_KEY?.trim()
   if (!privateKey) {
     throw new Error('HL_PRIVATE_KEY is required for live OMS (set ENABLE_LIVE_OMS=false for SIM)')
   }
 
   const wallet = new PrivateKeySigner(privateKey)
-  const transport = new HttpTransport({
-    isTestnet: env.HL_IS_TESTNET,
-    timeout: env.HL_REQUEST_TIMEOUT_MS,
-    apiUrl: env.HL_API_URL
-  })
+  const transport = hlClient
+    ? hlClient.transport
+    : new HttpTransport({ isTestnet: env.HL_IS_TESTNET, timeout: env.HL_REQUEST_TIMEOUT_MS, apiUrl: env.HL_API_URL })
   const exchange = new ExchangeClient({ transport, wallet })
   const info = new InfoClient({ transport })
-  const infoUrl = env.HL_INFO_URL ?? DEFAULT_HL_INFO_URL
 
   const idempotencyMap = new Map<string, string>() // idempotencyKey -> oid string
   const idempotencySeenAt = new Map<string, number>()
@@ -330,35 +327,17 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     realizedPnlUsd: 0
   }
 
-  const abstractionCache: { fetchedAtMs: number; value: string } = {
-    fetchedAtMs: 0,
-    value: ''
-  }
-
   async function postInfo<T>(body: unknown): Promise<T> {
-    return await fetchJsonWithRetry<T>(
-      infoUrl,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      },
-      {
-        timeoutMs: env.HL_REQUEST_TIMEOUT_MS,
-        maxRetries: 3,
-        retryOnStatus: (status) => status === 429 || status >= 500
-      }
-    )
+    if (hlClient) return hlClient.postInfo<T>(body)
+    const infoUrl = env.HL_INFO_URL ?? 'https://api.hyperliquid.xyz/info'
+    return fetchJsonWithRetry<T>(infoUrl, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    }, { timeoutMs: env.HL_REQUEST_TIMEOUT_MS, maxRetries: 3, retryOnStatus: (s) => s === 429 || s >= 500 })
   }
 
-  async function userAbstractionCached(nowMs: number): Promise<string> {
-    if (abstractionCache.fetchedAtMs > 0 && nowMs - abstractionCache.fetchedAtMs <= 60_000) {
-      return abstractionCache.value
-    }
+  async function userAbstractionCached(): Promise<string> {
     const next = await postInfo<string>({ type: 'userAbstraction', user: wallet.address })
-    abstractionCache.fetchedAtMs = nowMs
-    abstractionCache.value = typeof next === 'string' ? next : ''
-    return abstractionCache.value
+    return typeof next === 'string' ? next : ''
   }
 
   async function ensureConverter(): Promise<SymbolConverter> {
@@ -685,7 +664,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
 
   const getAccountValueUsd = async (): Promise<number> => {
     const nowMs = Date.now()
-    const abstraction = await userAbstractionCached(nowMs).catch(() => '')
+    const abstraction = await userAbstractionCached().catch(() => '')
 
     // In unified/portfolio abstraction, perps collateral is reflected in the spot clearinghouse state.
     // Per Hyperliquid docs: individual perp dex user states are not meaningful in unified mode.

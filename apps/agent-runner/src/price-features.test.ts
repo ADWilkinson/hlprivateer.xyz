@@ -37,13 +37,20 @@ function mockFetch() {
 describe('price features', () => {
   it('computes returns/vol/corr vs base', async () => {
     mockFetch()
+    const mockPostInfo = async <T>(body: unknown): Promise<T> => {
+      const res = await fetch('https://api.hyperliquid.xyz/info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      return (await res.json()) as T
+    }
     const pack = await computePriceFeaturePack({
-      infoUrl: 'https://api.hyperliquid.xyz/info',
+      postInfo: mockPostInfo,
       baseSymbol: 'HYPE',
       symbols: ['SOL'],
       windowMin: 240,
       interval: '1m',
-      timeoutMs: 1000,
       concurrency: 2
     })
 

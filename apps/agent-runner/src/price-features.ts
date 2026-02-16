@@ -187,17 +187,15 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (it
 }
 
 export async function computePriceFeaturePack(params: {
-  infoUrl: string
+  postInfo: <T>(body: unknown) => Promise<T>
   baseSymbol: string
   symbols: string[]
   windowMin: number
   interval?: string
-  timeoutMs?: number
   concurrency?: number
 }): Promise<{ base: PriceFeature | null; bySymbol: Record<string, PriceFeature> }> {
   const interval = params.interval ?? '1m'
   const concurrency = params.concurrency ?? 6
-  const timeoutMs = params.timeoutMs
 
   const endTime = Date.now()
   const startTime = endTime - params.windowMin * 60_000
@@ -205,12 +203,11 @@ export async function computePriceFeaturePack(params: {
   let baseCandles: HyperliquidCandle[] = []
   try {
     baseCandles = await fetchCandleSnapshot({
-      infoUrl: params.infoUrl,
+      postInfo: params.postInfo,
       coin: params.baseSymbol,
       interval,
       startTime,
       endTime,
-      timeoutMs
     })
   } catch {
     return { base: null, bySymbol: {} }
@@ -245,12 +242,11 @@ export async function computePriceFeaturePack(params: {
   const rows = await mapWithConcurrency(uniqueSymbols, concurrency, async (symbol) => {
     try {
       const candles = await fetchCandleSnapshot({
-        infoUrl: params.infoUrl,
+        postInfo: params.postInfo,
         coin: symbol,
         interval,
         startTime,
         endTime,
-        timeoutMs
       })
 
       const closes = computeCloseSeries(candles)
