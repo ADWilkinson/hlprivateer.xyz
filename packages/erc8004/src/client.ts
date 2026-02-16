@@ -28,8 +28,11 @@ export function createIdentityClient(config: Erc8004ClientConfig) {
         args: [agentURI],
       })
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-      const event = receipt.logs.find(log => log.address.toLowerCase() === registryAddress.toLowerCase())
-      const agentId = event?.topics[1] ? BigInt(event.topics[1]) : 0n
+      const transferLog = receipt.logs.find(
+        log => log.address.toLowerCase() === registryAddress.toLowerCase()
+          && log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+      )
+      const agentId = transferLog?.topics[3] ? BigInt(transferLog.topics[3]) : 0n
       return { agentId, txHash }
     },
 
