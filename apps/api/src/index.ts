@@ -25,6 +25,7 @@ import { createChallenge, verifyChallenge } from './x402'
 import type { RouteConfig } from '@x402/core/server'
 import type { Network } from '@x402/core/types'
 import { createX402FacilitatorGate } from './x402-facilitator'
+import { Erc8004FeedbackService } from './erc8004-feedback'
 import { registerAuth, OPERATOR_ADMIN_ROLE, OPERATOR_VIEW_ROLE } from './middleware'
 import { ApiStore } from './store'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
@@ -170,6 +171,18 @@ app.setErrorHandler(async (error, request, reply) => {
   reply.code(statusCode).send({ error: errorName, message })
 })
 
+let feedbackService: Erc8004FeedbackService | null = null
+if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null && env.ERC8004_FEEDBACK_PRIVATE_KEY) {
+  feedbackService = new Erc8004FeedbackService({
+    chainId: env.ERC8004_CHAIN_ID as 8453 | 84532,
+    agentId: BigInt(env.ERC8004_AGENT_ID),
+    rpcUrl: env.ERC8004_RPC_URL,
+    privateKey: env.ERC8004_FEEDBACK_PRIVATE_KEY as `0x${string}`,
+    logger: app.log,
+  })
+  app.log.info({ chainId: env.ERC8004_CHAIN_ID, agentId: env.ERC8004_AGENT_ID }, 'erc8004 feedback service started')
+}
+
 let x402Facilitator: Awaited<ReturnType<typeof createX402FacilitatorGate>> | null = null
 if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
   const payTo = String(env.X402_PAYTO ?? '').trim()
@@ -237,7 +250,10 @@ if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
   x402Facilitator = await createX402FacilitatorGate({
     apiBaseUrl: env.API_BASE_URL,
     facilitatorUrl: env.X402_FACILITATOR_URL,
-    routes
+    routes,
+    onSettled: feedbackService
+      ? (route, paidAmountUsd) => feedbackService!.recordSettlement(route, paidAmountUsd)
+      : undefined,
   })
 
   app.addHook('preSerialization', x402Facilitator.preSerialization)
@@ -636,6 +652,50 @@ app.addHook('onRequest', async (request, _reply) => {
   }
 })
 
+let cachedReputationSummary: { count: number; summaryValue: number; summaryValueDecimals: number } | null = null
+let reputationRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null) {
+  const refreshReputation = async () => {
+    try {
+      const { createPublicClient, http } = await import('viem')
+      const { base, baseSepolia } = await import('viem/chains')
+      const chain = env.ERC8004_CHAIN_ID === 8453 ? base : baseSepolia
+      const publicClient = createPublicClient({ chain, transport: http(env.ERC8004_RPC_URL) })
+      const [count, summaryValue, summaryValueDecimals] = await publicClient.readContract({
+        address: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
+        abi: [{
+          type: 'function' as const,
+          name: 'getSummary' as const,
+          inputs: [
+            { name: 'agentId', type: 'uint256' as const },
+            { name: 'clientAddresses', type: 'address[]' as const },
+            { name: 'tag1', type: 'string' as const },
+            { name: 'tag2', type: 'string' as const },
+          ],
+          outputs: [
+            { name: 'count', type: 'uint256' as const },
+            { name: 'summaryValue', type: 'int256' as const },
+            { name: 'summaryValueDecimals', type: 'uint8' as const },
+          ],
+          stateMutability: 'view' as const,
+        }] as const,
+        functionName: 'getSummary',
+        args: [BigInt(env.ERC8004_AGENT_ID!), [], '', ''],
+      })
+      cachedReputationSummary = {
+        count: Number(count),
+        summaryValue: Number(summaryValue),
+        summaryValueDecimals,
+      }
+    } catch (err) {
+      app.log.debug({ err }, 'erc8004 reputation refresh failed (registry may not be deployed)')
+    }
+  }
+  void refreshReputation()
+  reputationRefreshTimer = setInterval(() => void refreshReputation(), 300_000)
+}
+
 app.get('/health', routeRateLimit(180, 60_000), async () => ({ status: 'ok', service: 'api' }))
 
 app.get('/v1/public/pnl', routeRateLimit(180, 60_000), async () => {
@@ -648,6 +708,22 @@ app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async () => {
 
 app.get('/v1/public/floor-tape', routeRateLimit(180, 60_000), async () => {
   return FloorTapeLineSchema.array().parse(store.getPublicSnapshot().recentTape)
+})
+
+app.get('/v1/public/identity', routeRateLimit(30, 60_000), async () => {
+  if (!env.ERC8004_ENABLED || env.ERC8004_AGENT_ID == null) {
+    return { erc8004: null, reputation: null }
+  }
+  return {
+    erc8004: {
+      chainId: env.ERC8004_CHAIN_ID,
+      agentId: env.ERC8004_AGENT_ID,
+      identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+      reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
+      registrationFile: `${env.PUBLIC_BASE_URL}/.well-known/agent-registration.json`,
+    },
+    reputation: cachedReputationSummary,
+  }
 })
 
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
@@ -1765,6 +1841,8 @@ const start = async () => {
 }
 
 const shutdown = async () => {
+  if (reputationRefreshTimer) clearInterval(reputationRefreshTimer)
+  if (feedbackService) await feedbackService.stop().catch(() => undefined)
   await store.close().catch(() => undefined)
   await stopTelemetry()
   process.exit(0)

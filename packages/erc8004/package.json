@@ -1,5 +1,5 @@
 {
-  "name": "@hl/privateer-agent-sdk",
+  "name": "@hl/privateer-erc8004",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
@@ -11,7 +11,6 @@
     "lint": "bunx vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@hl/privateer-contracts": "workspace:*",
     "viem": "^2.21.0",
     "zod": "^3.24.1"
   },

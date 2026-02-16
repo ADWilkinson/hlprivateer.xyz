@@ -109,3 +109,26 @@ Follow `docs/GO_LIVE.md` (Postgres, trading wallet, live gates, x402 facilitator
   - `DRY_RUN=false`
   - `ENABLE_LIVE_OMS=true`
   - `LIVE_MODE_APPROVED=true`
+
+## 9. ERC-8004 (On-Chain Identity + Reputation)
+
+### Registration
+1. Set `ERC8004_FEEDBACK_PRIVATE_KEY_FILE` (or `ERC8004_FEEDBACK_PRIVATE_KEY`) in `config/.env`.
+2. Register: `bun scripts/erc8004/register.ts`
+3. Record the `agentId` from output. Set `ERC8004_AGENT_ID` in `config/.env`.
+4. Set `ERC8004_ENABLED=true` and restart the API.
+5. Verify: `bun scripts/erc8004/read-identity.ts`
+
+### Reputation Monitoring
+- Check reputation: `bun scripts/erc8004/check-reputation.ts`
+- API endpoint: `GET /v1/public/identity` (returns agent ID + cached reputation summary)
+- Reputation summary is cached in the API with a 5-minute TTL.
+
+### Feedback Wallet
+- The feedback wallet submits on-chain reputation feedback after x402 settlements.
+- Gas cost: ~$0.001/tx on Base L2. At peak (1 tx/min), ~$1.44/day.
+- Health check warns when ETH balance drops below 0.01 ETH.
+- Top up the wallet address shown in `bun scripts/erc8004/read-identity.ts`.
+
+### URI Updates
+- If the registration file URL changes: `bun scripts/erc8004/update-uri.ts`

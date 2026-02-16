@@ -35,10 +35,18 @@ Attack surfaces:
 - Service-to-service auth with signed service tokens.
 - External agents use API key + entitlement token (and payment proof where required).
 
+## ERC-8004 Feedback Wallet
+- **Purpose**: Submits on-chain reputation feedback to the ERC-8004 Reputation Registry after x402 settlements.
+- **Key management**: Loaded via `ERC8004_FEEDBACK_PRIVATE_KEY_FILE` (follows the existing `*_FILE` secret pattern).
+- **Separation**: This is a hot wallet with minimal ETH for gas only. It is separate from the trading wallet (`HL_PRIVATE_KEY`) and the x402 receiving address (`X402_PAYTO`), though they can share the same address if desired.
+- **Risk**: Compromise of this key allows submitting fake feedback. It does not grant access to trading funds or USDC.
+- **Rotation**: Generate a new key, update `ERC8004_FEEDBACK_PRIVATE_KEY_FILE`, transfer NFT ownership if needed via the Identity Registry, restart API.
+
 ## Key rotation policy
 - JWT signing keys: every 30 days.
 - Hyperliquid key: quarterly or immediately on suspicion.
 - API keys: revocable at any time; default max TTL 90 days.
+- ERC-8004 feedback wallet: rotate on suspicion. Low-risk (gas-only wallet, no trading funds).
 - Credential rotation process:
   - Default (recommended): rotate the `*_FILE` secret files referenced by `config/.env`, then restart services.
   - Optional (hardened): manage encrypted secret material in git via SOPS/age, and deploy decrypted credentials through systemd:
