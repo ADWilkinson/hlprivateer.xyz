@@ -251,6 +251,14 @@ export default function LandingPage() {
             <span className='text-hlpAccent'>curl https://hlprivateer.xyz/skills/SKILL.md</span>
           </pre>
         </div>
+        <a
+          href='https://clawhub.ai/ADWilkinson/hl-privateer-fund'
+          target='_blank'
+          rel='noreferrer'
+          className='text-[9px] tracking-[0.16em] text-hlpDim transition-colors hover:text-hlpAccent'
+        >
+          🦞 ClawHub enabled
+        </a>
       </div>
     </div>
   )
