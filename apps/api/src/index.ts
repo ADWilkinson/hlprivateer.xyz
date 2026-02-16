@@ -203,47 +203,83 @@ if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
     'GET /v1/agent/stream/snapshot': {
       accepts: acceptExact(env.X402_PRICE_STREAM_SNAPSHOT),
       description: 'HL Privateer public floor snapshot (agent access)',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { mode: 'READY', pnlPct: 4.2, accountValue: 12500, positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, unrealizedPnl: 42 }], tape: [] }
+      }}}
     },
     'GET /v1/agent/analysis/latest': {
       accepts: acceptExact(env.X402_PRICE_ANALYSIS_LATEST),
       description: 'Latest HL Privateer agent analysis',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { id: 'ana_01', role: 'strategist', thesis: 'Bullish momentum on HYPE', signals: ['HYPE long'], confidence: 0.82, ts: '2026-02-16T12:00:00Z' }
+      }}}
     },
     'GET /v1/agent/analysis': {
       accepts: acceptExact(env.X402_PRICE_ANALYSIS_HISTORY),
       description: 'HL Privateer agent analysis history',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: { latest: 'false', limit: '10', cursor: '0' },
+        output: { items: [], cursor: null, hasMore: false }
+      }}}
     },
     'GET /v1/agent/positions': {
       accepts: acceptExact(env.X402_PRICE_POSITIONS),
       description: 'Current HL Privateer positions',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, markPx: 23.5, unrealizedPnl: 20, leverage: 3 }] }
+      }}}
     },
     'GET /v1/agent/orders': {
       accepts: acceptExact(env.X402_PRICE_ORDERS),
       description: 'Current HL Privateer orders',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { orders: [{ symbol: 'HYPE', side: 'buy', size: 25, price: 22.8, type: 'limit', status: 'open' }] }
+      }}}
     },
     'GET /v1/agent/data/overview': {
       accepts: acceptExact(env.X402_PRICE_MARKET_DATA),
       description: 'HL Privateer market + execution overview for machine agents',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { mode: 'READY', pnlPct: 4.2, riskPolicy: { maxLeverage: 20, maxDrawdownPct: 20 }, signals: [], executions: [] }
+      }}}
     },
     'GET /v1/agent/insights': {
       accepts: acceptExact(env.X402_PRICE_AGENT_INSIGHTS),
       description: 'HL Privateer floor insights bundle (health, mode, policy, risk, tape)',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: { scope: 'ai' },
+        output: { health: 'ok', mode: 'READY', riskPolicy: {}, analysis: null, positions: [], tape: [] }
+      }}}
     },
     'GET /v1/agent/copy-trade/signals': {
       accepts: acceptExact(env.X402_PRICE_COPY_TRADE_SIGNALS),
       description: 'HL Privateer copy-trade signals and analyst events',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: { limit: '20' },
+        output: { signals: [{ type: 'proposal', symbol: 'HYPE', side: 'long', confidence: 0.82, ts: '2026-02-16T12:00:00Z' }] }
+      }}}
     },
     'GET /v1/agent/copy-trade/positions': {
       accepts: acceptExact(env.X402_PRICE_COPY_TRADE_POSITIONS),
       description: 'HL Privateer positions formatted for copy-trading consumers',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, weight: 0.4 }], updatedAt: '2026-02-16T12:00:00Z' }
+      }}}
     }
   }
 
