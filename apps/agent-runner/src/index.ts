@@ -12,6 +12,7 @@ import { computePriceFeaturePack, type PriceFeature } from './price-features'
 import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMarketSnapshot } from './coingecko'
 import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
 import { buildExternalIntelPack, summarizeExternalIntel, type ExternalIntelPack } from './intel'
+import { HistoryStore, formatHistoryForPrompt, type ResearchHistoryEntry, type RiskHistoryEntry, type DirectiveHistoryEntry, type IntelHistoryEntry } from './history-store'
 
 type Tick = {
   symbol: string
@@ -1000,21 +1001,24 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Objective: create fully discretionary long, short, and pair structures with explicit rationale and bounded risk.',
   '- Do not assume any fixed alpha symbol or fixed directional bias.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
-  '- If context is stale, contradictory, or incomplete, choose conservative actions.',
   '- Never invent symbols, metrics, or events not present in context.',
   '- Return strictly structured JSON only, no commentary.',
-  '- Prioritize stability and avoid unnecessary churn.',
-  '- Use latest risk decisions to drive recovery: when a recent DENY cites DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE, require immediate risk-reduction first.',
-  '- If risk posture requires reduction, do not scale up notional or propose growth-facing changes.',
-  '- Preserve risk budgets: prioritize reduced gross/uncertainty first, then re-enable sizing only after reduced-risk state is confirmed.',
-  '- All non-EXIT proposals must state expected gross/notional outcome and never exceed recovery constraints.',
-  '- Treat SAFE_MODE and DEPENDENCY_FAILURE as hard-reduce states: request only flat/close actions until state is cleared.',
-  '- Budget caps are explicit in floor context: max leverage/exposure/drawdown/slippage are hard constraints; do not propose beyond them.',
-  '- Use runtime recovery policy context in prompts before proposing growth; execution control is runtime-owned and available recovery command is /flatten.',
-  '- Read the floor context memory every cycle: active directive, target risk caps, recent risk/posture tape, and current exposure before sizing any leg.',
-  '- Keep proposals explicit about leverage and gross/notional impact; avoid growth when risk posture is constrained.',
-  '- Proposals must reference current positions summary (gross/net/mode), estimated leverage, and strategy thesis before proposing any directional exposure.',
-  '- Execution interactions are limited to runtime channels: /flatten and /risk-policy are available for safety interventions when caps should be tightened or growth blocked.'
+  'DATA SOURCE CLASSIFICATION:',
+  '- CRITICAL (must be present to trade): price feeds, orderbook, funding rates, open interest, account state.',
+  '- SUPPLEMENTARY (useful but NOT required): Twitter/social, Fear & Greed index, CoinGecko sector data.',
+  '- Missing SUPPLEMENTARY data MUST NOT block trading or reduce confidence. Trade on CRITICAL data alone when supplementary sources are offline.',
+  'BIAS TO ACTION:',
+  '- When CRITICAL data presents a tradeable setup (funding divergence, momentum, mean-reversion, correlation break), TAKE THE TRADE.',
+  '- HOLD is only appropriate when there is genuinely no setup across the universe — it is NOT a safe default.',
+  '- The deterministic risk engine independently validates every proposal with hard caps. Your job is to find setups, not to second-guess risk gates.',
+  'RISK RECOVERY:',
+  '- When a recent risk DENY cites DRAWDOWN/EXPOSURE/LEVERAGE, require immediate risk-reduction first.',
+  '- SAFE_MODE with open positions: request only flat/close actions until state is cleared.',
+  '- DEPENDENCY_FAILURE refers to runtime infrastructure (Redis, Postgres) NOT external data sources like Twitter.',
+  '- Budget caps in floor context (max leverage/exposure/drawdown/slippage) are hard constraints enforced by the risk engine.',
+  '- Read floor context memory every cycle: active directive, risk caps, recent posture tape, current exposure before sizing.',
+  '- Proposals must reference current positions summary (gross/net/mode), estimated leverage, and strategy thesis.',
+  '- Execution channels: /flatten and /risk-policy for safety interventions.'
 ]
 
 const AGENT_DATA_SOURCES_PRESET: string[] = [
@@ -1505,7 +1509,13 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
         : null,
       research: compactReportFields(lastResearchReport, ['headline', 'regime', 'recommendation', 'confidence', 'computedAt']),
       risk: compactReportFields(lastRiskReport, ['headline', 'posture', 'risks', 'confidence', 'computedAt']),
-      scribe: compactReportFields(lastScribeAnalysis, ['headline', 'thesis', 'risks', 'confidence', 'computedAt'])
+      scribe: compactReportFields(lastScribeAnalysis, ['headline', 'thesis', 'risks', 'confidence', 'computedAt']),
+      historicalTrend: {
+        consecutiveHolds: directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD'),
+        recentPostures: riskHistory.recent(5).map((e) => e.posture),
+        recentRegimes: researchHistory.recent(5).map((e) => e.regime),
+        twitterAvailability: intelHistory.recent(5).map((e) => e.twitterOk)
+      }
     },
     governance: {
       universeSize: env.AGENT_UNIVERSE_SIZE,
@@ -1516,7 +1526,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
         ...resolveRiskLimitsForContext()
       },
       runtimeRecovery: {
-        automaticExitSignal: 'AUTO_EXIT when risk decisions block with DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/DEPENDENCY_FAILURE/LIQUIDITY/STALE_DATA/SYSTEM_GATED',
+        automaticExitSignal: 'AUTO_EXIT when risk decisions block with DRAWDOWN/EXPOSURE/LEVERAGE/SAFE_MODE/LIQUIDITY/STALE_DATA/SYSTEM_GATED. DEPENDENCY_FAILURE refers to runtime infrastructure (Redis/Postgres) only, NOT external data sources like Twitter.',
         defaultRecoveryCommand: '/flatten'
       }
     }
@@ -2733,9 +2743,11 @@ async function generateResearchReport(params: {
       mission: 'Classify current market regime and return one actionable recommendation.',
       rules: [
       'Use only context and observed signals; do not speculate on external events.',
-      'Output one recommendation, not a portfolio plan.',
+      'Output one actionable recommendation — not a portfolio plan, not a vague "monitor" statement.',
       'If data indicates regime shift, indicate it explicitly in regime.',
-      'Prefer position-structure stability guidance when correlation deteriorates or signals are mixed.',
+      'CONFIDENCE reflects signal QUALITY not QUANTITY: strong price+funding alignment with clear directional setup should yield >= 0.6 even without social/supplementary data.',
+      'Missing Twitter/social data is NOT regime uncertainty — it means supplementary context is unavailable. Classify regime from price, funding, OI, and correlation data.',
+      'When historical context is provided, use it for trend continuity detection — if the same regime has persisted for multiple cycles, confidence should be HIGHER not lower.',
       'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -2833,9 +2845,13 @@ async function generateRiskReport(params: {
       mission: 'Assess immediate risk posture, list concrete risks, and recommend risk policy parameter changes if warranted.',
       rules: [
         'Only return posture GREEN/AMBER/RED.',
-        'Prioritize stale data, volatility regime, and drift imbalance.',
+        'POSTURE DEFINITIONS:',
+        '  GREEN = default tradeable state. Normal market conditions. System should actively seek trades.',
+        '  AMBER = elevated but tradeable. Reduce position SIZE (not frequency). Still open new trades at smaller notional.',
+        '  RED = extreme risk only. Active liquidation cascades, exchange outages, or price feed failures. Very rare.',
+        'Prioritize stale CRITICAL data (price feeds, orderbook), volatility regime, and drift imbalance.',
         'Tie each risk item to specific observable context.',
-        'When posture is RED, favor conservative action and explicit blockers.',
+        'Twitter/social data offline MUST NOT elevate posture. These are SUPPLEMENTARY sources. Only CRITICAL data source failures (price feeds, orderbook, account state) affect posture.',
         'Do not output execution mechanics.',
         'POLICY MANAGEMENT: You control the live risk policy parameters. The current policy is included in context under "currentRiskPolicy".',
         'Set policyRecommendations to an object with any parameters you want to change, or null to keep current policy.',
@@ -2948,14 +2964,15 @@ async function generateStrategistDirective(params: {
 	      mission: 'Choose the best execution directive and provide an explicit discretionary long/short plan (directional or paired) when active.',
 	      rules: [
 	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
-	        'OPEN: if a new discretionary position set should be established.',
+	        'OPEN: establish a new discretionary position set. If risk posture is GREEN and you are FLAT, you SHOULD be opening a position.',
 	        'REBALANCE: revise existing exposure using explicit plan legs.',
-        'HOLD: keep current exposure and plan should be omitted.',
-        'EXIT: flatten all exposure immediately (LLM should still include no plan).',
-        'When context is favorable for risk-taking, build one explicit plan with leg-level notional.',
-        'When uncertainty or risk posture is constrained, prefer HOLD or EXIT with concise rationale.',
+        'HOLD: keep current exposure. HOLD requires genuine absence of tradeable setups across the ENTIRE universe — NOT as a safe default.',
+        'EXIT: flatten all exposure immediately (no plan needed).',
+        'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), force EXIT / flat-first behavior.',
-        'Risk budgets and timeHorizonHours should be realistic and conservative by design.',
+        'MINIMUM VIABLE TRADE: even a small directional position with a clear thesis beats perpetual HOLD. The risk engine caps downside — your job is to find upside.',
+        'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
+        'Risk budgets and timeHorizonHours should match current volatility regime, not be artificially conservative.',
         'Do not propose both plan and decision HOLD.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3070,6 +3087,12 @@ let autoHaltActive = false
 let autoHaltHealthySinceMs = 0
 let lastRiskDecisionAuditSignature = ''
 let lastRiskDecisionAuditAtMs = 0
+
+const HISTORY_DIR = path.join(JOURNAL_PATH, 'history')
+const researchHistory = new HistoryStore<ResearchHistoryEntry>(HISTORY_DIR, 'research.ndjson')
+const riskHistory = new HistoryStore<RiskHistoryEntry>(HISTORY_DIR, 'risk.ndjson')
+const directiveHistory = new HistoryStore<DirectiveHistoryEntry>(HISTORY_DIR, 'directive.ndjson')
+const intelHistory = new HistoryStore<IntelHistoryEntry>(HISTORY_DIR, 'intel.ndjson')
 
 async function publishAudit(event: AuditEvent): Promise<void> {
   queueJournalWrite(event)
@@ -3439,7 +3462,11 @@ async function runResearchAgent(): Promise<void> {
 	        funding: latestFunding?.value ?? null
 	      }
 	    },
-	    inferredRegime: regime
+	    inferredRegime: regime,
+	    historicalContext: {
+	      recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(5), ['ts', 'headline', 'regime', 'recommendation', 'confidence']),
+	      recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), ['ts', 'twitterOk', 'fearGreedValue', 'symbolCount', 'tweetCount'])
+	    }
 	  }
 
   const llm = llmForRole('research', now)
@@ -3501,6 +3528,25 @@ async function runResearchAgent(): Promise<void> {
 
   lastResearchReport = { ...report, computedAt: new Date().toISOString() }
 
+  await researchHistory.push({
+    ts: lastResearchReport.computedAt,
+    headline: report.headline,
+    regime: report.regime,
+    recommendation: report.recommendation,
+    confidence: report.confidence
+  }).catch(() => undefined)
+
+  if (lastExternalIntel) {
+    const tweetCount = lastExternalIntel.twitter.queries.reduce((sum, q) => sum + q.tweets.length, 0)
+    await intelHistory.push({
+      ts: new Date().toISOString(),
+      twitterOk: lastExternalIntel.twitter.ok,
+      fearGreedValue: lastExternalIntel.fearGreed.snapshot?.value ?? null,
+      symbolCount: lastExternalIntel.symbols.length,
+      tweetCount
+    }).catch(() => undefined)
+  }
+
   await publishTape({
     correlationId: ulid(),
     role: 'research',
@@ -3546,7 +3592,11 @@ async function runRiskAgent(): Promise<void> {
 	    signals: signalPack,
 	    externalIntel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
 	    lastRiskDecision,
-	    currentRiskPolicy
+	    currentRiskPolicy,
+	    historicalContext: {
+	      recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(5), ['ts', 'headline', 'posture', 'risks', 'confidence']),
+	      recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), ['ts', 'twitterOk', 'fearGreedValue', 'symbolCount', 'tweetCount'])
+	    }
 	  }
 
   const llm = llmForRole('risk', now)
@@ -3603,6 +3653,14 @@ async function runRiskAgent(): Promise<void> {
   }
 
   lastRiskReport = { ...report, computedAt: new Date().toISOString() }
+
+  await riskHistory.push({
+    ts: lastRiskReport.computedAt,
+    headline: report.headline,
+    posture: report.posture,
+    risks: report.risks,
+    confidence: report.confidence
+  }).catch(() => undefined)
 
   await publishTape({
     correlationId: ulid(),
@@ -3726,7 +3784,16 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 	      lastResearchReport,
 	      lastRiskReport,
 	      lastScribeAnalysis,
-	      currentDirective: activeDirective
+	      currentDirective: activeDirective,
+	      historicalContext: {
+	        recentDirectives: formatHistoryForPrompt('recent strategist decisions', directiveHistory.recent(5), ['ts', 'decision', 'rationale', 'confidence', 'hadPlan']),
+	        recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(3), ['ts', 'headline', 'regime', 'confidence']),
+	        recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(3), ['ts', 'posture', 'confidence']),
+	        consecutiveHolds: directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD'),
+	        holdWarning: directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD') >= 3
+	          ? `WARNING: ${directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD')} consecutive HOLDs. You are likely being too conservative. Scrutinize the universe harder for tradeable setups.`
+	          : null
+	      }
 	    }
 
     const llm = llmForRole('strategist', nowMs)
@@ -3786,6 +3853,14 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       decidedAt: new Date().toISOString()
     }
     lastDirectiveAt = nowMs
+
+    await directiveHistory.push({
+      ts: activeDirective.decidedAt,
+      decision: activeDirective.decision,
+      rationale: activeDirective.rationale,
+      confidence: activeDirective.confidence,
+      hadPlan: activeDirective.plan !== null
+    }).catch(() => undefined)
 
     await publishTape({
       correlationId: ulid(),
@@ -4448,6 +4523,13 @@ const start = async (): Promise<void> => {
   })
 
   scheduleGitHubJournalIntervalFlush()
+
+  await Promise.all([
+    researchHistory.load(),
+    riskHistory.load(),
+    directiveHistory.load(),
+    intelHistory.load()
+  ])
 
   const HEARTBEAT_PATH = '/tmp/.agent-runner-heartbeat'
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))

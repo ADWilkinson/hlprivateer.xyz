@@ -432,12 +432,22 @@ export function summarizeExternalIntel(pack: ExternalIntelPack): Record<string, 
       text: sanitizeLine(tweet.text, 180)
     }))
 
+  const twitterStatusNote = !pack.twitter.enabled
+    ? 'Twitter is DISABLED. This is a SUPPLEMENTARY source — trade using price/funding/OI data.'
+    : !pack.twitter.ok
+      ? 'Twitter is OFFLINE. This is a SUPPLEMENTARY source — it does NOT affect trading capability. Trade on price/funding/OI/orderbook data.'
+      : null
+
   return {
     computedAt: pack.computedAt,
     symbols: pack.symbols,
+    statusNote: twitterStatusNote
+      ? `SUPPLEMENTARY DATA NOTE: ${twitterStatusNote}`
+      : null,
     twitter: {
       enabled: pack.twitter.enabled,
       ok: pack.twitter.ok,
+      statusNote: twitterStatusNote,
       handleHint: pack.twitter.handleHint ?? null,
       queryCount: pack.twitter.queries.length,
       queries: pack.twitter.queries.slice(0, 8).map((result) => ({
