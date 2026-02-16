@@ -309,6 +309,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastRiskAutoMitigationSignature = ''
   let lastNoActionNoticeAtMs = 0
   let lastNoActionSignature = ''
+  let lastDustSweepAtMs = 0
+  const DUST_SWEEP_COOLDOWN_MS = 30_000
 
   const normalizeRiskSignature = (message: string): string =>
     message
@@ -856,6 +858,46 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)
 
+      // Periodic dust sweep: close sub-meaningful positions left by IOC partial fills.
+      if (adapter.closeBySize && !hasAnyExposure() && nowMs - lastDustSweepAtMs >= DUST_SWEEP_COOLDOWN_MS) {
+        const dustPositions = state.positions.filter(
+          (p) => Math.abs(p.notionalUsd) > 0 && !isMeaningfulPosition(p) && p.qty > 0
+        )
+        if (dustPositions.length > 0) {
+          lastDustSweepAtMs = nowMs
+          for (const position of dustPositions) {
+            const dustTick = ticks[position.symbol] ?? (await marketAdapter.latest(position.symbol))
+            if (!dustTick) continue
+            const dustSide: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
+            try {
+              await adapter.closeBySize({
+                symbol: position.symbol,
+                side: dustSide,
+                size: String(position.qty),
+                tick: dustTick,
+                idempotencyKey: `dust-sweep:${cycleCorrelationId}:${position.symbol}:${dustSide}`
+              })
+            } catch (error) {
+              await addAudit('execution.dust_sweep_error', 'runtime', cycleCorrelationId, {
+                symbol: position.symbol,
+                side: dustSide,
+                qty: position.qty,
+                notionalUsd: position.notionalUsd,
+                message: String(error)
+              })
+            }
+          }
+          const dustSnapshot = await adapter.snapshot()
+          state.positions = dustSnapshot.positions
+          state.orders = dustSnapshot.orders
+          state.realizedPnlUsd = dustSnapshot.realizedPnlUsd
+          await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
+            logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
+          )
+          await publishPositionsUpdate(cycleCorrelationId)
+        }
+      }
+
       if (state.mode === 'HALT') {
         runtimeProposalCounter.inc({ status: 'skipped_halt' })
         await publishStateUpdate(cycleCorrelationId, urgency ? 'halted (urgent)' : 'halted')
@@ -1220,13 +1262,49 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       created.push(placed)
     }
 
-    const snapshot = await adapter.snapshot()
+    let snapshot = await adapter.snapshot()
     state.positions = snapshot.positions
     state.orders = snapshot.orders
     state.realizedPnlUsd = snapshot.realizedPnlUsd
     await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
       logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
     )
+
+    if (adapter.closeBySize && state.positions.length > 0) {
+      const dustPositions = state.positions.filter(
+        (p) => Math.abs(p.notionalUsd) > 0 && !isMeaningfulPosition(p) && p.qty > 0
+      )
+      for (const position of dustPositions) {
+        const dustTick = ticks[position.symbol] ?? (await marketAdapter.latest(position.symbol))
+        if (!dustTick) continue
+        const dustSide: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
+        try {
+          await adapter.closeBySize({
+            symbol: position.symbol,
+            side: dustSide,
+            size: String(position.qty),
+            tick: dustTick,
+            idempotencyKey: `dust:${proposal.proposalId}:${position.symbol}:${dustSide}`
+          })
+        } catch (error) {
+          await addAudit('execution.dust_error', 'runtime', proposal.proposalId, {
+            symbol: position.symbol,
+            side: dustSide,
+            qty: position.qty,
+            message: String(error)
+          })
+        }
+      }
+      if (dustPositions.length > 0) {
+        snapshot = await adapter.snapshot()
+        state.positions = snapshot.positions
+        state.orders = snapshot.orders
+        state.realizedPnlUsd = snapshot.realizedPnlUsd
+        await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
+          logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
+        )
+      }
+    }
 
     await bus.publish('hlp.execution.commands', {
       type: 'execution.complete',
