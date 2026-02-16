@@ -9,6 +9,7 @@ import {
   panelHeaderPad,
   skeletonPulseClass,
 } from './ascii-style'
+import { Collapsible } from './Collapsible'
 import { type Snapshot } from './floor-dashboard'
 
 const SMALL_PNL_FORMAT = new Intl.NumberFormat('en-US', {
@@ -337,7 +338,7 @@ function SparklineCard({
                 d={stats.path}
                 fill='none'
                 stroke='currentColor'
-                className={colorClass}
+                className={`${colorClass} sparkline-draw-in`}
                 strokeWidth='0.7'
                 strokeLinecap='square'
                 strokeLinejoin='miter'
@@ -426,7 +427,7 @@ export function PnlPanel({
         </div>
       </button>
 
-      {!isCollapsed && (
+      <Collapsible open={!isCollapsed}>
         <div className={`${panelBodyPad} grid gap-3`}>
           <div className='grid gap-2 xl:grid-cols-2'>
             <SparklineCard
@@ -447,7 +448,7 @@ export function PnlPanel({
             />
           </div>
         </div>
-      )}
+      </Collapsible>
     </section>
   )
 }

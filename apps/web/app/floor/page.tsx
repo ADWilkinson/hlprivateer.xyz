@@ -823,22 +823,22 @@ export default function DeckPage() {
 
         <div className='flex flex-wrap items-end justify-center gap-x-10 gap-y-3 py-5 animate-hlp-fade-up-delay-1'>
           <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>MARKET PNL</div>
-            <div className={`text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none ${pnlColor}`}>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MARKET PNL</div>
+            <div className={`text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none ${pnlColor}`}>
               {pnlStr}
             </div>
           </div>
           <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
           <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>ACCOUNT VALUE</div>
-            <div className='text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none text-hlpFg'>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>ACCOUNT VALUE</div>
+            <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
               {equityStr}
             </div>
           </div>
           <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
           <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>MODE</div>
-            <div className='text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none text-hlpFg'>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MODE</div>
+            <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
               {modeStr}
             </div>
           </div>

@@ -19,6 +19,7 @@ import {
   sectionTitleClass,
   skeletonPulseClass,
 } from './ascii-style'
+import { Collapsible } from './Collapsible'
 
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
@@ -96,7 +97,7 @@ export function CrewStationsPanel({
         </div>
       </button>
 
-      {!isCollapsed && (
+      <Collapsible open={!isCollapsed}>
         <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${panelBodyPad}`}>
           {roles.map((role) => {
             const last = isLoading ? null : crewLast[role]
@@ -193,7 +194,7 @@ export function CrewStationsPanel({
             )
           })}
         </div>
-      )}
+      </Collapsible>
     </section>
   )
 }

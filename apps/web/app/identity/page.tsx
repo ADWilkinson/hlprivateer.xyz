@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiUrl } from '../../lib/endpoints'
 import { type IdentityResponse, basescanUrl, basescanNftUrl } from '../../lib/erc8004'
-import { pageShellClass, cardClass, cardHeaderClass, panelBodyPad, sectionTitleClass, mutedTextClass, inlineBadgeClass } from '../ui/ascii-style'
+import { pageShellClass, cardClass, cardHeaderClass, panelBodyPad, mutedTextClass, inlineBadgeClass } from '../ui/ascii-style'
 
 const POLL_INTERVAL_MS = 60_000
 
@@ -37,6 +37,7 @@ export default function IdentityPage() {
     <main className={pageShellClass}>
       <div className='text-center py-4 animate-hlp-fade-up'>
         <h1 className='text-[11px] uppercase tracking-[0.28em] text-hlpFg font-bold'>On-Chain Identity</h1>
+        {erc && <div className='text-[18px] font-semibold tracking-[0.06em] text-hlpFg mt-2'>Agent #{erc.agentId}</div>}
         <p className={`${mutedTextClass} mt-1`}>ERC-8004 Trustless Agent Registry</p>
       </div>
 
@@ -102,13 +103,13 @@ export default function IdentityPage() {
 function Row({ label, value, href }: { label: string; value: string; href?: string }) {
   return (
     <div className='flex items-center justify-between gap-4 border-b border-hlpBorder/30 py-1.5 last:border-0'>
-      <span className={sectionTitleClass}>{label}</span>
+      <span className='text-[8px] uppercase tracking-[0.18em] text-hlpDim'>{label}</span>
       {href ? (
         <a href={href} target='_blank' rel='noopener noreferrer' className='text-[10px] text-hlpAccent hover:underline font-mono'>
           {value}
         </a>
       ) : (
-        <span className='text-[10px] text-hlpFg font-mono'>{value}</span>
+        <span className='text-[11px] text-hlpFg font-medium font-mono'>{value}</span>
       )}
     </div>
   )

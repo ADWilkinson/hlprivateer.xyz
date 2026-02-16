@@ -34,7 +34,7 @@ export function SiteNav() {
               <Link
                 key={link.label}
                 href={link.href}
-                className={`inline-flex h-8 items-center border border-hlpBorder px-3 py-1 text-[9px] uppercase tracking-[0.16em] transition-colors ${
+                className={`inline-flex h-8 items-center border border-hlpBorder px-3 py-1 text-[9px] uppercase tracking-[0.16em] transition-colors duration-150 ${
                   active
                     ? 'bg-hlpInverseBg text-hlpPanel'
                     : 'bg-hlpPanel text-hlpMuted hover:bg-hlpSurface hover:text-hlpFg'

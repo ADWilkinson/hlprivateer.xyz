@@ -1,5 +1,6 @@
 import { AsciiBadge } from './ascii-kit'
 import { cardClass, collapsibleHeaderClass, inverseControlClass, skeletonPulseClass, statusCellClass } from './ascii-style'
+import { Collapsible } from './Collapsible'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -70,13 +71,12 @@ export function StatusStrip({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <>
-          <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
+      <Collapsible open={!isCollapsed}>
+          <div className='flex overflow-x-auto sm:grid min-h-0 border-b border-hlpBorder bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
             {isLoading ? (
               <>
                 {['MODE', 'WS', 'HEALTH', 'DRIFT', 'FEED AGE', 'HEARTBEAT'].map((label) => (
-                  <div className={statusCellClass} key={label}>
+                  <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`} key={label}>
                     <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>{label}</span>
                     <span className={`h-3 w-16 ${skeletonPulseClass}`} />
                   </div>
@@ -84,11 +84,11 @@ export function StatusStrip({
               </>
             ) : (
               <>
-                <div className={statusCellClass}>
+                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</span>
                   <span className='text-[11px] font-bold'>{snapshot.mode}</span>
                 </div>
-                <div className={statusCellClass}>
+                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>WS</span>
                   <span
                     className={`text-[11px] font-bold ${
@@ -98,7 +98,7 @@ export function StatusStrip({
                     {wsState}
                   </span>
                 </div>
-                <div className={statusCellClass}>
+                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEALTH</span>
                   <span className='flex items-center gap-2'>
                     <span className='relative'>
@@ -107,29 +107,27 @@ export function StatusStrip({
                     <span className={`text-[11px] font-bold ${LED_TEXT_BY_STATE[health]}`}>{healthLabel}</span>
                   </span>
                 </div>
-                <div className={statusCellClass}>
+                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DRIFT</span>
                   <span className='flex items-center gap-2'>
                     <span className={`h-1.5 w-1.5 ${LED_CLASS_BY_STATE[drift]}`} />
                     <span className='text-[11px] font-bold'>{driftLabel}</span>
                   </span>
                 </div>
-                <div className={statusCellClass}>
+                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>FEED AGE</span>
                   <span className={`text-[11px] font-bold ${isFeedStale ? 'text-hlpNegative' : ''}`}>
                     {formatAge(Math.max(0, snapshotAgeMs))}
                   </span>
                 </div>
-                <div className={statusCellClass}>
+                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
                   <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>HEARTBEAT</span>
                   <span className='text-[11px] font-bold'>{formatAge(Math.max(0, heartbeatAgeMs))}</span>
                 </div>
               </>
             )}
           </div>
-
-        </>
-      )}
+      </Collapsible>
     </section>
   )
 }

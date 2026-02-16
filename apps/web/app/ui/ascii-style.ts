@@ -1,9 +1,9 @@
-export const pageShellClass = 'relative z-10 mx-auto w-full max-w-[1300px] flex flex-col gap-3 px-2 py-4 sm:px-4 sm:py-6 lg:px-6 2xl:px-8'
+export const pageShellClass = 'relative z-10 mx-auto w-full max-w-[1300px] flex flex-col gap-4 px-3 py-5 sm:px-5 sm:py-7 lg:px-6 2xl:px-8'
 export const panelRadius = ''
 export const panelRadiusSubtle = ''
-export const panelGap = 'gap-2'
+export const panelGap = 'gap-3'
 export const panelBalancedPad = 'p-2 md:p-3'
-export const panelBodyPad = 'px-2 py-2'
+export const panelBodyPad = 'px-3 py-2.5'
 export const panelHeaderPad = 'px-3 py-2'
 export const panelInsetPad = 'px-2 py-1.5'
 export const panelInlinePad = 'px-1 py-1'
@@ -24,7 +24,7 @@ export const buttonClass =
 export const skeletonPulseClass =
   'animate-pulse bg-hlpSurface/70 border border-hlpBorder'
 
-export const sectionTitleClass = 'text-[9px] uppercase tracking-[0.24em] text-hlpMuted'
+export const sectionTitleClass = 'text-[10px] uppercase tracking-[0.20em] text-hlpMuted'
 export const mutedTextClass = 'text-[9px] text-hlpMuted'
 export const inverseControlClass =
   'inline-flex h-5 w-5 items-center justify-center border border-hlpBorder bg-hlpInverseBg text-[10px] uppercase tracking-[0.14em] text-hlpPanel'

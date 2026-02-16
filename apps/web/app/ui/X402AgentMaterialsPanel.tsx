@@ -1,5 +1,6 @@
 import { AsciiBadge, AsciiTable } from './ascii-kit'
 import { cardClass, collapsibleHeaderClass, inverseControlClass, panelBodyPad, sectionTitleClass } from './ascii-style'
+import { Collapsible } from './Collapsible'
 
 type AgentRouteRow = {
   id: string
@@ -150,7 +151,7 @@ export function X402AgentMaterialsPanel({
         </div>
       </button>
 
-      {!isCollapsed && (
+      <Collapsible open={!isCollapsed}>
         <div className={`${panelBodyPad} grid gap-4`}>
           <div>
             <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Access summary</div>
@@ -209,7 +210,7 @@ export function X402AgentMaterialsPanel({
             emptyText='no routes'
           />
         </div>
-      )}
+      </Collapsible>
     </section>
   )
 }

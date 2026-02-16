@@ -2,6 +2,7 @@ import { AsciiBadge } from './ascii-kit'
 import { formatTime, type TapeEntry } from './floor-dashboard'
 import { type RefObject } from 'react'
 import { cardClass, collapsibleHeaderClass, inlineBadgeClass, inverseControlClass, panelBodyPad, sectionStripClass, skeletonPulseClass, terminalPanelClass } from './ascii-style'
+import { Collapsible } from './Collapsible'
 
 type TapeSectionProps = {
   tape: TapeEntry[]
@@ -41,8 +42,7 @@ export function TapeSection({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <>
+      <Collapsible open={!isCollapsed}>
           <div className={`${terminalPanelClass} relative scanline-overlay`} ref={tapeRef} aria-label='event tape'>
             {isLoading
               ? Array.from({ length: 8 }).map((_, index) => (
@@ -94,8 +94,7 @@ export function TapeSection({
             <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>tail stream</span>
             <span className={inlineBadgeClass}>entries={tape.length}</span>
           </div>
-        </>
-      )}
+      </Collapsible>
     </section>
   )
 }
