@@ -248,7 +248,7 @@ export default function LandingPage() {
         <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Give your agent this</div>
         <div className='border border-hlpBorder px-4 py-3'>
           <pre className='whitespace-pre font-mono text-[10px] leading-[1.7]'>
-            <span className='text-hlpAccent'>curl https://hlprivateer.xyz/skills/hl-privateer.md</span>
+            <span className='text-hlpAccent'>curl https://hlprivateer.xyz/skills/SKILL.md</span>
           </pre>
         </div>
       </div>
