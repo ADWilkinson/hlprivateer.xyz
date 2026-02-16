@@ -1087,6 +1087,7 @@ function buildAgentSourceAppendix(): string[] {
 const FLOOR_TAPE_CONTEXT_LINES = 12
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
 const DECK_STATUS_HEARTBEAT_MS = 60_000
+const IDLE_HEARTBEAT_MS = 60_000
 const STRATEGIST_NO_ACTION_SUPPRESS_MS = 60_000
 
 type FloorTapeLine = {
@@ -1202,6 +1203,8 @@ function toInterAgentRoleContext(
 const floorTapeHistory: FloorTapeLine[] = []
 let lastDeckStatusSignature = ''
 let lastDeckStatusHeartbeatAtMs = 0
+let lastExecutionHeartbeatAtMs = 0
+let lastScribeHeartbeatAtMs = 0
 
 function compactReportFields(report: unknown, keep: readonly string[]): Record<string, unknown> | null {
   if (!report || typeof report !== 'object' || Array.isArray(report)) {
@@ -3316,6 +3319,36 @@ function tickStalenessMs(symbols: string[]): { maxAgeMs: number; missing: string
   return { maxAgeMs, missing }
 }
 
+async function emitIdleHeartbeats(): Promise<void> {
+  const now = Date.now()
+
+  if (now - lastExecutionHeartbeatAtMs >= IDLE_HEARTBEAT_MS) {
+    lastExecutionHeartbeatAtMs = now
+    const age = lastProposalPublishedAt ? formatIdleAge(now - lastProposalPublishedAt) : null
+    await publishTape({
+      correlationId: ulid(),
+      role: 'execution',
+      line: age ? `standby -- last proposal ${age} ago` : 'standby -- awaiting proposals'
+    })
+  }
+
+  if (now - lastScribeHeartbeatAtMs >= IDLE_HEARTBEAT_MS) {
+    lastScribeHeartbeatAtMs = now
+    const age = lastAnalysisAt ? formatIdleAge(now - lastAnalysisAt) : null
+    await publishTape({
+      correlationId: ulid(),
+      role: 'scribe',
+      line: age ? `standby -- last analysis ${age} ago` : 'standby -- awaiting trades'
+    })
+  }
+}
+
+function formatIdleAge(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
+  return `${(ms / 3_600_000).toFixed(1)}h`
+}
+
 async function runOpsAgent(): Promise<void> {
   const now = Date.now()
   if (now - lastOpsAt < env.AGENT_OPS_INTERVAL_MS) {
@@ -4182,6 +4215,7 @@ async function runStrategistCycle(): Promise<void> {
     role: 'execution',
     line: `tactics slippage=${tactics.expectedSlippageBps}bps cap=${tactics.maxSlippageBps}bps`
   })
+  lastExecutionHeartbeatAtMs = Date.now()
 
   await publishProposal({ actorId: roleActorId('strategist'), proposal: parsed.proposal })
   await publishAudit({
@@ -4220,6 +4254,7 @@ async function runStrategistCycle(): Promise<void> {
 }
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNotionalUsd: number }): Promise<void> {
+  lastScribeHeartbeatAtMs = Date.now()
   const nowMs = Date.now()
   const universe = new Set<string>([...activeBasket.symbols, ...lastPositions.map((position) => position.symbol)])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
@@ -4494,6 +4529,7 @@ const start = async (): Promise<void> => {
           const held = basketFromPositions(lastPositions)
           if (held.length > 0 && sameBasket(held, basketPivot.basketSymbols)) {
             basketPivot = null
+            lastExecutionHeartbeatAtMs = Date.now()
             void publishTape({
               correlationId: ulid(),
               role: 'execution',
@@ -4584,6 +4620,7 @@ const start = async (): Promise<void> => {
 
       try {
         await runOpsAgent()
+        await emitIdleHeartbeats()
         await runStrategyPipeline()
         consecutiveFailures = 0
       } catch (error) {
