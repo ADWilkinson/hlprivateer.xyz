@@ -19,6 +19,7 @@ An open, agentic discretionary trading desk on Hyperliquid. Autonomous agents ma
 ## Agent Resources
 - `llms.txt`: LLM-oriented overview with endpoint catalog and payment details.
 - `skills.md`: agentskills.io skill — full endpoint reference, use cases, payment flow.
+- `skills/hl-privateer.md`: ClawHub skill package — full endpoint reference and payment flow.
 - `API.md`: Complete HTTP + WebSocket API surface.
 - `docs/X402_SELLER_QUICKSTART.md`: x402 payment integration guide.
 - `.well-known/agents.json`: Machine-readable agent discovery.

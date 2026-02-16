@@ -23,7 +23,7 @@ const paywallRoutes: AgentRouteRow[] = [
   {
     id: 'route-overview',
     method: 'GET',
-    route: '/v1/agent/data/overview',
+    route: '/v1/agent/insights?scope=market',
     capability: 'market.data.read',
     purpose: 'Live dashboard payload + topology + risk snapshot summary',
   },
@@ -37,21 +37,21 @@ const paywallRoutes: AgentRouteRow[] = [
   {
     id: 'route-copy-signals',
     method: 'GET',
-    route: '/v1/agent/copy-trade/signals',
+    route: '/v1/agent/copy/trade?kind=signals',
     capability: 'copy.signals.read',
     purpose: 'Public/decision signals suitable for copy-trade clients',
   },
   {
     id: 'route-copy-positions',
     method: 'GET',
-    route: '/v1/agent/copy-trade/positions',
+    route: '/v1/agent/copy/trade?kind=positions',
     capability: 'copy.positions.read',
     purpose: 'Target and basket-level position summaries with risk policy',
   },
   {
     id: 'route-analysis-latest',
     method: 'GET',
-    route: '/v1/agent/analysis/latest',
+    route: '/v1/agent/analysis?latest=true',
     capability: 'analysis.read',
     purpose: 'Most recent analysis log and thesis',
   },
@@ -87,14 +87,14 @@ const paywallRoutes: AgentRouteRow[] = [
 
 const x402PricingByRoute: Record<string, { price: string; notes: string }> = {
   '/v1/agent/stream/snapshot': { price: '$0.01', notes: 'entry + heartbeat feed snapshots' },
-  '/v1/agent/analysis/latest': { price: '$0.01', notes: 'single latest decision payload' },
+  '/v1/agent/analysis?latest=true': { price: '$0.01', notes: 'single latest decision payload' },
   '/v1/agent/analysis': { price: '$0.01', notes: 'historical analysis page cache slice' },
   '/v1/agent/positions': { price: '$0.01', notes: 'position stream for copy consumers' },
   '/v1/agent/orders': { price: '$0.01', notes: 'order tape and lifecycle summary' },
-  '/v1/agent/data/overview': { price: '$0.02', notes: 'risk policy + market map + tape digest' },
+  '/v1/agent/insights?scope=market': { price: '$0.02', notes: 'risk policy + market map + tape digest' },
   '/v1/agent/insights': { price: '$0.02', notes: 'AI/agent insight package with risk posture' },
-  '/v1/agent/copy-trade/signals': { price: '$0.03', notes: 'signal export for copy-trading partners' },
-  '/v1/agent/copy-trade/positions': { price: '$0.03', notes: 'copy-focused execution/position summary' },
+  '/v1/agent/copy/trade?kind=signals': { price: '$0.03', notes: 'signal export for copy-trading partners' },
+  '/v1/agent/copy/trade?kind=positions': { price: '$0.03', notes: 'copy-focused execution/position summary' },
 }
 
 const x402Catalog: Array<AgentRoutePricingRow> = paywallRoutes.map((routeRow) => {

@@ -11,24 +11,26 @@ This repo currently has:
    - `X402_PROVIDER=facilitator` to enforce canonical `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` / `PAYMENT-RESPONSE`
    - Paid routes (currently):
      - `GET /v1/agent/stream/snapshot`
-     - `GET /v1/agent/analysis/latest`
      - `GET /v1/agent/analysis`
+     - `GET /v1/agent/insights`
+     - `GET /v1/agent/copy/trade`
      - `GET /v1/agent/positions`
      - `GET /v1/agent/orders`
+   - Legacy aliases (kept for compatibility):
+     - `GET /v1/agent/analysis/latest`
      - `GET /v1/agent/data/overview`
-     - `GET /v1/agent/insights`
      - `GET /v1/agent/copy-trade/signals`
      - `GET /v1/agent/copy-trade/positions`
    - Route pricing env (defaults):
      - `X402_PRICE_STREAM_SNAPSHOT=$0.01`
-     - `X402_PRICE_ANALYSIS_LATEST=$0.01`
-     - `X402_PRICE_ANALYSIS_HISTORY=$0.01`
+     - `X402_PRICE_ANALYSIS_LATEST=$0.01` (`/v1/agent/analysis?latest=true`)
+     - `X402_PRICE_ANALYSIS_HISTORY=$0.01` (`/v1/agent/analysis`)
      - `X402_PRICE_POSITIONS=$0.01`
      - `X402_PRICE_ORDERS=$0.01`
-     - `X402_PRICE_MARKET_DATA=$0.02`
-     - `X402_PRICE_AGENT_INSIGHTS=$0.02`
-     - `X402_PRICE_COPY_TRADE_SIGNALS=$0.03`
-     - `X402_PRICE_COPY_TRADE_POSITIONS=$0.03`
+     - `X402_PRICE_MARKET_DATA=$0.02` (`/v1/agent/insights?scope=market`)
+     - `X402_PRICE_AGENT_INSIGHTS=$0.02` (`/v1/agent/insights?scope=ai`)
+     - `X402_PRICE_COPY_TRADE_SIGNALS=$0.03` (`/v1/agent/copy/trade?kind=signals`)
+     - `X402_PRICE_COPY_TRADE_POSITIONS=$0.03` (`/v1/agent/copy/trade?kind=positions`)
 
 If you need actual x402 v2 interoperability (buyers retry with `PAYMENT-SIGNATURE`, sellers return `PAYMENT-REQUIRED` + `PAYMENT-RESPONSE`), follow the canonical flow below.
 

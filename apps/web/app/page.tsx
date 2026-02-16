@@ -152,7 +152,7 @@ export default function LandingPage() {
       <div className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
         <p>Open discretionary desk on Hyperliquid.</p>
         <p>Read our analysis, follow the fund. All via{' '}
-        <a href='/API.md' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402</a>.</p>
+        <a href='/API.md' target='_blank' rel='noreferrer' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402</a>.</p>
       </div>
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
@@ -236,10 +236,28 @@ export default function LandingPage() {
         </Link>
         <a
           href='/llms.txt'
+          target='_blank'
+          rel='noreferrer'
           className='border border-hlpBorder bg-hlpPanel px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
         >
           AGENT DOCS
         </a>
+      </div>
+
+      <div className='flex w-full flex-col items-center gap-2'>
+        <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Give your agent this</div>
+        <div className='w-full max-w-[600px] border border-hlpBorder px-4 py-3'>
+          <pre className='whitespace-pre font-mono text-[10px] leading-[1.7]'>
+            <span className='text-hlpDim'># read the skill</span>{'\n'}
+            <span className='text-hlpAccent'>curl https://hlprivateer.xyz/skills/hl-privateer.md</span>{'\n'}
+            {'\n'}
+            <span className='text-hlpDim'># check live pnl (free)</span>{'\n'}
+            <span className='text-hlpAccent'>curl https://api.hlprivateer.xyz/v1/public/pnl</span>{'\n'}
+            {'\n'}
+            <span className='text-hlpDim'>{`# get positions (x402 — $0.01/call)`}</span>{'\n'}
+            <span className='text-hlpAccent'>curl https://api.hlprivateer.xyz/v1/agent/positions</span>
+          </pre>
+        </div>
       </div>
     </div>
   )

@@ -50,7 +50,7 @@
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/analysis/latest",
+      "path": "/v1/agent/analysis?latest=true",
       "method": "GET",
       "description": "Latest AI strategist analysis with thesis and signals",
       "price": "$0.01",
@@ -64,28 +64,28 @@
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/data/overview",
+      "path": "/v1/agent/insights?scope=market",
       "method": "GET",
       "description": "Risk config, signal timeline, account snapshot",
       "price": "$0.02",
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/insights",
+      "path": "/v1/agent/insights?scope=ai",
       "method": "GET",
       "description": "Full dashboard: floor state, risk, analysis, copy summary",
       "price": "$0.02",
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/copy-trade/signals",
+      "path": "/v1/agent/copy/trade?kind=signals",
       "method": "GET",
       "description": "Audit trail of proposals, analysis, risk, and basket events",
       "price": "$0.03",
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/copy-trade/positions",
+      "path": "/v1/agent/copy/trade?kind=positions",
       "method": "GET",
       "description": "Position data formatted for copy-trading",
       "price": "$0.03",

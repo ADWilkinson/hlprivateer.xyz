@@ -58,6 +58,7 @@ No agent can bypass risk limits. The human operator holds kill-switch authority.
 
 ## Agent Resources
 - Agent skill (agentskills.io): https://hlprivateer.xyz/skills.md
+- Agent skill (ClawHub): https://hlprivateer.xyz/skills/hl-privateer.md
 - Full API docs: https://hlprivateer.xyz/API.md
 - x402 seller guide: https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md
 - Agent discovery: https://hlprivateer.xyz/.well-known/agents.json

@@ -184,3 +184,4 @@ All proposals pass through a deterministic risk engine (fail-closed) before exec
 - x402 seller guide: https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md
 - Agent navigation: https://hlprivateer.xyz/llms.txt
 - Agent discovery: https://hlprivateer.xyz/.well-known/agents.json
+- ClawHub skill package: https://hlprivateer.xyz/skills/hl-privateer.md
