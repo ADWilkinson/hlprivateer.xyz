@@ -3121,6 +3121,7 @@ let lastResearchReport: (ResearchReportResult & { computedAt: string }) | null =
 let lastRiskReport: (RiskReportResult & { computedAt: string }) | null = null
 let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
 let lastExternalIntel: ExternalIntelPack | null = null
+let cachedTwitterIntel: { data: ExternalIntelPack['twitter']; fetchedAtMs: number } | undefined
 let agentSuggestedTwitterQueries: string[] = []
 let autoHaltActive = false
 let autoHaltHealthySinceMs = 0
@@ -3464,8 +3465,11 @@ async function runResearchAgent(): Promise<void> {
 	        twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
 	        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
 	        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
-	        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined
+	        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined,
+	        cachedTwitter: cachedTwitterIntel,
+	        twitterCooldownMs: env.AGENT_INTEL_TWITTER_COOLDOWN_MS
 	      })
+	      cachedTwitterIntel = { data: lastExternalIntel.twitter, fetchedAtMs: Date.now() }
 	      intelSummary = summarizeExternalIntel(lastExternalIntel)
 
 	      await publishAudit({

@@ -105,6 +105,12 @@ export const env = z
     AGENT_INTEL_ENABLED: booleanFromEnv.default(true),
     AGENT_INTEL_TWITTER_ENABLED: booleanFromEnv.default(true),
     AGENT_INTEL_TWITTER_MAX_RESULTS: z.coerce.number().int().min(10).max(100).default(10),
+    AGENT_INTEL_TWITTER_COOLDOWN_MS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .default(900_000)
+      .transform((value) => clamp(Math.trunc(value), 60_000, 3_600_000)),
     AGENT_INTEL_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
     TWITTER_BEARER_TOKEN: z.string().default(''),
     BRAVE_API_KEY: z.string().default(''),

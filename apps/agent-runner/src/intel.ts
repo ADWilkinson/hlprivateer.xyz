@@ -311,8 +311,11 @@ export async function buildExternalIntelPack(params: {
   twitterMaxResults: number
   timeoutMs: number
   customQueries?: string[]
+  cachedTwitter?: { data: ExternalIntelPack['twitter']; fetchedAtMs: number }
+  twitterCooldownMs?: number
 }): Promise<ExternalIntelPack> {
   const computedAt = new Date().toISOString()
+  const nowMs = Date.now()
   const symbols = params.symbols.map((s) => sanitizeLine(String(s).toUpperCase(), 24)).filter(Boolean).slice(0, 12)
 
   const pack: ExternalIntelPack = {
@@ -329,53 +332,66 @@ export async function buildExternalIntelPack(params: {
     }
   }
 
-  const creds = params.twitterBearerToken && params.twitterBearerToken.trim()
-    ? { bearerToken: params.twitterBearerToken.trim(), authToken: null, ct0: null, handleHint: null } as TwitterCreds
-    : await loadTwitterCreds({ credsPath: params.twitterCredsPath })
-
-  const twitterBearer = creds.bearerToken
-  const hasCookieAuth = Boolean(creds.authToken && creds.ct0)
-
-  if (creds.handleHint) {
-    pack.twitter.handleHint = creds.handleHint
-  }
-
-  if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth)) {
-    pack.twitter.ok = false
+  const cooldownMs = params.twitterCooldownMs ?? 0
+  const cached = params.cachedTwitter
+  if (cached && cooldownMs > 0 && nowMs - cached.fetchedAtMs < cooldownMs) {
+    pack.twitter = cached.data
   } else {
-    let queries: string[]
-    if (params.customQueries && params.customQueries.length > 0) {
-      queries = params.customQueries.slice(0, 10)
-    } else {
-      const baseClauses = ['-is:retweet', 'lang:en']
-      const symbolQueries = symbols.map((symbol) => {
-        const cashtag = `$${symbol}`
-        const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
-        const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
-        return `${symbolClause} ${focus} ${baseClauses.join(' ')}`
-      })
+    const creds = params.twitterBearerToken && params.twitterBearerToken.trim()
+      ? { bearerToken: params.twitterBearerToken.trim(), authToken: null, ct0: null, handleHint: null } as TwitterCreds
+      : await loadTwitterCreds({ credsPath: params.twitterCredsPath })
 
-      const globalQueries = [
-        `hyperliquid (funding OR liquidation OR outage OR bug OR exploit OR "risk") ${baseClauses.join(' ')}`,
-        `perp funding (rotation OR squeeze OR unwind OR deleveraging) ${baseClauses.join(' ')}`
-      ]
+    const twitterBearer = creds.bearerToken
+    const hasCookieAuth = Boolean(creds.authToken && creds.ct0)
 
-      queries = [...symbolQueries, ...globalQueries].slice(0, 10)
+    if (creds.handleHint) {
+      pack.twitter.handleHint = creds.handleHint
     }
-    const results = await Promise.all(
-      queries.map((query) =>
-        twitterSearchRecent({
-          bearerToken: twitterBearer ?? '',
-          authToken: creds.authToken,
-          ct0: creds.ct0,
-          query,
-          maxResults: params.twitterMaxResults,
-          timeoutMs: params.timeoutMs
+
+    if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth)) {
+      pack.twitter.ok = false
+    } else {
+      let queries: string[]
+      if (params.customQueries && params.customQueries.length > 0) {
+        queries = params.customQueries.slice(0, 10)
+      } else {
+        const baseClauses = ['-is:retweet', 'lang:en']
+        const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
+
+        const symbolBatches: string[][] = []
+        for (let i = 0; i < symbols.length; i += 4) {
+          symbolBatches.push(symbols.slice(i, i + 4))
+        }
+        const symbolQueries = symbolBatches.map((batch) => {
+          const symbolClauses = batch.map((symbol) => {
+            const cashtag = `$${symbol}`
+            return symbol.length <= 5 ? `${symbol} OR ${cashtag}` : symbol
+          })
+          return `(${symbolClauses.join(' OR ')}) ${focus} ${baseClauses.join(' ')}`
         })
+
+        const globalQueries = [
+          `hyperliquid (funding OR liquidation OR outage OR bug OR exploit OR "risk") ${baseClauses.join(' ')}`,
+          `perp funding (rotation OR squeeze OR unwind OR deleveraging) ${baseClauses.join(' ')}`
+        ]
+
+        queries = [...symbolQueries, ...globalQueries].slice(0, 10)
+      }
+      const results = await Promise.all(
+        queries.map((query) =>
+          twitterSearchRecent({
+            bearerToken: twitterBearer ?? '',
+            authToken: creds.authToken,
+            ct0: creds.ct0,
+            query,
+            maxResults: params.twitterMaxResults,
+            timeoutMs: params.timeoutMs
+          })
+        )
       )
-    )
-    pack.twitter.queries = results
-    pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
+      pack.twitter.queries = results
+      pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
+    }
   }
 
   // Fear & greed is a single call; it's optional context, not a trading trigger.
