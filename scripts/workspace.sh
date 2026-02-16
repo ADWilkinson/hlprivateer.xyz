@@ -10,6 +10,7 @@ WORKSPACES=(
   packages/plugin-sdk
   packages/agent-sdk
   packages/risk-engine
+  packages/hl-client
   apps/api
   apps/runtime
   apps/agent-runner
