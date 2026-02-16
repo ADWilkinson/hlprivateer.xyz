@@ -246,16 +246,9 @@ export default function LandingPage() {
 
       <div className='flex w-full flex-col items-center gap-2'>
         <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Give your agent this</div>
-        <div className='w-full max-w-[600px] border border-hlpBorder px-4 py-3'>
+        <div className='border border-hlpBorder px-4 py-3'>
           <pre className='whitespace-pre font-mono text-[10px] leading-[1.7]'>
-            <span className='text-hlpDim'># read the skill</span>{'\n'}
-            <span className='text-hlpAccent'>curl https://hlprivateer.xyz/skills/hl-privateer.md</span>{'\n'}
-            {'\n'}
-            <span className='text-hlpDim'># check live pnl (free)</span>{'\n'}
-            <span className='text-hlpAccent'>curl https://api.hlprivateer.xyz/v1/public/pnl</span>{'\n'}
-            {'\n'}
-            <span className='text-hlpDim'>{`# get positions (x402 — $0.01/call)`}</span>{'\n'}
-            <span className='text-hlpAccent'>curl https://api.hlprivateer.xyz/v1/agent/positions</span>
+            <span className='text-hlpAccent'>curl https://hlprivateer.xyz/skills/hl-privateer.md</span>
           </pre>
         </div>
       </div>
