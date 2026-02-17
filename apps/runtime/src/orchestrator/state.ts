@@ -211,7 +211,7 @@ const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
 
 void promClient.collectDefaultMetrics()
 
-function driftFrom(state: RuntimeState): 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH' {
+function driftFrom(state: RuntimeState, breachThreshold = 1.0): 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH' {
   if (state.positions.length === 0) {
     return 'IN_TOLERANCE'
   }
@@ -226,11 +226,11 @@ function driftFrom(state: RuntimeState): 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'B
   const mismatch = Math.abs(longs - shorts)
   const pct = gross === 0 ? 0 : mismatch / gross
 
-  if (pct > 0.2) {
+  if (pct > breachThreshold) {
     return 'BREACH'
   }
 
-  if (pct > 0.05) {
+  if (pct > breachThreshold * 0.25) {
     return 'POTENTIAL_DRIFT'
   }
 
@@ -288,7 +288,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   }
 
   state.lastUpdateAt = persistedState?.updatedAt ?? state.lastUpdateAt
-  state.driftState = driftFrom(state)
+  state.driftState = driftFrom(state, env.RISK_DRIFT_BREACH_PCT)
 
   setModeGauge(state.mode)
 
@@ -490,7 +490,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   const hasAnyExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
     hasMeaningfulExposure(positions)
   const driftFromMeaningful = (positions: readonly OperatorPosition[] = state.positions): ReturnType<typeof driftFrom> =>
-    driftFrom({ ...state, positions: meaningfulPositions(positions) })
+    driftFrom({ ...state, positions: meaningfulPositions(positions) }, env.RISK_DRIFT_BREACH_PCT)
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {

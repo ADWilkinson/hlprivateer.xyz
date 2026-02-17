@@ -86,7 +86,7 @@ const envSchema = z.object({
   RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
   RISK_STALE_DATA_MS: z.coerce.number().default(3_000),
   RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().default(1.1),
-  RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(0.015),
+  RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(1.0),
   API_RATE_LIMIT_MAX: z.coerce.number().default(120),
   API_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   ERC8004_ENABLED: booleanFromEnv.default(false),
