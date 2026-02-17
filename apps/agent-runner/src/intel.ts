@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import crypto from 'node:crypto'
 import { fetchAixbtIntel, summarizeAixbtIntel, type AixbtIntelPack } from './aixbt'
 
 type TwitterCredsFile = {
@@ -6,6 +7,10 @@ type TwitterCredsFile = {
   auth_token?: unknown
   ct0?: unknown
   handle?: unknown
+  consumer_key?: unknown
+  consumer_secret?: unknown
+  access_token?: unknown
+  access_token_secret?: unknown
 }
 
 export type TwitterTweetSummary = {
@@ -136,6 +141,10 @@ type TwitterCreds = {
   authToken: string | null
   ct0: string | null
   handleHint: string | null
+  consumerKey: string | null
+  consumerSecret: string | null
+  accessToken: string | null
+  accessTokenSecret: string | null
 }
 
 type TwitterQueryCacheEntry = {
@@ -156,14 +165,22 @@ async function loadTwitterCreds(params: { credsPath: string }): Promise<TwitterC
     const bearerToken = bearerRaw ? decodeMaybeURIComponent(bearerRaw) : null
     const authToken = typeof parsed?.auth_token === 'string' && parsed.auth_token.trim() ? parsed.auth_token.trim() : null
     const ct0 = typeof parsed?.ct0 === 'string' && parsed.ct0.trim() ? parsed.ct0.trim() : null
+    const consumerKey = typeof parsed?.consumer_key === 'string' && parsed.consumer_key.trim() ? parsed.consumer_key.trim() : null
+    const consumerSecret = typeof parsed?.consumer_secret === 'string' && parsed.consumer_secret.trim() ? parsed.consumer_secret.trim() : null
+    const accessTokenRaw = typeof parsed?.access_token === 'string' && parsed.access_token.trim() ? parsed.access_token.trim() : null
+    const accessTokenSecret = typeof parsed?.access_token_secret === 'string' && parsed.access_token_secret.trim() ? parsed.access_token_secret.trim() : null
     return {
       bearerToken: bearerToken && bearerToken.trim() ? bearerToken.trim() : null,
       authToken,
       ct0,
-      handleHint
+      handleHint,
+      consumerKey,
+      consumerSecret,
+      accessToken: accessTokenRaw,
+      accessTokenSecret
     }
   } catch {
-    return { bearerToken: null, authToken: null, ct0: null, handleHint: null }
+    return { bearerToken: null, authToken: null, ct0: null, handleHint: null, consumerKey: null, consumerSecret: null, accessToken: null, accessTokenSecret: null }
   }
 }
 
@@ -193,6 +210,40 @@ type TwitterApiResponse = {
 
 const TWITTER_WEB_BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
 
+function rfc3986Encode(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+}
+
+function buildOAuth1Header(params: {
+  method: string
+  url: string
+  queryParams: Record<string, string>
+  consumerKey: string
+  consumerSecret: string
+  accessToken: string
+  accessTokenSecret: string
+}): string {
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: params.consumerKey,
+    oauth_nonce: crypto.randomUUID().replace(/-/g, ''),
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: String(Math.floor(Date.now() / 1000)),
+    oauth_token: params.accessToken,
+    oauth_version: '1.0'
+  }
+
+  const allParams: Record<string, string> = { ...params.queryParams, ...oauthParams }
+  const sortedKeys = Object.keys(allParams).sort()
+  const paramString = sortedKeys.map((k) => `${rfc3986Encode(k)}=${rfc3986Encode(allParams[k]!)}`).join('&')
+  const baseString = `${params.method.toUpperCase()}&${rfc3986Encode(params.url)}&${rfc3986Encode(paramString)}`
+  const signingKey = `${rfc3986Encode(params.consumerSecret)}&${rfc3986Encode(params.accessTokenSecret)}`
+  const signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64')
+
+  oauthParams['oauth_signature'] = signature
+  const headerParts = Object.keys(oauthParams).sort().map((k) => `${rfc3986Encode(k)}="${rfc3986Encode(oauthParams[k]!)}"`)
+  return `OAuth ${headerParts.join(', ')}`
+}
+
 function buildTwitterHeaders(params: {
   bearerToken: string
   authToken?: string | null
@@ -217,6 +268,10 @@ async function twitterSearchRecent(params: {
   bearerToken: string
   authToken?: string | null
   ct0?: string | null
+  consumerKey?: string | null
+  consumerSecret?: string | null
+  accessToken?: string | null
+  accessTokenSecret?: string | null
   query: string
   maxResults: number
   timeoutMs: number
@@ -225,29 +280,52 @@ async function twitterSearchRecent(params: {
   const maxResults = clampInt(params.maxResults, 10, 100)
 
   const query = sanitizeLine(params.query, 280)
-  const url = new URL('https://api.twitter.com/2/tweets/search/recent')
-  url.searchParams.set('query', query)
-  url.searchParams.set('max_results', String(maxResults))
-  url.searchParams.set('tweet.fields', 'created_at,public_metrics,author_id')
-  url.searchParams.set('expansions', 'author_id')
-  url.searchParams.set('user.fields', 'username,name,verified')
-
-  const hasCookieCreds = Boolean(params.authToken && params.ct0)
-  const hasBearerCreds = Boolean(params.bearerToken)
-  const strategies: boolean[] = []
-  // Prefer OAuth2 app bearer tokens (supported on v2 API). Cookie auth is unreliable and often unsupported.
-  if (hasBearerCreds) {
-    strategies.push(false)
-  } else if (hasCookieCreds) {
-    strategies.push(true)
+  const baseUrl = 'https://api.twitter.com/2/tweets/search/recent'
+  const queryParams: Record<string, string> = {
+    query,
+    max_results: String(maxResults),
+    'tweet.fields': 'created_at,public_metrics,author_id',
+    expansions: 'author_id',
+    'user.fields': 'username,name,verified'
   }
+  const url = new URL(baseUrl)
+  for (const [k, v] of Object.entries(queryParams)) {
+    url.searchParams.set(k, v)
+  }
+
+  const hasOAuth1 = Boolean(params.consumerKey && params.consumerSecret && params.accessToken && params.accessTokenSecret)
+  const hasBearerCreds = Boolean(params.bearerToken)
+  const hasCookieCreds = Boolean(params.authToken && params.ct0)
+
+  type AuthStrategy = 'oauth1' | 'bearer' | 'cookie'
+  const strategies: AuthStrategy[] = []
+  if (hasOAuth1) strategies.push('oauth1')
+  if (hasBearerCreds) strategies.push('bearer')
+  if (hasCookieCreds) strategies.push('cookie')
+
   if (strategies.length === 0) {
     return { query, fetchedAt, tweets: [], error: 'no twitter credentials available' }
   }
 
   let lastError = ''
-  for (const useCookie of strategies) {
-    const headers = buildTwitterHeaders({ ...params, useCookie })
+  for (const strategy of strategies) {
+    let headers: Record<string, string>
+    if (strategy === 'oauth1') {
+      headers = {
+        Authorization: buildOAuth1Header({
+          method: 'GET',
+          url: baseUrl,
+          queryParams,
+          consumerKey: params.consumerKey!,
+          consumerSecret: params.consumerSecret!,
+          accessToken: params.accessToken!,
+          accessTokenSecret: params.accessTokenSecret!
+        }),
+        'Content-Type': 'application/json'
+      }
+    } else {
+      headers = buildTwitterHeaders({ ...params, useCookie: strategy === 'cookie' })
+    }
     try {
       const response = await fetchWithTimeout(
         url.toString(),
@@ -257,8 +335,7 @@ async function twitterSearchRecent(params: {
 
       const payloadRaw = await safeJson(response)
       if (!response.ok) {
-        const strategyLabel = useCookie ? 'cookie' : 'bearer'
-        lastError = `twitter ${strategyLabel} status=${response.status} body=${sanitizeLine(
+        lastError = `twitter ${strategy} status=${response.status} body=${sanitizeLine(
           typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
           240
         )}`
@@ -387,18 +464,20 @@ export async function buildExternalIntelPack(params: {
   if (cached && cooldownMs > 0 && nowMs - cached.fetchedAtMs < cooldownMs) {
     pack.twitter = cached.data
   } else {
-    const creds = params.twitterBearerToken && params.twitterBearerToken.trim()
-      ? { bearerToken: decodeMaybeURIComponent(params.twitterBearerToken), authToken: null, ct0: null, handleHint: null } as TwitterCreds
-      : await loadTwitterCreds({ credsPath: params.twitterCredsPath })
+    const creds = await loadTwitterCreds({ credsPath: params.twitterCredsPath })
+    if (params.twitterBearerToken && params.twitterBearerToken.trim()) {
+      creds.bearerToken = decodeMaybeURIComponent(params.twitterBearerToken)
+    }
 
     const twitterBearer = creds.bearerToken
     const hasCookieAuth = Boolean(creds.authToken && creds.ct0)
+    const hasOAuth1 = Boolean(creds.consumerKey && creds.consumerSecret && creds.accessToken && creds.accessTokenSecret)
 
     if (creds.handleHint) {
       pack.twitter.handleHint = creds.handleHint
     }
 
-    if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth)) {
+    if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth && !hasOAuth1)) {
       pack.twitter.ok = false
     } else {
       let queries: string[]
@@ -438,6 +517,10 @@ export async function buildExternalIntelPack(params: {
             bearerToken: twitterBearer ?? '',
             authToken: creds.authToken,
             ct0: creds.ct0,
+            consumerKey: creds.consumerKey,
+            consumerSecret: creds.consumerSecret,
+            accessToken: creds.accessToken,
+            accessTokenSecret: creds.accessTokenSecret,
             query,
             maxResults: params.twitterMaxResults,
             timeoutMs: params.timeoutMs
