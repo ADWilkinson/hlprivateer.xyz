@@ -2171,16 +2171,105 @@ async function maybeSelectBasket(params: {
       const universeBySymbol = new Map(universe.map((a) => [a.symbol.toUpperCase(), a]))
       const validFixed = fixedBasketSymbols.filter((s) => universeBySymbol.has(s))
       if (validFixed.length > 0) {
+        const baseSymbol = validFixed[0] ?? 'BTC'
+        const pricePack = await computePriceFeaturePack({
+          postInfo: hlClient.postInfo,
+          baseSymbol,
+          symbols: validFixed,
+          windowMin: env.AGENT_FEATURE_WINDOW_MIN,
+          interval: '1m',
+          concurrency: env.AGENT_FEATURE_CONCURRENCY
+        })
+
+        const priceBySymbol: Record<string, PriceFeature> = {}
+        for (const symbol of validFixed) {
+          const feature = pricePack.bySymbol[symbol]
+          if (feature) {
+            priceBySymbol[symbol] = feature
+          }
+        }
+
+        let cgMarketsFixed: Record<string, CoinGeckoMarketSnapshot> = {}
+        let cgCoinCategoriesFixed: Record<string, string[]> = {}
+        let cgSectorTopLosersFixed: Array<{ name: string; marketCapChange24hPct: number | null }> = []
+        let cgSectorTopGainersFixed: Array<{ name: string; marketCapChange24hPct: number | null }> = []
+        let cgCoveragePctFixed = 0
+
+        if (coinGecko) {
+          try {
+            const concurrency = Math.min(env.AGENT_FEATURE_CONCURRENCY, 4)
+            const resolved = await mapWithConcurrency(validFixed, concurrency, async (symbol) => {
+              const id = await coinGecko.getCoinIdForSymbol(symbol)
+              return { symbol, id }
+            })
+
+            const cgIdsBySymbolFixed: Record<string, string> = {}
+            for (const entry of resolved) {
+              if (entry?.id) cgIdsBySymbolFixed[entry.symbol] = entry.id
+            }
+
+            const ids = [...new Set(Object.values(cgIdsBySymbolFixed))]
+            const markets = await coinGecko.fetchMarkets(ids)
+            const marketById = new Map<string, CoinGeckoMarketSnapshot>()
+            for (const market of markets) marketById.set(market.id, market)
+            for (const [symbol, id] of Object.entries(cgIdsBySymbolFixed)) {
+              const market = marketById.get(id)
+              if (market) cgMarketsFixed[symbol] = market
+            }
+
+            cgCoveragePctFixed = validFixed.length > 0 ? (Object.keys(cgMarketsFixed).length / validFixed.length) * 100 : 0
+
+            try {
+              const categories = await coinGecko.fetchCategories()
+              const withChange = categories.filter(
+                (c) => typeof c.marketCapChange24hPct === 'number' && Number.isFinite(c.marketCapChange24hPct)
+              )
+              withChange.sort((a, b) => (a.marketCapChange24hPct ?? 0) - (b.marketCapChange24hPct ?? 0))
+              cgSectorTopLosersFixed = withChange.slice(0, 5).map((c) => ({ name: c.name, marketCapChange24hPct: c.marketCapChange24hPct }))
+              cgSectorTopGainersFixed = withChange.slice(Math.max(0, withChange.length - 5)).reverse().map((c) => ({ name: c.name, marketCapChange24hPct: c.marketCapChange24hPct }))
+            } catch {
+              // optional sector data
+            }
+
+            const catRows = await mapWithConcurrency(
+              validFixed.map((s) => ({ symbol: s, id: cgIdsBySymbolFixed[s] })).filter((t): t is { symbol: string; id: string } => Boolean(t.id)),
+              Math.min(validFixed.length, 3),
+              async (task) => ({ symbol: task.symbol, categories: await coinGecko.fetchCoinCategories(task.id) })
+            )
+            for (const row of catRows) {
+              if (row.categories.length > 0) cgCoinCategoriesFixed[row.symbol] = row.categories
+            }
+          } catch {
+            cgMarketsFixed = {}
+            cgCoinCategoriesFixed = {}
+            cgCoveragePctFixed = 0
+          }
+        }
+
         activeBasket = {
           symbols: validFixed,
           rationale: `Fixed basket override: ${validFixed.join(', ')}`,
-          selectedAt: new Date().toISOString()
+          selectedAt: new Date().toISOString(),
+          context: {
+            featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
+            priceBase: pricePack.base,
+            priceBySymbol,
+            coingecko: coinGecko
+              ? {
+                marketsBySymbol: cgMarketsFixed,
+                coinCategoriesBySymbol: cgCoinCategoriesFixed,
+                sectorTopLosers: cgSectorTopLosersFixed,
+                sectorTopGainers: cgSectorTopGainersFixed,
+                coveragePct: Number(cgCoveragePctFixed.toFixed(1))
+              }
+              : undefined
+          }
         }
         await publishTape({
           correlationId: ulid(),
           role: 'ops',
           level: 'INFO',
-          line: `basket: using fixed symbols [${validFixed.join(', ')}] from BASKET_SYMBOLS config`
+          line: `basket: using fixed symbols [${validFixed.join(', ')}] from BASKET_SYMBOLS config (${Object.keys(priceBySymbol).length} price features loaded)`
         })
         basketSelectInFlight = false
         return
