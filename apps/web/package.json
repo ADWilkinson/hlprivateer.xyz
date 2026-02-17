@@ -13,11 +13,10 @@
     "assets:generate": "bash scripts/generate-brand-assets.sh"
   },
   "dependencies": {
-    "@hl/privateer-contracts": "workspace:*",
-    "liveline": "^0.0.3",
     "next": "^15.1.7",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@hl/privateer-contracts": "workspace:*"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",
