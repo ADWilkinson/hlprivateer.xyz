@@ -33,6 +33,7 @@ type SectionKey = 'status' | 'pnl' | 'crew' | 'tape' | 'x402'
 
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
+const STANDBY_SUPPRESS_MS = 900_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
 const LOG_PREFIX = '[DeckPage]'
@@ -415,6 +416,7 @@ export default function DeckPage() {
     x402: false,
   })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
+  const standbySeenRef = useRef<Record<string, number>>({})
   const seenTapeRef = useRef<Set<string>>(new Set())
 
   const tapeRef = useRef<HTMLDivElement | null>(null)
@@ -504,6 +506,19 @@ export default function DeckPage() {
         entry.role = 'ops'
         entry.level = 'WARN'
         entry.line = `risk denied: ${display}`
+        return true
+      }
+
+      if (/\bstandby\b/i.test(lowered)) {
+        const key = role ?? 'unknown'
+        const now = Date.now()
+        const lastSeen = standbySeenRef.current[key] ?? 0
+        if (now - lastSeen < STANDBY_SUPPRESS_MS) {
+          setSuppressedNoAction((value) => value + 1)
+          return false
+        }
+        standbySeenRef.current[key] = now
+        touchCrew(role, entry.level || 'INFO', entry.line)
         return true
       }
 
