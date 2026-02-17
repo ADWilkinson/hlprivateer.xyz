@@ -1,44 +1,48 @@
-type AixbtSignal = {
-  id: string
-  projectId: string
+type AixbtRawSignal = {
+  id?: string
+  projectId?: string
+  projectName?: string
+  category?: string
+  description?: string
+  detectedAt?: string
+  reinforcedAt?: string | null
+  activity?: Array<{
+    date?: string
+    source?: string
+    incoming?: string
+    result?: string
+    cluster?: { name?: string }
+  }>
+}
+
+type AixbtRawProject = {
+  id?: string
+  name?: string
+  momentumScore?: number
+  popularityScore?: number
+  xHandle?: string | null
+  rationale?: string
+  coingeckoData?: {
+    symbol?: string
+    slug?: string
+    categories?: string[]
+  }
+}
+
+export type AixbtSignalSummary = {
   projectName: string
-  ticker: string
   category: string
-  title: string
-  summary: string
+  description: string
   detectedAt: string
   reinforcedAt: string | null
   sourceCount: number
 }
 
-type AixbtProject = {
-  id: string
-  name: string
-  ticker: string
-  momentumScore: number
-  chain: string | null
-  xHandle: string | null
-}
-
-type AixbtMomentumPoint = {
-  timestamp: string
-  score: number
-}
-
-export type AixbtSignalSummary = {
-  ticker: string
-  projectName: string
-  category: string
-  title: string
-  summary: string
-  detectedAt: string
-  sourceCount: number
-}
-
 export type AixbtProjectSummary = {
-  ticker: string
   name: string
+  ticker: string
   momentumScore: number
+  rationale: string
 }
 
 export type AixbtIntelPack = {
@@ -137,53 +141,54 @@ export async function fetchAixbtIntel(params: {
   const fetchedAt = new Date().toISOString()
 
   try {
-    const tickerFilter = params.tickers.slice(0, 50).join(',')
+    const nameFilter = params.tickers.map((t) => t.toLowerCase()).slice(0, 50).join(',')
 
     const [signals, topProjects] = await Promise.all([
-      aixbtGet<AixbtSignal[]>({
+      aixbtGet<AixbtRawSignal[]>({
         path: '/signals',
         apiKey: params.apiKey,
         timeoutMs: params.timeoutMs,
         query: {
-          tickers: tickerFilter,
+          names: nameFilter,
           limit: '50',
           sortBy: 'reinforcedAt'
         }
-      }).catch((): AixbtSignal[] => []),
+      }).catch((): AixbtRawSignal[] => []),
 
-      aixbtGet<AixbtProject[]>({
+      aixbtGet<AixbtRawProject[]>({
         path: '/projects',
         apiKey: params.apiKey,
         timeoutMs: params.timeoutMs,
         query: {
-          tickers: tickerFilter,
+          names: nameFilter,
           limit: '50',
           sortBy: 'momentumScore',
           excludeStables: 'true'
         }
-      }).catch((): AixbtProject[] => [])
+      }).catch((): AixbtRawProject[] => [])
     ])
 
     const signalSummaries: AixbtSignalSummary[] = (Array.isArray(signals) ? signals : [])
       .slice(0, 30)
       .map((s) => ({
-        ticker: sanitize(String(s.ticker ?? ''), 20),
         projectName: sanitize(String(s.projectName ?? ''), 60),
         category: sanitize(String(s.category ?? ''), 40),
-        title: sanitize(String(s.title ?? ''), 120),
-        summary: sanitize(String(s.summary ?? ''), 300),
+        description: sanitize(String(s.description ?? ''), 400),
         detectedAt: String(s.detectedAt ?? ''),
-        sourceCount: typeof s.sourceCount === 'number' ? s.sourceCount : 0
+        reinforcedAt: typeof s.reinforcedAt === 'string' ? s.reinforcedAt : null,
+        sourceCount: Array.isArray(s.activity) ? s.activity.length : 0
       }))
+      .filter((s) => s.description.length > 0)
 
     const topMomentum: AixbtProjectSummary[] = (Array.isArray(topProjects) ? topProjects : [])
       .filter((p) => typeof p.momentumScore === 'number')
       .sort((a, b) => (b.momentumScore ?? 0) - (a.momentumScore ?? 0))
       .slice(0, 20)
       .map((p) => ({
-        ticker: sanitize(String(p.ticker ?? ''), 20),
         name: sanitize(String(p.name ?? ''), 60),
-        momentumScore: p.momentumScore
+        ticker: sanitize(String(p.coingeckoData?.symbol ?? p.name ?? '').toUpperCase(), 20),
+        momentumScore: p.momentumScore!,
+        rationale: sanitize(String(p.rationale ?? ''), 200)
       }))
 
     const pack: AixbtIntelPack = {
@@ -214,17 +219,18 @@ export function summarizeAixbtIntel(pack: AixbtIntelPack): Record<string, unknow
     error: pack.error ?? null,
     signalCount: pack.signals.length,
     signals: pack.signals.slice(0, 15).map((s) => ({
-      ticker: s.ticker,
+      projectName: s.projectName,
       category: s.category,
-      title: s.title,
-      summary: s.summary.slice(0, 200),
+      description: s.description.slice(0, 300),
       detectedAt: s.detectedAt,
+      reinforcedAt: s.reinforcedAt,
       sourceCount: s.sourceCount
     })),
     topMomentum: pack.topMomentum.slice(0, 10).map((p) => ({
-      ticker: p.ticker,
       name: p.name,
-      momentumScore: p.momentumScore
+      ticker: p.ticker,
+      momentumScore: p.momentumScore,
+      rationale: p.rationale
     }))
   }
 }
