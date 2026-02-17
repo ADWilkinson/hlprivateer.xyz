@@ -1979,14 +1979,16 @@ function syncActiveBasketFromPositions(positions: OperatorPosition[]): void {
     return
   }
 
-  if (sameBasket(activeBasket.symbols, heldBasket)) {
+  const missing = heldBasket.filter((s) => !activeBasket.symbols.includes(s))
+  if (missing.length === 0) {
     return
   }
 
+  // Merge held symbols into the existing basket without replacing it or refreshing selectedAt.
+  // This ensures the full universe remains visible to the strategist while positions are open.
   activeBasket = {
-    symbols: heldBasket,
-    rationale: 'synced from live positions',
-    selectedAt: new Date().toISOString()
+    ...activeBasket,
+    symbols: [...activeBasket.symbols, ...missing]
   }
 }
 
@@ -2142,9 +2144,6 @@ async function maybeSelectBasket(params: {
 }): Promise<void> {
   const nowMs = Date.now()
   if (basketSelectInFlight) {
-    return
-  }
-  if (params.positions.length > 0 && !params.force) {
     return
   }
 
