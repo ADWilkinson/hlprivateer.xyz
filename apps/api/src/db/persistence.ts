@@ -444,7 +444,7 @@ function createDisabledStore(reason: string): ApiPersistence {
 
       const rawDetails = { ...(event.details ?? {}), previousHash }
       const sanitizedDetails = JSON.parse(
-        JSON.stringify(rawDetails).replace(/[\uD800-\uDFFF]/g, '')
+        JSON.stringify(rawDetails).replace(/\\ud[89a-f][0-9a-f]{2}/gi, '')
       ) as Record<string, unknown>
 
       const inserted = await store.db

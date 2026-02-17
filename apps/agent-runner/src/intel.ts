@@ -57,11 +57,16 @@ export type ExternalIntelPack = {
 }
 
 function sanitizeLine(value: string, maxLength: number): string {
-  return value
+  const cleaned = value
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/[\uD800-\uDFFF]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, maxLength)
+  if (cleaned.length <= maxLength) return cleaned
+  const truncated = cleaned.slice(0, maxLength)
+  const lastChar = truncated.charCodeAt(truncated.length - 1)
+  if (lastChar >= 0xd800 && lastChar <= 0xdbff) return truncated.slice(0, -1)
+  return truncated
 }
 
 function decodeMaybeURIComponent(value: string): string {

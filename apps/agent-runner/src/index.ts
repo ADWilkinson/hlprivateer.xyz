@@ -1028,7 +1028,8 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
 
 const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
-  '- Objective: create fully discretionary long, short, and pair structures with explicit rationale and bounded risk.',
+  '- Objective: create fully discretionary positions — directional (single-asset long or short) OR paired structures — based on data-driven conviction.',
+  '- Directional trades are equally valid as pair trades. Choose the structure that best fits the setup: if one asset has a clear thesis, go directional. If a relative-value opportunity exists, use pairs.',
   '- Do not assume any fixed alpha symbol or fixed directional bias.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
   '- Never invent symbols, metrics, or events not present in context.',
@@ -1487,7 +1488,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   const basketAgeMs = msSince(Date.parse(activeBasket.selectedAt), now)
 
   return {
-    objective: `Fully discretionary long, short, and pair structure planning with bounded risk and explicit thesis.`,
+    objective: `Fully discretionary trading — directional (single-asset conviction) or paired (relative-value) — with bounded risk and explicit thesis.`,
     generatedAt: new Date(now).toISOString(),
     mode: lastMode,
     requestedMode: requestedModeFromEnv(),
@@ -2148,7 +2149,42 @@ async function maybeSelectBasket(params: {
 
   basketSelectInFlight = true
   try {
+    const fixedBasketCsv = env.BASKET_SYMBOLS.trim()
+    const fixedBasketSymbols = fixedBasketCsv
+      ? fixedBasketCsv.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean)
+      : []
+
     const universe = await fetchUniverseAssetsCached(nowMs)
+
+    // When BASKET_SYMBOLS is configured, skip LLM universe selection entirely
+    // and use only the fixed symbols.
+    if (fixedBasketSymbols.length > 0) {
+      const universeBySymbol = new Map(universe.map((a) => [a.symbol.toUpperCase(), a]))
+      const validFixed = fixedBasketSymbols.filter((s) => universeBySymbol.has(s))
+      if (validFixed.length > 0) {
+        activeBasket = {
+          symbols: validFixed,
+          rationale: `Fixed basket override: ${validFixed.join(', ')}`,
+          selectedAt: new Date().toISOString()
+        }
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'INFO',
+          line: `basket: using fixed symbols [${validFixed.join(', ')}] from BASKET_SYMBOLS config`
+        })
+        basketSelectInFlight = false
+        return
+      }
+      // If none of the fixed symbols are valid on HL, fall through to dynamic selection
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: `basket: BASKET_SYMBOLS [${fixedBasketSymbols.join(', ')}] not found in HL universe, falling back to dynamic selection`
+      })
+    }
+
     const perSymbolLiquidityBudgetUsd = Number((params.targetNotionalUsd / Math.max(1, env.AGENT_UNIVERSE_SIZE)).toFixed(2))
     const candidates = buildBasketCandidates({
       assets: universe,
@@ -3048,7 +3084,7 @@ async function generateStrategistDirective(params: {
   const prompt = [
 	    buildAgentPrompt({
 	      role: 'strategist-directive agent',
-	      mission: 'Choose the best execution directive and provide an explicit discretionary long/short plan (directional or paired) when active.',
+	      mission: 'Choose the best execution directive and provide an explicit plan — either directional (single-asset conviction trade) or paired (relative-value) — based on the data. Both are equally valid strategies.',
 	      rules: [
 	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
 	        'OPEN: establish a new discretionary position set. If risk posture is GREEN and you are FLAT, you SHOULD be opening a position.',

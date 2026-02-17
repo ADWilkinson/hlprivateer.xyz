@@ -114,6 +114,10 @@ export const env = z
     // Hyperliquid info endpoint for universe selection.
     HL_INFO_URL: z.string().default('https://api.hyperliquid.xyz/info'),
 
+    // Fixed basket override: comma-separated symbols (e.g. "BTC,ETH,HYPE").
+    // When set, skips LLM universe selection and trades only these symbols.
+    BASKET_SYMBOLS: z.string().default(''),
+
     // Agent uses these to mark proposals as LIVE when the runtime is live.
     DRY_RUN: booleanFromEnv.default(false),
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),

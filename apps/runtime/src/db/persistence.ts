@@ -367,6 +367,11 @@ async function createPostgresStore(databaseUrl: string): Promise<RuntimeStore> {
       const previousHash = previousRows[0]?.hash ?? null
       const hash = computeAuditHash(event, previousHash)
 
+      const rawDetails = { ...(event.details ?? {}), previousHash }
+      const sanitizedDetails = JSON.parse(
+        JSON.stringify(rawDetails).replace(/\\ud[89a-f][0-9a-f]{2}/gi, '')
+      ) as Record<string, unknown>
+
       const inserted = await store.db
         .insert(audits)
         .values({
@@ -376,10 +381,7 @@ async function createPostgresStore(databaseUrl: string): Promise<RuntimeStore> {
           resource: event.resource,
           correlationId: event.correlationId,
           ts: new Date(event.ts),
-          details: {
-            ...(event.details ?? {}),
-            previousHash
-          },
+          details: sanitizedDetails,
           hash
         })
         .returning({ id: audits.id })
