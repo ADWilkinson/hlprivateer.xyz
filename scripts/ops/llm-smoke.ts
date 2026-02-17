@@ -52,7 +52,7 @@ async function smokeCodex(model: string, reasoningEffort: ReasoningEffort): Prom
 }
 
 async function main(): Promise<void> {
-  const claudeModel = envOr('CLAUDE_MODEL', 'opus')
+  const claudeModel = envOr('CLAUDE_MODEL', 'claude-sonnet-4-6')
   const codexModel = envOr('CODEX_MODEL', 'gpt-5.3-codex-spark')
   const reasoningEffort = envOr('CODEX_REASONING_EFFORT', 'xhigh') as ReasoningEffort
 

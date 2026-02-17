@@ -180,7 +180,7 @@ export const env = z
 
     // LLM settings
     // Claude model name passed to the `claude` CLI.
-    CLAUDE_MODEL: z.string().default('opus'),
+    CLAUDE_MODEL: z.string().default('claude-sonnet-4-6'),
     // Codex model name passed to the `codex` CLI.
     CODEX_MODEL: z.string().default('gpt-5.3-codex-spark'),
     // Passed via `codex exec -c model_reasoning_effort="..."`.
