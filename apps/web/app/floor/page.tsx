@@ -351,7 +351,8 @@ export default function DeckPage() {
         typeof raw !== 'object' ||
         typeof (raw as { ts?: unknown }).ts !== 'string' ||
         typeof (raw as { pnlPct?: unknown }).pnlPct !== 'number' ||
-        !Number.isFinite((raw as { pnlPct: number }).pnlPct)
+        !Number.isFinite((raw as { pnlPct: number }).pnlPct) ||
+        (raw as { pnlPct: number }).pnlPct === 0
       ) {
         return undefined
       }
@@ -367,7 +368,8 @@ export default function DeckPage() {
           typeof raw !== 'object' ||
           typeof (raw as { ts?: unknown }).ts !== 'string' ||
           typeof (raw as { accountValueUsd?: unknown }).accountValueUsd !== 'number' ||
-          !Number.isFinite((raw as { accountValueUsd: number }).accountValueUsd)
+          !Number.isFinite((raw as { accountValueUsd: number }).accountValueUsd) ||
+          (raw as { accountValueUsd: number }).accountValueUsd === 0
         ) {
           return undefined
         }
@@ -551,7 +553,9 @@ export default function DeckPage() {
 
     const samplePnl = (payload: SnapshotPayload) => {
       const nextPnlPct = pickPnlPercent(payload)
-      if (nextPnlPct === undefined) return
+      if (nextPnlPct === undefined || nextPnlPct === 0) return
+      const mode = typeof payload.mode === 'string' ? payload.mode : ''
+      if (mode === 'INIT' || mode === 'WARMUP') return
       const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
       const now = Date.now()
       if (now - lastPnlSampleAtRef.current < TRAJECTORY_REFRESH_MS) return
@@ -561,7 +565,9 @@ export default function DeckPage() {
 
     const sampleAccountValue = (payload: SnapshotPayload) => {
       const nextAccountValueUsd = pickAccountValueUsd(payload)
-      if (nextAccountValueUsd === undefined) return
+      if (nextAccountValueUsd === undefined || nextAccountValueUsd === 0) return
+      const mode = typeof payload.mode === 'string' ? payload.mode : ''
+      if (mode === 'INIT' || mode === 'WARMUP') return
       const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
       const now = Date.now()
       if (now - lastAccountValueSampleAtRef.current < TRAJECTORY_REFRESH_MS) return
