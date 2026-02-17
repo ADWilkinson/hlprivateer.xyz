@@ -3258,7 +3258,7 @@ let lastRiskAt = 0
 let lastOpsAt = 0
 let lastDirectiveAt = 0
 let lastPipelineAt = 0
-let lastUrgencyLevel: UrgencyLevel = 'IDLE'
+
 let lastProposal: StrategyProposal | null = null
 let lastProposalPublishedAt = 0
 let lastRiskDecision: RuntimeRiskDecision | null = null
@@ -3608,53 +3608,10 @@ async function runOpsAgent(): Promise<void> {
   }
 }
 
-type UrgencyLevel = 'IDLE' | 'WATCHING' | 'ACTIVE' | 'ELEVATED' | 'CRITICAL'
-
-function classifyUrgency(): { level: UrgencyLevel; intervalMs: number } {
-  const summary = summarizePositionsForAgents(lastPositions)
-  const signalPack = summarizeLatestSignals(Date.now())
-  const latestVol = latestSignalFromPack(signalPack, 'volatility')
-  const vol = latestVol?.value ?? 0
-  const pnlPct = lastStateUpdate?.pnlPct ?? 0
-  const hasPositions = lastPositions.length > 0
-
-  if (lastRiskDecision?.decision === 'DENY') {
-    return { level: 'CRITICAL', intervalMs: 60_000 }
-  }
-  if (summary.posture === 'RED') {
-    return { level: 'CRITICAL', intervalMs: 60_000 }
-  }
-  if (lastMode === 'SAFE_MODE' && hasPositions) {
-    return { level: 'CRITICAL', intervalMs: 60_000 }
-  }
-  if (hasPositions && Math.abs(vol) > 15) {
-    return { level: 'ELEVATED', intervalMs: env.AGENT_PIPELINE_MIN_MS }
-  }
-  if (hasPositions && summary.drift === 'POTENTIAL_DRIFT') {
-    return { level: 'ELEVATED', intervalMs: env.AGENT_PIPELINE_MIN_MS }
-  }
-  if (hasPositions && pnlPct < -5) {
-    return { level: 'ELEVATED', intervalMs: env.AGENT_PIPELINE_MIN_MS }
-  }
-  if (hasPositions) {
-    return { level: 'ACTIVE', intervalMs: 15 * 60_000 }
-  }
-  if (Math.abs(vol) > 10 || lastRiskDecision?.decision === 'ALLOW_REDUCE_ONLY') {
-    return { level: 'WATCHING', intervalMs: 20 * 60_000 }
-  }
-  return { level: 'IDLE', intervalMs: env.AGENT_PIPELINE_BASE_MS }
-}
-
 async function runStrategyPipeline(): Promise<void> {
   const now = Date.now()
-  const { level, intervalMs } = classifyUrgency()
 
-  if (now - lastPipelineAt < intervalMs) return
-
-  if (level !== lastUrgencyLevel) {
-    lastUrgencyLevel = level
-    await publishTape({ correlationId: ulid(), role: 'ops', line: `urgency=${level} interval=${intervalMs}ms` })
-  }
+  if (now - lastPipelineAt < env.AGENT_PIPELINE_BASE_MS) return
 
   lastPipelineAt = now
 

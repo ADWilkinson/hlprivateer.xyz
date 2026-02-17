@@ -74,12 +74,6 @@ export const env = z
       .positive()
       .default(30 * 60_000)
       .transform((value) => clamp(Math.trunc(value), 300_000, 3_600_000)),
-    AGENT_PIPELINE_MIN_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(5 * 60_000)
-      .transform((value) => clamp(Math.trunc(value), 60_000, 900_000)),
     AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(3000),
     OPS_AUTO_HALT: booleanFromEnv.default(false),
     AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(100),
