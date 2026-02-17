@@ -480,25 +480,22 @@ export async function buildExternalIntelPack(params: {
     if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth && !hasOAuth1)) {
       pack.twitter.ok = false
     } else {
-      let queries: string[]
-      if (params.customQueries && params.customQueries.length > 0) {
-        queries = params.customQueries.slice(0, 10)
-      } else {
-        const baseClauses = ['-is:retweet', 'lang:en']
-        const symbolQueries = symbols.map((symbol) => {
-          const cashtag = `$${symbol}`
-          const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
-          const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
-          return `${symbolClause} ${focus} ${baseClauses.join(' ')}`
-        })
+      const baseClauses = ['-is:retweet', 'lang:en']
+      const symbolQueries = symbols.map((symbol) => {
+        const cashtag = `$${symbol}`
+        const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
+        const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
+        return `${symbolClause} ${focus} ${baseClauses.join(' ')}`
+      })
 
-        const globalQueries = [
-          `hyperliquid (funding OR liquidation OR outage OR bug OR exploit OR "risk") ${baseClauses.join(' ')}`,
-          `perp funding (rotation OR squeeze OR unwind OR deleveraging) ${baseClauses.join(' ')}`
-        ]
+      const globalQueries = [
+        `hyperliquid (funding OR liquidation OR outage OR bug OR exploit OR "risk") ${baseClauses.join(' ')}`,
+        `perp funding (rotation OR squeeze OR unwind OR deleveraging) ${baseClauses.join(' ')}`
+      ]
 
-        queries = [...symbolQueries, ...globalQueries].slice(0, 10)
-      }
+      const defaultQueries = [...symbolQueries, ...globalQueries]
+      const custom = (params.customQueries ?? []).filter(Boolean).slice(0, 4)
+      const queries = [...defaultQueries, ...custom].slice(0, 10)
 
       const cacheTtlMs = clampInt(params.twitterCacheTtlMs ?? 180_000, 0, 900_000)
       const cacheKey = JSON.stringify({
