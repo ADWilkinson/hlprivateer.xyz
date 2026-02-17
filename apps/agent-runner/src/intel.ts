@@ -377,27 +377,20 @@ export async function buildExternalIntelPack(params: {
     if (creds.handleHint) {
       pack.twitter.handleHint = creds.handleHint
     }
-    const cacheTtlMs = clampInt(params.twitterCacheTtlMs ?? 180_000, 0, 900_000)
-    const nowMs = Date.now()
-    const cacheKey = JSON.stringify({
-      maxResults: params.twitterMaxResults,
-      hasBearer: Boolean(twitterBearer),
-      hasCookie: hasCookieAuth,
-      queries
-    })
 
-    if (cacheTtlMs > 0 && twitterQueryCache && twitterQueryCache.key === cacheKey && nowMs < twitterQueryCache.expiresAtMs) {
-      pack.twitter.queries = twitterQueryCache.results
-      pack.twitter.ok = twitterQueryCache.ok
+    if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth)) {
+      pack.twitter.ok = false
     } else {
-      const results = await mapWithConcurrency(queries, 2, async (query) =>
-        twitterSearchRecent({
-          bearerToken: twitterBearer ?? '',
-          authToken: creds.authToken,
-          ct0: creds.ct0,
-          query,
-          maxResults: params.twitterMaxResults,
-          timeoutMs: params.timeoutMs
+      let queries: string[]
+      if (params.customQueries && params.customQueries.length > 0) {
+        queries = params.customQueries.slice(0, 10)
+      } else {
+        const baseClauses = ['-is:retweet', 'lang:en']
+        const symbolQueries = symbols.map((symbol) => {
+          const cashtag = `$${symbol}`
+          const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
+          const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
+          return `${symbolClause} ${focus} ${baseClauses.join(' ')}`
         })
 
         const globalQueries = [
@@ -407,8 +400,20 @@ export async function buildExternalIntelPack(params: {
 
         queries = [...symbolQueries, ...globalQueries].slice(0, 10)
       }
-      const results = await Promise.all(
-        queries.map((query) =>
+
+      const cacheTtlMs = clampInt(params.twitterCacheTtlMs ?? 180_000, 0, 900_000)
+      const cacheKey = JSON.stringify({
+        maxResults: params.twitterMaxResults,
+        hasBearer: Boolean(twitterBearer),
+        hasCookie: hasCookieAuth,
+        queries
+      })
+
+      if (cacheTtlMs > 0 && twitterQueryCache && twitterQueryCache.key === cacheKey && nowMs < twitterQueryCache.expiresAtMs) {
+        pack.twitter.queries = twitterQueryCache.results
+        pack.twitter.ok = twitterQueryCache.ok
+      } else {
+        const results = await mapWithConcurrency(queries, 2, async (query) =>
           twitterSearchRecent({
             bearerToken: twitterBearer ?? '',
             authToken: creds.authToken,
@@ -418,16 +423,16 @@ export async function buildExternalIntelPack(params: {
             timeoutMs: params.timeoutMs
           })
         )
-      )
-      pack.twitter.queries = results
-      pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
+        pack.twitter.queries = results
+        pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
 
-      if (cacheTtlMs > 0 && results.some((result) => !result.error)) {
-        twitterQueryCache = {
-          key: cacheKey,
-          expiresAtMs: nowMs + cacheTtlMs,
-          results,
-          ok: pack.twitter.ok
+        if (cacheTtlMs > 0 && results.some((result) => !result.error)) {
+          twitterQueryCache = {
+            key: cacheKey,
+            expiresAtMs: nowMs + cacheTtlMs,
+            results,
+            ok: pack.twitter.ok
+          }
         }
       }
     }
