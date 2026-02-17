@@ -379,11 +379,25 @@ function toPolicyActorType(actorType: WsActorType): ActorType {
   return 'system'
 }
 
-function trackCommand(socketId: string): boolean {
+function commandWindowKey(actorType: WsActorType, actorId: string): string {
+  return `${actorType}:${actorId}`
+}
+
+function trackCommand(actorType: WsActorType, actorId: string): boolean {
   const now = Date.now()
-  const window = commandWindows.get(socketId)
+  const key = commandWindowKey(actorType, actorId)
+
+  if (commandWindows.size > 2000) {
+    for (const [candidateKey, candidateWindow] of commandWindows) {
+      if (now - candidateWindow.windowStart >= COMMAND_WINDOW_MS) {
+        commandWindows.delete(candidateKey)
+      }
+    }
+  }
+
+  const window = commandWindows.get(key)
   if (!window || now - window.windowStart >= COMMAND_WINDOW_MS) {
-    commandWindows.set(socketId, { windowStart: now, count: 1 })
+    commandWindows.set(key, { windowStart: now, count: 1 })
     return true
   }
 
@@ -674,7 +688,7 @@ wss.on('connection', (ws, request) => {
     }
 
     if (parsed.type === 'cmd.exec') {
-      if (!trackCommand(socketId)) {
+      if (!trackCommand(current.actorType, current.actorId)) {
         publishSecurityEvent(auditActorType, identity.actorId, 'ws_command_rate_limit')
         send(current.ws, {
           type: 'error',
@@ -822,7 +836,6 @@ wss.on('connection', (ws, request) => {
 
   ws.on('close', () => {
     clients.delete(socketId)
-    commandWindows.delete(socketId)
     wsConnections.dec()
   })
 })

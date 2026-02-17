@@ -16,7 +16,7 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 export function SiteNav() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
 
   return (
     <header className='relative z-20 border-b border-hlpBorder bg-hlpSurface/90 backdrop-blur-sm'>
@@ -33,11 +33,12 @@ export function SiteNav() {
               <Link
                 key={link.label}
                 href={link.href}
+                aria-current={active ? 'page' : undefined}
                 className={`inline-flex h-8 items-center border border-hlpBorder px-3 py-1 text-[9px] uppercase tracking-[0.16em] transition-colors ${
                   active
                     ? 'bg-hlpInverseBg text-hlpPanel'
                     : 'bg-hlpPanel text-hlpMuted hover:bg-hlpSurface hover:text-hlpFg'
-                }`}
+                } focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--theme-focused-foreground)]`}
               >
                 {link.label}
               </Link>

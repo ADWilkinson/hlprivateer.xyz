@@ -52,7 +52,7 @@ function describeError(error: unknown): string {
   try {
     return JSON.stringify(error)
   } catch (stringifyError) {
-    app.log.warn({ originalError: describeError(error), stringifyError }, 'failed to stringify error for logging')
+    app.log.warn({ stringifyError: String(stringifyError) }, 'failed to stringify error for logging')
     return String(error)
   }
 }
@@ -894,6 +894,7 @@ const replayWindow = async (
   const parsedLimit = Number(request.query.limit ?? limit)
   const maxLimit = Math.min(5000, Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 200)
   const events: Array<unknown> = []
+  let truncated = false
 
   const matchesResource = (payload: unknown, stream: string, resource?: string): boolean => {
     if (!resource) {
@@ -910,14 +911,20 @@ const replayWindow = async (
 
   await bus.replay('hlp.audit.events', range.data.from, range.data.to, (envelope) => {
     if (range.data.correlationId && envelope.correlationId !== range.data.correlationId) {
-      return
+      return true
     }
 
     if (!matchesResource(envelope.payload, envelope.stream, range.data.resource)) {
-      return
+      return true
+    }
+
+    if (events.length >= maxLimit) {
+      truncated = true
+      return false
     }
 
     events.push(envelope)
+    return true
   })
 
   reply.send({
@@ -926,7 +933,8 @@ const replayWindow = async (
     to: range.data.to,
     resource: range.data.resource,
     count: events.length,
-    events: events.slice(0, maxLimit)
+    truncated,
+    events
   })
 }
 
@@ -976,6 +984,7 @@ app.get('/v1/operator/replay/export', { ...routeRateLimit(20, 60_000), preHandle
   }
 
   const events: Array<unknown> = []
+  let truncated = false
   const parsedLimit = Math.min(5000, Number.isFinite(query.data.limit) && query.data.limit > 0 ? query.data.limit : 200)
 
   const matchesResource = (payload: unknown, stream: string, resource?: string): boolean => {
@@ -993,17 +1002,22 @@ app.get('/v1/operator/replay/export', { ...routeRateLimit(20, 60_000), preHandle
 
   await bus.replay('hlp.audit.events', query.data.from, query.data.to, (envelope) => {
     if (query.data.correlationId && envelope.correlationId !== query.data.correlationId) {
-      return
+      return true
     }
 
     if (!matchesResource(envelope.payload, envelope.stream, query.data.resource)) {
-      return
+      return true
+    }
+
+    if (events.length >= parsedLimit) {
+      truncated = true
+      return false
     }
 
     events.push(envelope)
+    return true
   })
 
-  const limited = events.slice(0, parsedLimit)
   reply.header(
     'content-disposition',
     `attachment; filename="hlp-replay-${query.data.from}-${query.data.to}.json"`
@@ -1014,7 +1028,8 @@ app.get('/v1/operator/replay/export', { ...routeRateLimit(20, 60_000), preHandle
     to: query.data.to,
     resource: query.data.resource,
     correlationId: query.data.correlationId,
-    events: limited
+    truncated,
+    events
   })
 })
 
@@ -1651,7 +1666,17 @@ app.post('/v1/agent/command', { ...routeRateLimit(60, 60_000), preHandler: [x402
   return reply.send(result)
 })
 
-app.post('/v1/agent/unlock/:tier', routeRateLimit(30, 60_000), async (request, reply) => {
+app.post('/v1/agent/unlock/:tier', { ...routeRateLimit(30, 60_000), preHandler: [app.authenticate] }, async (request, reply) => {
+  if (env.NODE_ENV === 'production') {
+    reply.code(404).send({ error: 'NOT_FOUND' })
+    return
+  }
+
+  if (!hasRole(request, OPERATOR_ADMIN_ROLE)) {
+    reply.code(403).send({ error: 'FORBIDDEN', message: 'admin role required' })
+    return
+  }
+
   const parsed = EntitlementTierSchema.safeParse((request.params as any).tier)
   if (!parsed.success) {
     reply.code(400).send({ error: 'INVALID_TIER', message: 'tier must be tier0-3' })

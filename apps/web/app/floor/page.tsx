@@ -35,6 +35,9 @@ const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
+const INITIAL_FETCH_TIMEOUT_MS = 7000
+const RECONNECT_BASE_MS = 1500
+const RECONNECT_MAX_MS = 15_000
 const LOG_PREFIX = '[DeckPage]'
 const DECK_PNL_FMT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3, minimumFractionDigits: 3 })
 const DECK_USD_FMT = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 2 })
@@ -193,7 +196,7 @@ function pickPnlPercent(payload: SnapshotPayload): number | undefined {
 
   if (root !== undefined) return root
 
-  if (typeof payload.data === 'object' && payload.data !== null && payload.data !== null) {
+  if (typeof payload.data === 'object' && payload.data !== null) {
     return pickFromRecord(payload.data as Record<string, unknown>)
   }
 
@@ -312,7 +315,7 @@ function parseLevel(level: unknown): TapeEntry['level'] {
   return level === 'WARN' || level === 'ERROR' ? level : 'INFO'
 }
 
-    function normalizeTapeEntry(input: { ts?: unknown; role?: unknown; level?: unknown; line?: unknown }): TapeEntry | null {
+function normalizeTapeEntry(input: { ts?: unknown; role?: unknown; level?: unknown; line?: unknown }): TapeEntry | null {
   const line = typeof input.line === 'string' ? input.line.trim() : ''
   if (!line) {
     return null
@@ -324,20 +327,6 @@ function parseLevel(level: unknown): TapeEntry['level'] {
     level: parseLevel(input.level),
     line,
   }
-}
-
-function isHeartbeatPayload(payload: unknown): boolean {
-  if (!payload || typeof payload !== 'object') {
-    return false
-  }
-
-  const record = payload as Record<string, unknown>
-  const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : ''
-  if (type === 'heartbeat' || type === 'ping' || type === 'pong') {
-    return true
-  }
-
-  return false
 }
 
 export default function DeckPage() {
@@ -416,6 +405,7 @@ export default function DeckPage() {
   })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
   const seenTapeRef = useRef<Set<string>>(new Set())
+  const reconnectAttemptsRef = useRef(0)
 
   const tapeRef = useRef<HTMLDivElement | null>(null)
   const lastPnlSampleAtRef = useRef<number>(0)
@@ -442,6 +432,26 @@ export default function DeckPage() {
     let running = true
     let socket: WebSocket | undefined
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+
+    const fetchWithTimeout = async (url: string): Promise<Response> => {
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), INITIAL_FETCH_TIMEOUT_MS)
+      try {
+        return await fetch(url, {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
+    }
+
+    const scheduleReconnect = () => {
+      const attempt = reconnectAttemptsRef.current
+      const delayMs = Math.min(RECONNECT_BASE_MS * Math.pow(2, attempt), RECONNECT_MAX_MS)
+      reconnectAttemptsRef.current = attempt + 1
+      reconnectTimer = setTimeout(connect, delayMs)
+    }
 
     const touchCrew = (role: CrewRole | undefined, level: TapeLevel, line: string) => {
       if (!role) return
@@ -548,46 +558,57 @@ export default function DeckPage() {
 
     const load = async () => {
       try {
-        const [snapshotResponse, tapeResponse] = await Promise.all([
-          fetch(apiUrl('/v1/public/floor-snapshot')),
-          fetch(apiUrl('/v1/public/floor-tape')),
+        const [snapshotResult, tapeResult] = await Promise.allSettled([
+          fetchWithTimeout(apiUrl('/v1/public/floor-snapshot')),
+          fetchWithTimeout(apiUrl('/v1/public/floor-tape')),
         ])
 
-        if (snapshotResponse.ok) {
-          const rawSnapshot = (await snapshotResponse.json()) as SnapshotPayload
-          setSnapshot((current) => normalizeSnapshot(rawSnapshot, current))
-          setDeckHeartbeatMs(Date.now())
-          samplePnl(rawSnapshot)
-          sampleAccountValue(rawSnapshot)
-        } else {
-          logWarn('snapshot fetch failed', {
-            status: snapshotResponse.status,
-            statusText: snapshotResponse.statusText,
-            url: snapshotResponse.url,
-          })
-        }
-
-        if (tapeResponse.ok) {
-          const rawTape = await tapeResponse.json()
-          const loadedLines = Array.isArray(rawTape)
-            ? rawTape
-                .map((line) => normalizeTapeEntry(line as Record<string, unknown>))
-                .filter((entry): entry is TapeEntry => entry !== null)
-                .reverse()
-            : []
-          const initialTape = loadedLines
-            .map((entry) => (shouldRenderTapeLine(entry) ? entry : null))
-            .filter((entry): entry is TapeEntry => entry !== null)
-
-          if (initialTape.length > 0) {
-            setTape(initialTape.slice(0, TAPE_DISPLAY_LIMIT))
+        if (snapshotResult.status === 'fulfilled') {
+          const snapshotResponse = snapshotResult.value
+          if (snapshotResponse.ok) {
+            const rawSnapshot = (await snapshotResponse.json()) as SnapshotPayload
+            if (!running) return
+            setSnapshot((current) => normalizeSnapshot(rawSnapshot, current))
+            setDeckHeartbeatMs(Date.now())
+            samplePnl(rawSnapshot)
+            sampleAccountValue(rawSnapshot)
+          } else {
+            logWarn('snapshot fetch failed', {
+              status: snapshotResponse.status,
+              statusText: snapshotResponse.statusText,
+              url: snapshotResponse.url,
+            })
           }
         } else {
-          logWarn('tape fetch failed', {
-            status: tapeResponse.status,
-            statusText: tapeResponse.statusText,
-            url: tapeResponse.url,
-          })
+          logWarn('snapshot fetch threw', snapshotResult.reason)
+        }
+
+        if (tapeResult.status === 'fulfilled') {
+          const tapeResponse = tapeResult.value
+          if (tapeResponse.ok) {
+            const rawTape = await tapeResponse.json()
+            const loadedLines = Array.isArray(rawTape)
+              ? rawTape
+                  .map((line) => normalizeTapeEntry(line as Record<string, unknown>))
+                  .filter((entry): entry is TapeEntry => entry !== null)
+                  .reverse()
+              : []
+            const initialTape = loadedLines
+              .map((entry) => (shouldRenderTapeLine(entry) ? entry : null))
+              .filter((entry): entry is TapeEntry => entry !== null)
+
+            if (running && initialTape.length > 0) {
+              setTape(initialTape.slice(0, TAPE_DISPLAY_LIMIT))
+            }
+          } else {
+            logWarn('tape fetch failed', {
+              status: tapeResponse.status,
+              statusText: tapeResponse.statusText,
+              url: tapeResponse.url,
+            })
+          }
+        } else {
+          logWarn('tape fetch threw', tapeResult.reason)
         }
       } catch (error) {
         logError('initial load failed', error)
@@ -607,6 +628,7 @@ export default function DeckPage() {
         socket.onopen = () => {
           logInfo('websocket connected', wsUrl())
           socket?.send(JSON.stringify({ type: 'sub.add', channel: 'public' }))
+          reconnectAttemptsRef.current = 0
           setWsState('OPEN')
           const connectedEntry = normalizeTapeEntry({
             ts: new Date().toISOString(),
@@ -770,7 +792,7 @@ export default function DeckPage() {
           if (disconnectedEntry && shouldRenderTapeLine(disconnectedEntry)) {
             setTape((current) => [disconnectedEntry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
           }
-          reconnectTimer = setTimeout(connect, 1500)
+          scheduleReconnect()
         }
 
         socket.onerror = (event) => {
@@ -789,7 +811,7 @@ export default function DeckPage() {
         if (connectErrorEntry && shouldRenderTapeLine(connectErrorEntry)) {
           setTape((current) => [connectErrorEntry, ...current].slice(0, TAPE_DISPLAY_LIMIT))
         }
-        reconnectTimer = setTimeout(connect, 1500)
+        scheduleReconnect()
       }
     }
 
@@ -804,7 +826,7 @@ export default function DeckPage() {
   }, [])
 
   const crewNow = nowTick
-  const heartbeatMs = Date.now() - deckHeartbeatMs
+  const heartbeatMs = Math.max(0, nowTick - deckHeartbeatMs)
   const snapshotAgeMs = Number.isFinite(Date.parse(snapshot.lastUpdateAt)) ? nowTick - Date.parse(snapshot.lastUpdateAt) : 0
   const pnlStr = isBootstrapping ? '--' : `${snapshot.pnlPct >= 0 ? '+' : ''}${DECK_PNL_FMT.format(snapshot.pnlPct)}%`
   const equityStr = isBootstrapping || snapshot.accountValueUsd === undefined ? '--' : DECK_USD_FMT.format(snapshot.accountValueUsd)
@@ -818,7 +840,8 @@ export default function DeckPage() {
   }
 
   return (
-    <main className={pageShellClass}>
+    <main id='main-content' className={pageShellClass} aria-busy={isBootstrapping}>
+        <h1 className='sr-only'>HL Privateer live trading floor</h1>
         <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
 
         <div className='flex flex-wrap items-end justify-center gap-x-10 gap-y-3 py-5 animate-hlp-fade-up-delay-1'>
@@ -905,6 +928,13 @@ export default function DeckPage() {
           <div className='text-[9px] uppercase tracking-[0.2em] text-hlpDim/30'>
             hlprivateer.xyz
           </div>
+          <div className='mt-1 text-[8px] uppercase tracking-[0.16em] text-hlpDim/45'>
+            feed {Math.max(0, deckFeedAgeMs)}ms | missing {Math.max(0, deckMissing)} | risk denied {riskDeniedCount}
+            {' '}({riskDeniedSuppressed} suppressed) | no-action {suppressedNoAction}
+          </div>
+          {riskDeniedReason ? (
+            <div className='mt-1 text-[8px] tracking-[0.12em] text-hlpDim/45'>{riskDeniedReason}</div>
+          ) : null}
         </footer>
       </main>
   )

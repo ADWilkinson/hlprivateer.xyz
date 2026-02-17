@@ -294,7 +294,10 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
   let stopped = false
   let timer: ReturnType<typeof setInterval> | undefined
+  let reconcileTimer: ReturnType<typeof setInterval> | undefined
+  let reconcileRunning = false
   let loopRunning = false
+  const consumerStops: Array<() => Promise<void>> = []
   let lastUrgentCycleAt = 0
   let lastLiveAccountValueCheckAtMs = 0
   let lastLiveAccountValueOkAtMs = 0
@@ -645,7 +648,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     await setMode('READY', 'runtime ready')
   }
 
-  bus.consume('hlp.commands', '$', async (envelope) => {
+  consumerStops.push(await bus.consume('hlp.commands', '$', async (envelope) => {
     if (!envelope?.type) {
       return
     }
@@ -686,9 +689,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         void runCycle(true)
       }
     }
-  })
+  }))
 
-  bus.consume('hlp.market.watchlist', '$', (envelope) => {
+  consumerStops.push(await bus.consume('hlp.market.watchlist', '$', (envelope) => {
     if (envelope?.type !== 'MARKET_WATCHLIST') {
       return
     }
@@ -705,7 +708,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     }
 
     agentWatchlistSymbols = normalized
-  })
+  }))
 
   let pendingAgentProposal: StrategyProposal | null = null
   let pendingAgentProposalReceivedAt = 0
@@ -808,6 +811,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       ])
       const ticks: Record<string, NormalizedTick> = {}
 
+      const fallbackSymbols: string[] = []
       for (const symbol of tickSymbols) {
         const tick = await marketAdapter.latest(symbol)
         if (tick) {
@@ -815,14 +819,35 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
           continue
         }
 
-        // On-demand fallback for symbols outside the WS subscription set (dynamic baskets).
-        const snapshot = await fetchHyperliquidL2BookSnapshotCached({
-          postInfo: hlClient?.postInfo,
-          infoUrl: env.HL_INFO_URL,
-          coin: symbol,
-          cache: l2BookDepthCache
-        })
-        if (snapshot) {
+        fallbackSymbols.push(symbol)
+      }
+
+      if (fallbackSymbols.length > 0) {
+        // Resolve missing symbols concurrently so one slow endpoint does not stall the whole cycle.
+        const snapshots = await Promise.allSettled(
+          fallbackSymbols.map((symbol) =>
+            fetchHyperliquidL2BookSnapshotCached({
+              postInfo: hlClient?.postInfo,
+              infoUrl: env.HL_INFO_URL,
+              coin: symbol,
+              cache: l2BookDepthCache
+            })
+          )
+        )
+
+        for (let index = 0; index < fallbackSymbols.length; index += 1) {
+          const symbol = fallbackSymbols[index]
+          const settled = snapshots[index]
+
+          if (!settled || settled.status !== 'fulfilled') {
+            continue
+          }
+
+          const snapshot = settled.value
+          if (!snapshot) {
+            continue
+          }
+
           const derivedTick = {
             symbol,
             px: snapshot.px,
@@ -1139,7 +1164,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     }
   }
 
-  bus.consume('hlp.strategy.proposals', '$', async (envelope) => {
+  consumerStops.push(await bus.consume('hlp.strategy.proposals', '$', async (envelope) => {
     const candidate = envelope?.payload
     if (!candidate) {
       return
@@ -1179,7 +1204,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       lastUrgentCycleAt = now
       void runCycle(true)
     }
-  })
+  }))
 
   const execute = async (
     proposal: StrategyProposal,
@@ -1732,41 +1757,65 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   }
 
   const startReconcile = async () => {
-    setInterval(async () => {
-      const report = await adapter.reconcile()
-      const mismatches = report.filter((r) => r.status === 'FAILED')
-      const severity = mismatches.length > 0 ? 'CRITICAL' : 'INFO'
-
-      await bus.publish('hlp.execution.fills', {
-        type: 'reconcile.report',
-        stream: 'hlp.execution.fills',
-        source: 'runtime',
-        correlationId: envelopeId(),
-        actorType: 'system',
-        actorId: 'runtime',
-        payload: {
-          generatedAt: new Date().toISOString(),
-          severity,
-          mismatchCount: mismatches.length,
-          totalOrders: report.length
-        }
-      })
-
-      if (mismatches.length > 0) {
-        await setMode('SAFE_MODE', 'reconciliation mismatch')
-        await addAudit('reconcile_mismatch', 'runtime', envelopeId(), {
-          severity,
-          mismatches
-        })
+    reconcileTimer = setInterval(() => {
+      if (stopped || reconcileRunning) {
+        return
       }
-    }, 30000)
+
+      reconcileRunning = true
+      void (async () => {
+        try {
+          const report = await adapter.reconcile()
+          const mismatches = report.filter((r) => r.status === 'FAILED')
+          const severity = mismatches.length > 0 ? 'CRITICAL' : 'INFO'
+
+          await bus.publish('hlp.execution.fills', {
+            type: 'reconcile.report',
+            stream: 'hlp.execution.fills',
+            source: 'runtime',
+            correlationId: envelopeId(),
+            actorType: 'system',
+            actorId: 'runtime',
+            payload: {
+              generatedAt: new Date().toISOString(),
+              severity,
+              mismatchCount: mismatches.length,
+              totalOrders: report.length
+            }
+          })
+
+          if (mismatches.length > 0) {
+            await setMode('SAFE_MODE', 'reconciliation mismatch')
+            await addAudit('reconcile_mismatch', 'runtime', envelopeId(), {
+              severity,
+              mismatches
+            })
+          }
+        } catch (error) {
+          await addAudit('reconcile_error', 'runtime', envelopeId(), {
+            message: String(error)
+          })
+        } finally {
+          reconcileRunning = false
+        }
+      })()
+    }, 30_000)
   }
 
   const stop = async () => {
+    if (stopped) {
+      return
+    }
+
     stopped = true
     if (timer) {
       clearInterval(timer)
     }
+    if (reconcileTimer) {
+      clearInterval(reconcileTimer)
+    }
+    const consumerStopTasks = consumerStops.splice(0, consumerStops.length).map((stopConsumer) => stopConsumer())
+    await Promise.allSettled(consumerStopTasks)
     await pluginManager.stop()
     await marketAdapter.stop()
     await store.close()

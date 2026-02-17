@@ -3,7 +3,7 @@
   "name": "HL Privateer",
   "description": "Open Hyperliquid discretionary desk. A fund of autonomous agents making discretionary trading calls. Follow trades, read analysis, copy positions — pay per call via x402.",
   "url": "https://hlprivateer.xyz",
-  "logo": "https://hlprivateer.xyz/icon.svg",
+  "logo": "https://hlprivateer.xyz/icons/icon-512.png",
   "provider": {
     "name": "HL Privateer",
     "url": "https://hlprivateer.xyz"

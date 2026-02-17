@@ -27,4 +27,43 @@ describe('event-bus', () => {
 
     expect(replayed).toContain(envelopeId)
   })
+
+  it('stops replay when callback returns false', async () => {
+    const bus = new InMemoryEventBus()
+    const now = Date.now()
+
+    await bus.publish('hlp.audit.events', {
+      type: 'COMMAND',
+      stream: 'hlp.audit.events',
+      source: 'test',
+      correlationId: 'replay-stop-1',
+      actorType: 'system',
+      actorId: 'tester',
+      payload: { step: 1 },
+      ts: new Date(now - 1000).toISOString()
+    })
+    await bus.publish('hlp.audit.events', {
+      type: 'COMMAND',
+      stream: 'hlp.audit.events',
+      source: 'test',
+      correlationId: 'replay-stop-2',
+      actorType: 'system',
+      actorId: 'tester',
+      payload: { step: 2 },
+      ts: new Date(now).toISOString()
+    })
+
+    let count = 0
+    await bus.replay(
+      'hlp.audit.events',
+      new Date(now - 10_000).toISOString(),
+      new Date(now + 10_000).toISOString(),
+      () => {
+        count += 1
+        return false
+      }
+    )
+
+    expect(count).toBe(1)
+  })
 })

@@ -80,6 +80,26 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)))
 }
 
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const limit = Math.max(1, Math.min(items.length, concurrency))
+  const results: R[] = new Array(items.length)
+  let index = 0
+
+  const workers = new Array(limit).fill(0).map(async () => {
+    while (true) {
+      const current = index
+      index += 1
+      if (current >= items.length) {
+        break
+      }
+      results[current] = await fn(items[current] as T)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -106,6 +126,15 @@ type TwitterCreds = {
   ct0: string | null
   handleHint: string | null
 }
+
+type TwitterQueryCacheEntry = {
+  key: string
+  expiresAtMs: number
+  results: TwitterQueryResult[]
+  ok: boolean
+}
+
+let twitterQueryCache: TwitterQueryCacheEntry | null = null
 
 async function loadTwitterCreds(params: { credsPath: string }): Promise<TwitterCreds> {
   try {
@@ -309,6 +338,7 @@ export async function buildExternalIntelPack(params: {
   twitterBearerToken?: string
   twitterEnabled: boolean
   twitterMaxResults: number
+  twitterCacheTtlMs?: number
   timeoutMs: number
   customQueries?: string[]
 }): Promise<ExternalIntelPack> {
@@ -362,8 +392,20 @@ export async function buildExternalIntelPack(params: {
 
       queries = [...symbolQueries, ...globalQueries].slice(0, 10)
     }
-    const results = await Promise.all(
-      queries.map((query) =>
+    const cacheTtlMs = clampInt(params.twitterCacheTtlMs ?? 180_000, 0, 900_000)
+    const nowMs = Date.now()
+    const cacheKey = JSON.stringify({
+      maxResults: params.twitterMaxResults,
+      hasBearer: Boolean(twitterBearer),
+      hasCookie: hasCookieAuth,
+      queries
+    })
+
+    if (cacheTtlMs > 0 && twitterQueryCache && twitterQueryCache.key === cacheKey && nowMs < twitterQueryCache.expiresAtMs) {
+      pack.twitter.queries = twitterQueryCache.results
+      pack.twitter.ok = twitterQueryCache.ok
+    } else {
+      const results = await mapWithConcurrency(queries, 2, async (query) =>
         twitterSearchRecent({
           bearerToken: twitterBearer ?? '',
           authToken: creds.authToken,
@@ -373,9 +415,18 @@ export async function buildExternalIntelPack(params: {
           timeoutMs: params.timeoutMs
         })
       )
-    )
-    pack.twitter.queries = results
-    pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
+      pack.twitter.queries = results
+      pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
+
+      if (cacheTtlMs > 0 && results.some((result) => !result.error)) {
+        twitterQueryCache = {
+          key: cacheKey,
+          expiresAtMs: nowMs + cacheTtlMs,
+          results,
+          ok: pack.twitter.ok
+        }
+      }
+    }
   }
 
   // Fear & greed is a single call; it's optional context, not a trading trigger.

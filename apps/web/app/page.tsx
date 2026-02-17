@@ -8,9 +8,20 @@ import { AsciiTable } from './ui/ascii-kit'
 import { normalizeOpenPositions, type OpenPosition } from './ui/floor-dashboard'
 
 const PNL_SERIES_STORAGE_KEY = 'hlp-privateer:pnl-series-v1'
+const SITE_URL = 'https://hlprivateer.xyz'
+const SNAPSHOT_TIMEOUT_MS = 7000
 
 const USD_0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const USD_2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 2 })
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
 
 function formatSignedUsd(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '--'
@@ -79,6 +90,27 @@ interface FloorSnapshot {
   openPositions: OpenPosition[]
 }
 
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      name: 'HL Privateer',
+      url: SITE_URL,
+      logo: `${SITE_URL}/icons/icon-512.png`,
+      sameAs: ['https://clawhub.ai/ADWilkinson/hl-privateer-fund'],
+    },
+    {
+      '@type': 'WebSite',
+      name: '[HL] PRIVATEER',
+      url: SITE_URL,
+      description:
+        'Open Hyperliquid discretionary desk with autonomous agents, live floor telemetry, and x402 pay-per-call access.',
+      inLanguage: 'en-US',
+    },
+  ],
+}
+
 export default function LandingPage() {
   const [snap, setSnap] = useState<FloorSnapshot>({
     pnlPct: null,
@@ -91,24 +123,38 @@ export default function LandingPage() {
 
   useEffect(() => {
     let active = true
+    let inFlight = false
+    let activeRequest: AbortController | null = null
+
+    const computeSharpe = () => {
+      if (!active) return
+      const series = readPnlSeriesFromLocalStorage()
+      setSharpeRatio(computeAnnualizedSharpeFromPnlSeries(series))
+    }
+
     const poll = async () => {
-      const computeSharpe = () => {
-        if (!active) return
-        const series = readPnlSeriesFromLocalStorage()
-        setSharpeRatio(computeAnnualizedSharpeFromPnlSeries(series))
-      }
+      if (!active || inFlight) return
+      inFlight = true
+      const controller = new AbortController()
+      activeRequest = controller
+      const timeoutId = window.setTimeout(() => controller.abort(), SNAPSHOT_TIMEOUT_MS)
 
       try {
-        const res = await fetch(apiUrl('/v1/public/floor-snapshot'))
+        const res = await fetch(apiUrl('/v1/public/floor-snapshot'), {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
         if (!res.ok || !active) {
           computeSharpe()
           return
         }
 
         const d = (await res.json()) as Record<string, unknown>
-        const pnlPct = typeof d.pnlPct === 'number' && Number.isFinite(d.pnlPct) ? d.pnlPct : null
-        const acct = typeof d.accountValueUsd === 'number' && Number.isFinite(d.accountValueUsd) ? d.accountValueUsd : null
-        const maxLev = typeof d.maxLeverage === 'number' && Number.isFinite(d.maxLeverage) ? d.maxLeverage : null
+        const pnlPct = toFiniteNumber(d.pnlPct ?? d.pnl_percent ?? d.pnl)
+        const acct = toFiniteNumber(
+          d.accountValueUsd ?? d.account_value_usd ?? d.accountEquityUsd ?? d.account_equity_usd,
+        )
+        const maxLev = toFiniteNumber(d.maxLeverage ?? d.max_leverage ?? d.leverage)
 
         const rawOpenPositions = d.openPositions ?? d.open_positions ?? d.positions
         const openPositions = normalizeOpenPositions(rawOpenPositions)
@@ -121,12 +167,21 @@ export default function LandingPage() {
       } catch {
         // retry next interval
         computeSharpe()
+      } finally {
+        window.clearTimeout(timeoutId)
+        if (activeRequest === controller) {
+          activeRequest = null
+        }
+        inFlight = false
       }
     }
     void poll()
     const t = window.setInterval(poll, 12_000)
     return () => {
       active = false
+      if (activeRequest) {
+        activeRequest.abort()
+      }
       window.clearInterval(t)
     }
   }, [])
@@ -138,12 +193,22 @@ export default function LandingPage() {
 
   const openPositionCount = hasSnapshot ? snap.openPositions.length : null
   const openPositionNotionalUsd = hasSnapshot
-    ? snap.openPositions.reduce((acc, position) => acc + Math.abs(position.notionalUsd ?? 0), 0)
+    ? snap.openPositions.reduce((acc, position) => {
+        const next = typeof position.notionalUsd === 'number' && Number.isFinite(position.notionalUsd)
+          ? Math.abs(position.notionalUsd)
+          : 0
+        return acc + next
+      }, 0)
     : null
   const openPositionNotional = openPositionNotionalUsd !== null ? USD_0.format(openPositionNotionalUsd) : '--'
 
   return (
-    <div className='relative z-10 mx-auto flex min-h-[calc(100dvh-52px)] w-full max-w-[1300px] flex-col items-center justify-center gap-6 px-3 py-8'>
+    <main
+      id='main-content'
+      className='relative z-10 mx-auto flex min-h-[calc(100dvh-52px)] w-full max-w-[1300px] flex-col items-center justify-center gap-6 px-3 py-8'
+      aria-busy={!hasSnapshot}
+    >
+      <h1 className='sr-only'>HL Privateer open Hyperliquid discretionary desk</h1>
       <div className='flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-hlpPositive'>
         <span className='inline-block h-1.5 w-1.5 animate-hlp-led bg-hlpPositive' />
         LIVE
@@ -151,8 +216,15 @@ export default function LandingPage() {
 
       <div className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
         <p>Open discretionary desk on Hyperliquid.</p>
-        <p>Read our analysis, follow the fund. All via{' '}
-        <a href='/API.md' target='_blank' rel='noreferrer' className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'>x402</a>.</p>
+        <p>
+          Read our analysis, follow the fund. All via{' '}
+          <a
+            href='/API.md'
+            className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'
+          >
+            x402
+          </a>.
+        </p>
       </div>
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
@@ -236,8 +308,6 @@ export default function LandingPage() {
         </Link>
         <a
           href='/llms.txt'
-          target='_blank'
-          rel='noreferrer'
           className='border border-hlpBorder bg-hlpPanel px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
         >
           AGENT DOCS
@@ -260,6 +330,11 @@ export default function LandingPage() {
           🦞 ClawHub enabled
         </a>
       </div>
-    </div>
+
+      <script
+        type='application/ld+json'
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+    </main>
   )
 }

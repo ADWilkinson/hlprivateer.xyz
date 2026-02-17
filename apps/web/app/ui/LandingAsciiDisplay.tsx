@@ -53,14 +53,28 @@ export function LandingAsciiDisplay({ className = '' }: { className?: string }) 
 
   useEffect(() => {
     const cols = () => (ref.current ? Math.max(40, Math.floor(ref.current.clientWidth / 6.1)) : 80)
-    setLines(buildFrame(20, cols(), 0))
+    const renderFrame = () => setLines(buildFrame(20, cols(), tick.current))
+    renderFrame()
 
-    const id = window.setInterval(() => {
+    const handleResize = () => renderFrame()
+    window.addEventListener('resize', handleResize)
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion) {
+      return () => {
+        window.removeEventListener('resize', handleResize)
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
       tick.current += 1
-      setLines(buildFrame(20, cols(), tick.current))
+      renderFrame()
     }, 80)
 
-    return () => window.clearInterval(id)
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('resize', handleResize)
+    }
   }, [])
 
   return (

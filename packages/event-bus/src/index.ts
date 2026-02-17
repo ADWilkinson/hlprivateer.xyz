@@ -25,7 +25,7 @@ export interface EventBus {
     stream: StreamName,
     fromTs: string,
     toTs: string,
-    onMessage: (envelope: EnvelopeRecord) => Promise<void> | void
+    onMessage: (envelope: EnvelopeRecord) => Promise<boolean | void> | boolean | void
   ): Promise<void>
   health(): Promise<{ ok: boolean; mode: 'redis' | 'memory'; reason?: string }>
 }
@@ -211,7 +211,7 @@ export class RedisEventBus implements EventBus {
     stream: StreamName,
     fromTs: string,
     toTs: string,
-    onMessage: (envelope: EnvelopeRecord) => Promise<void> | void
+    onMessage: (envelope: EnvelopeRecord) => Promise<boolean | void> | boolean | void
   ): Promise<void> {
     const from = Date.parse(fromTs)
     const to = Date.parse(toTs)
@@ -244,7 +244,10 @@ export class RedisEventBus implements EventBus {
           continue
         }
 
-        await onMessage(envelope)
+        const shouldContinue = await onMessage(envelope)
+        if (shouldContinue === false) {
+          return
+        }
       }
 
       const lastId = entries[entries.length - 1][0]
@@ -345,11 +348,19 @@ export class InMemoryEventBus implements EventBus {
     }
   }
 
-  async replay(stream: StreamName, fromTs: string, toTs: string, onMessage: (envelope: EnvelopeRecord) => Promise<void> | void): Promise<void> {
+  async replay(
+    stream: StreamName,
+    fromTs: string,
+    toTs: string,
+    onMessage: (envelope: EnvelopeRecord) => Promise<boolean | void> | boolean | void
+  ): Promise<void> {
     const list = this.streams.get(stream) ?? []
     const filter = this.parseTsFilter(stream, fromTs, toTs)
     for (const item of filter(list)) {
-      await onMessage(item.envelope)
+      const shouldContinue = await onMessage(item.envelope)
+      if (shouldContinue === false) {
+        return
+      }
     }
   }
 

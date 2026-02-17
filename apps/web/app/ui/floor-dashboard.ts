@@ -194,11 +194,16 @@ export function crewLabel(role: CrewRole): string {
 }
 
 export function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString('en-GB', { hour12: false })
-  } catch {
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) {
     return '--:--:--'
   }
+  return new Date(parsed).toLocaleTimeString('en-GB', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 export function formatAge(ms: number): string {
@@ -219,8 +224,9 @@ export function heartbeatLevel(lastPingMs: number, nowMs: number): number {
 
 export function normalizeCrewRole(role: unknown): CrewRole | undefined {
   if (typeof role !== 'string') return undefined
-  if (!CREW.includes(role as CrewRole)) return undefined
-  return role as CrewRole
+  const normalized = role.trim().toLowerCase() as CrewRole
+  if (!CREW.includes(normalized)) return undefined
+  return normalized
 }
 
 export function normalizeTapeLinePrefix(line: string): string {

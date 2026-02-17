@@ -3,7 +3,7 @@
   "name": "HL Privateer",
   "description": "Open Hyperliquid discretionary trading desk. Autonomous agents making discretionary long/short calls. Follow trades, read analysis, copy positions, integrate signals. Pay per call via x402 (USDC on Base).",
   "url": "https://hlprivateer.xyz",
-  "logo": "https://hlprivateer.xyz/icon.svg",
+  "logo": "https://hlprivateer.xyz/icons/icon-512.png",
   "provider": {
     "name": "HL Privateer",
     "url": "https://hlprivateer.xyz"

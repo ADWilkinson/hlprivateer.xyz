@@ -68,6 +68,20 @@ a:not([class*="bg-"]):not([class*="border"]):not([class*="inline-flex"]):focus {
   outline: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @layer utilities {
   .scanline-overlay::after {
     content: '';

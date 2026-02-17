@@ -41,61 +41,63 @@ export function TapeSection({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <>
-          <div className={`${terminalPanelClass} relative scanline-overlay`} ref={tapeRef} aria-label='event tape'>
-            {isLoading
-              ? Array.from({ length: 8 }).map((_, index) => (
-                <div
-                  className={`flex min-w-0 items-start gap-1.5 ${panelBodyPad} text-[10px] leading-[1.45] text-hlpMuted`}
-                  key={`loading-${index}`}
-                >
-                  <span className='w-3 shrink-0 text-[10px]'>&nbsp;</span>
-                  <span className='min-w-0 flex-[0_0_66px] shrink-0'>
-                    <span className={`inline-block h-3 w-12 ${skeletonPulseClass}`} />
-                  </span>
-                  <span className='min-w-0 flex-[0_0_44px] shrink-0'>
-                    <span className={`inline-block h-3 w-8 ${skeletonPulseClass}`} />
-                  </span>
-                  <span className='min-w-0 flex-1'>
-                    <span className='inline-block h-3 w-full bg-hlpSurface/70' />
-                  </span>
-                </div>
-              ))
-              : tape.map((entry, i) => {
-                  const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
-                  const levelTone =
-                    levelClass === 'warn'
-                      ? 'text-hlpWarning'
-                      : levelClass === 'error'
-                        ? 'text-hlpNegative'
-                        : 'text-hlpMuted'
-
-                  return (
-                  <div
-                    className={`relative z-10 flex min-w-0 items-start gap-1.5 ${panelBodyPad} text-[10px] leading-[1.45] ${i === 0 ? 'bg-hlpSurface/75 animate-hlp-hot' : ''} ${levelTone}`}
-                    key={`${i}-${entry.ts}`}
-                  >
-                    <span className='w-3 shrink-0 text-[10px] text-hlpFg'>{i === 0 ? '\u25B8' : '\u00A0'}</span>
-                    <span className='min-w-0 flex-[0_0_66px] shrink-0 text-[10px] text-hlpDim'>{formatTime(entry.ts)}</span>
-                    {entry.role && (
-                      <span className='min-w-0 flex-[0_0_44px] shrink-0 text-[10px] font-bold text-hlpMuted'>
-                        [{entry.role.slice(0, 3).toUpperCase()}]
+      <div id={`section-${sectionId}`} hidden={isCollapsed}>
+        {!isCollapsed && (
+          <>
+            <div className={`${terminalPanelClass} relative scanline-overlay`} ref={tapeRef} aria-label='event tape'>
+              {isLoading
+                ? Array.from({ length: 8 }).map((_, index) => (
+                    <div
+                      className={`flex min-w-0 items-start gap-1.5 ${panelBodyPad} text-[10px] leading-[1.45] text-hlpMuted`}
+                      key={`loading-${index}`}
+                    >
+                      <span className='w-3 shrink-0 text-[10px]'>&nbsp;</span>
+                      <span className='min-w-0 flex-[0_0_66px] shrink-0'>
+                        <span className={`inline-block h-3 w-12 ${skeletonPulseClass}`} />
                       </span>
-                    )}
-                      <span className='min-w-0 flex-1 overflow-hidden break-words'>{entry.line}</span>
-                      {i === 0 && <span className='ml-0.5 animate-hlp-cursor text-[10px] text-hlpFg'>\u2588</span>}
+                      <span className='min-w-0 flex-[0_0_44px] shrink-0'>
+                        <span className={`inline-block h-3 w-8 ${skeletonPulseClass}`} />
+                      </span>
+                      <span className='min-w-0 flex-1'>
+                        <span className='inline-block h-3 w-full bg-hlpSurface/70' />
+                      </span>
                     </div>
-                  )
-                })}
-          </div>
+                  ))
+                : tape.map((entry, i) => {
+                    const levelClass = entry.level ? entry.level.toLowerCase() : 'info'
+                    const levelTone =
+                      levelClass === 'warn'
+                        ? 'text-hlpWarning'
+                        : levelClass === 'error'
+                          ? 'text-hlpNegative'
+                          : 'text-hlpMuted'
 
-          <div className={sectionStripClass}>
-            <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>tail stream</span>
-            <span className={inlineBadgeClass}>entries={tape.length}</span>
-          </div>
-        </>
-      )}
+                    return (
+                      <div
+                        className={`relative z-10 flex min-w-0 items-start gap-1.5 ${panelBodyPad} text-[10px] leading-[1.45] ${i === 0 ? 'bg-hlpSurface/75 animate-hlp-hot' : ''} ${levelTone}`}
+                        key={`${i}-${entry.ts}`}
+                      >
+                        <span className='w-3 shrink-0 text-[10px] text-hlpFg'>{i === 0 ? '\u25B8' : '\u00A0'}</span>
+                        <span className='min-w-0 flex-[0_0_66px] shrink-0 text-[10px] text-hlpDim'>{formatTime(entry.ts)}</span>
+                        {entry.role && (
+                          <span className='min-w-0 flex-[0_0_44px] shrink-0 text-[10px] font-bold text-hlpMuted'>
+                            [{entry.role.slice(0, 3).toUpperCase()}]
+                          </span>
+                        )}
+                        <span className='min-w-0 flex-1 overflow-hidden break-words'>{entry.line}</span>
+                        {i === 0 && <span className='ml-0.5 animate-hlp-cursor text-[10px] text-hlpFg'>\u2588</span>}
+                      </div>
+                    )
+                  })}
+            </div>
+
+            <div className={sectionStripClass}>
+              <span className='text-[9px] uppercase tracking-[0.2em] text-hlpMuted'>tail stream</span>
+              <span className={inlineBadgeClass}>entries={tape.length}</span>
+            </div>
+          </>
+        )}
+      </div>
     </section>
   )
 }

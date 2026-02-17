@@ -426,28 +426,30 @@ export function PnlPanel({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <div className={`${panelBodyPad} grid gap-3`}>
-          <div className='grid gap-2 xl:grid-cols-2'>
-            <SparklineCard
-              id='market-pnl'
-              title='MARKET PNL OVER TIME'
-              colorClass='text-hlpHealthy'
-              axisLabel={toSigned}
-              stats={pnlStats}
-              isLoading={isLoading}
-            />
-            <SparklineCard
-              id='account-value'
-              title='ACCOUNT VALUE OVER TIME'
-              colorClass='text-hlpNeutral'
-              axisLabel={toUsd}
-              stats={accountValueStats}
-              isLoading={isLoading}
-            />
+      <div id={`section-${sectionId}`} hidden={isCollapsed}>
+        {!isCollapsed && (
+          <div className={`${panelBodyPad} grid gap-3`}>
+            <div className='grid gap-2 xl:grid-cols-2'>
+              <SparklineCard
+                id='market-pnl'
+                title='MARKET PNL OVER TIME'
+                colorClass='text-hlpHealthy'
+                axisLabel={toSigned}
+                stats={pnlStats}
+                isLoading={isLoading}
+              />
+              <SparklineCard
+                id='account-value'
+                title='ACCOUNT VALUE OVER TIME'
+                colorClass='text-hlpNeutral'
+                axisLabel={toUsd}
+                stats={accountValueStats}
+                isLoading={isLoading}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   )
 }

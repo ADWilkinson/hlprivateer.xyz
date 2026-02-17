@@ -150,66 +150,68 @@ export function X402AgentMaterialsPanel({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <div className={`${panelBodyPad} grid gap-4`}>
-          <div>
-            <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Access summary</div>
-            <div className='grid gap-3 text-[11px] leading-relaxed md:grid-cols-2'>
-              <p className='text-hlpMuted'>
-                The external agent layer can access live floor materials via machine-gated endpoints. Routes are protected through
-                x402 payments and dynamic capability checks, then mapped to tiered entitlements.
-              </p>
-              <p className='text-hlpMuted'>
-                Tiering and capability negotiation is resolved via
-                {' '}
-                <span className='font-mono text-hlpAccent'>POST /v1/agent/handshake</span> and entitlement refresh through
-                {' '}
-                <span className='font-mono text-hlpAccent'>/v1/agent/unlock/:tier</span>.
-              </p>
-            </div>
-          </div>
-
-          <div className='grid gap-2'>
-            <div className='text-[9px] uppercase tracking-[0.14em] text-hlpDim'>Direct curl access</div>
-            <div className='border border-hlpBorder overflow-hidden'>
-              <div className='px-3 py-1.5 text-[8px] uppercase tracking-[0.2em] text-hlpDim bg-hlpSurface border-b border-hlpBorder'>llms / openspec / agents</div>
-              <div className='space-y-0.5 px-2 py-2'>
-                {curlCommands.map((entry) => (
-                  <a
-                    key={entry.id}
-                    href={entry.href}
-                    target='_blank'
-                    rel='noreferrer'
-                    className='block px-2 py-1.5 font-mono text-[10px] break-all text-hlpAccent transition-colors hover:bg-hlpSurface/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
-                  >
-                    {entry.command}
-                  </a>
-                ))}
+      <div id={`section-${sectionId}`} hidden={isCollapsed}>
+        {!isCollapsed && (
+          <div className={`${panelBodyPad} grid gap-4`}>
+            <div>
+              <div className='mb-2 text-[9px] uppercase tracking-[0.2em] text-hlpDim'>Access summary</div>
+              <div className='grid gap-3 text-[11px] leading-relaxed md:grid-cols-2'>
+                <p className='text-hlpMuted'>
+                  The external agent layer can access live floor materials via machine-gated endpoints. Routes are protected through
+                  x402 payments and dynamic capability checks, then mapped to tiered entitlements.
+                </p>
+                <p className='text-hlpMuted'>
+                  Tiering and capability negotiation is resolved via
+                  {' '}
+                  <span className='font-mono text-hlpAccent'>POST /v1/agent/handshake</span> and entitlement refresh through
+                  {' '}
+                  <span className='font-mono text-hlpAccent'>/v1/agent/unlock/:tier</span>.
+                </p>
               </div>
             </div>
-          </div>
 
-          <AsciiTable
-            caption='pay-gated routes + x402 pricing'
-            columns={[
-              {
-                key: 'method',
-                header: 'METHOD',
-                align: 'left',
-                width: '8%',
-                render: (value) => String(value),
-              },
-              { key: 'route', header: 'ROUTE', align: 'left', width: '30%' },
-              { key: 'capability', header: 'CAPABILITY', align: 'left', width: '16%' },
-              { key: 'purpose', header: 'PURPOSE', align: 'left', width: '24%' },
-              { key: 'price', header: 'PRICE', align: 'right', width: '10%' },
-              { key: 'notes', header: 'NOTES', align: 'left', width: '12%' },
-            ]}
-            data={x402Catalog}
-            emptyText='no routes'
-          />
-        </div>
-      )}
+            <div className='grid gap-2'>
+              <div className='text-[9px] uppercase tracking-[0.14em] text-hlpDim'>Direct curl access</div>
+              <div className='border border-hlpBorder overflow-hidden'>
+                <div className='px-3 py-1.5 text-[8px] uppercase tracking-[0.2em] text-hlpDim bg-hlpSurface border-b border-hlpBorder'>llms / openspec / agents</div>
+                <div className='space-y-0.5 px-2 py-2'>
+                  {curlCommands.map((entry) => (
+                    <a
+                      key={entry.id}
+                      href={entry.href}
+                      target='_blank'
+                      rel='noreferrer'
+                      className='block px-2 py-1.5 font-mono text-[10px] break-all text-hlpAccent transition-colors hover:bg-hlpSurface/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-hlpAccent'
+                    >
+                      {entry.command}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <AsciiTable
+              caption='pay-gated routes + x402 pricing'
+              columns={[
+                {
+                  key: 'method',
+                  header: 'METHOD',
+                  align: 'left',
+                  width: '8%',
+                  render: (value) => String(value),
+                },
+                { key: 'route', header: 'ROUTE', align: 'left', width: '30%' },
+                { key: 'capability', header: 'CAPABILITY', align: 'left', width: '16%' },
+                { key: 'purpose', header: 'PURPOSE', align: 'left', width: '24%' },
+                { key: 'price', header: 'PRICE', align: 'right', width: '10%' },
+                { key: 'notes', header: 'NOTES', align: 'left', width: '12%' },
+              ]}
+              data={x402Catalog}
+              emptyText='no routes'
+            />
+          </div>
+        )}
+      </div>
     </section>
   )
 }

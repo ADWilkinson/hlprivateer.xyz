@@ -96,104 +96,106 @@ export function CrewStationsPanel({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${panelBodyPad}`}>
-          {roles.map((role) => {
-            const last = isLoading ? null : crewLast[role]
-            const lastMs = last?.ts ? Date.parse(last.ts) : 0
-            const active = !isLoading && lastMs > 0 && nowMs - lastMs < 90_000
-            const heartbeatMs = isLoading || !crewHeartbeat[role] ? Number.POSITIVE_INFINITY : nowMs - crewHeartbeat[role]
-            const beatScore = isLoading ? 20 : heartbeatLevel(crewHeartbeat[role], nowMs)
-            const line = isLoading ? 'initializing stream...' : last?.line || '\u2026'
-            const level = isLoading ? 'INFO' : last?.level ?? 'INFO'
-            const lane = roleLane[role]
-            const icon = roleIcon[role]
-            const nextGate = roleGate[role]
-            const statusLabel = beatScore > 75 ? 'active' : beatScore > 35 ? 'idle' : beatScore > 0 ? 'warming' : 'offline'
-            const normalizedLevel = level.toLowerCase()
-            const heartbeatPulse = `${'\u25C9'.repeat(Math.min(Math.max(0, Math.round(beatScore / 20)), 5)).padEnd(5, '\u25CC')}`
+      <div id={`section-${sectionId}`} hidden={isCollapsed}>
+        {!isCollapsed && (
+          <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${panelBodyPad}`}>
+            {roles.map((role) => {
+              const last = isLoading ? null : crewLast[role]
+              const lastMs = last?.ts ? Date.parse(last.ts) : 0
+              const active = !isLoading && lastMs > 0 && nowMs - lastMs < 90_000
+              const heartbeatMs = isLoading || !crewHeartbeat[role] ? Number.POSITIVE_INFINITY : nowMs - crewHeartbeat[role]
+              const beatScore = isLoading ? 20 : heartbeatLevel(crewHeartbeat[role], nowMs)
+              const line = isLoading ? 'initializing stream...' : last?.line || '\u2026'
+              const level = isLoading ? 'INFO' : last?.level ?? 'INFO'
+              const lane = roleLane[role]
+              const icon = roleIcon[role]
+              const nextGate = roleGate[role]
+              const statusLabel = beatScore > 75 ? 'active' : beatScore > 35 ? 'idle' : beatScore > 0 ? 'warming' : 'offline'
+              const normalizedLevel = level.toLowerCase()
+              const heartbeatPulse = `${'\u25C9'.repeat(Math.min(Math.max(0, Math.round(beatScore / 20)), 5)).padEnd(5, '\u25CC')}`
 
-            return (
-              <article
-                className={`${monitorClass} min-h-[180px] border border-hlpBorder transition-colors ${active ? 'bg-hlpPanel/95' : 'bg-hlpSurface'}`}
-                key={role}
-              >
-                <div className={`${panelInsetPad} space-y-1 border-b border-hlpBorder`}>
-                  <div className='flex items-start justify-between gap-2'>
-                    <div className='min-w-0 flex items-center gap-1.5'>
-                      <span className='text-[12px] text-hlpDim'>{icon}</span>
-                      <div>
-                        <div className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</div>
-                        {isLoading ? (
-                          <span className='mt-0.5 inline-block h-3 w-20 bg-hlpSurface/80' />
-                        ) : (
-                          <div className='mt-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpDim'>{lane}</div>
-                        )}
+              return (
+                <article
+                  className={`${monitorClass} min-h-[180px] border border-hlpBorder transition-colors ${active ? 'bg-hlpPanel/95' : 'bg-hlpSurface'}`}
+                  key={role}
+                >
+                  <div className={`${panelInsetPad} space-y-1 border-b border-hlpBorder`}>
+                    <div className='flex items-start justify-between gap-2'>
+                      <div className='min-w-0 flex items-center gap-1.5'>
+                        <span className='text-[12px] text-hlpDim'>{icon}</span>
+                        <div>
+                          <div className='text-[10px] font-bold tracking-[0.22em]'>{crewLabel(role)}</div>
+                          {isLoading ? (
+                            <span className='mt-0.5 inline-block h-3 w-20 bg-hlpSurface/80' />
+                          ) : (
+                            <div className='mt-0.5 text-[8px] uppercase tracking-[0.16em] text-hlpDim'>{lane}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <span
-                      className={`h-2 w-2 shrink-0 ${
-                        isLoading
-                          ? 'bg-hlpMuted'
-                          : active
-                            ? 'bg-hlpHealthy animate-hlp-led'
-                            : 'bg-hlpMuted'
-                      }`}
-                    />
-                  </div>
-                  <div className='text-[8px] uppercase tracking-[0.16em] text-hlpDim'>{isLoading ? 'booting' : statusLabel}</div>
-                </div>
-
-                <div className={`${panelBodyPad} space-y-1.5`}>
-                  {isLoading ? (
-                    <span className='inline-block h-3 w-20 bg-hlpSurface/80' />
-                  ) : (
-                    <span
-                      className={`text-[8px] uppercase tracking-[0.12em] ${
-                        normalizedLevel === 'warn'
-                          ? 'text-hlpWarning'
-                          : normalizedLevel === 'error'
-                            ? 'text-hlpNegative'
-                            : 'text-hlpDim'
-                      }`}
-                    >
-                      {level}
-                    </span>
-                  )}
-
-                  <div className='h-1.5 w-full bg-hlpSurface/75 overflow-hidden' aria-hidden='true'>
-                    {isLoading ? <span className={`block h-full ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
-                    {!isLoading ? (
                       <span
-                        className='block h-full bg-hlpHealthy/80 transition-all duration-500'
-                        style={{ width: getActivityWidth(beatScore) }}
+                        className={`h-2 w-2 shrink-0 ${
+                          isLoading
+                            ? 'bg-hlpMuted'
+                            : active
+                              ? 'bg-hlpHealthy animate-hlp-led'
+                              : 'bg-hlpMuted'
+                        }`}
                       />
-                    ) : null}
+                    </div>
+                    <div className='text-[8px] uppercase tracking-[0.16em] text-hlpDim'>{isLoading ? 'booting' : statusLabel}</div>
                   </div>
 
-                  <div className='flex flex-wrap items-center justify-between gap-1 text-[9px] tracking-[0.12em] text-hlpDim'>
-                    <span className='font-mono text-[9px]'>{heartbeatPulse}</span>
-                    <span>{isLoading ? 'booting' : heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
+                  <div className={`${panelBodyPad} space-y-1.5`}>
+                    {isLoading ? (
+                      <span className='inline-block h-3 w-20 bg-hlpSurface/80' />
+                    ) : (
+                      <span
+                        className={`text-[8px] uppercase tracking-[0.12em] ${
+                          normalizedLevel === 'warn'
+                            ? 'text-hlpWarning'
+                            : normalizedLevel === 'error'
+                              ? 'text-hlpNegative'
+                              : 'text-hlpDim'
+                        }`}
+                      >
+                        {level}
+                      </span>
+                    )}
+
+                    <div className='h-1.5 w-full bg-hlpSurface/75 overflow-hidden' aria-hidden='true'>
+                      {isLoading ? <span className={`block h-full ${skeletonPulseClass}`} style={{ width: '58%' }} /> : null}
+                      {!isLoading ? (
+                        <span
+                          className='block h-full bg-hlpHealthy/80 transition-all duration-500'
+                          style={{ width: getActivityWidth(beatScore) }}
+                        />
+                      ) : null}
+                    </div>
+
+                    <div className='flex flex-wrap items-center justify-between gap-1 text-[9px] tracking-[0.12em] text-hlpDim'>
+                      <span className='font-mono text-[9px]'>{heartbeatPulse}</span>
+                      <span>{isLoading ? 'booting' : heartbeatMs === Number.POSITIVE_INFINITY ? 'offline' : formatAge(heartbeatMs)}</span>
+                    </div>
+
+                    <div className='min-h-8 overflow-hidden text-[10px] break-words leading-snug text-hlpMuted' title={line}>
+                      {isLoading ? <span className={`inline-block h-3 w-full ${skeletonPulseClass}`} /> : <span>{line}</span>}
+                    </div>
+
+                    <div className='text-[8px] uppercase tracking-[0.12em] text-hlpDim/70'>
+                      {isLoading ? <span className={`inline-block h-3 w-full ${skeletonPulseClass}`} /> : <span>{nextGate}</span>}
+                    </div>
                   </div>
 
-                  <div className='min-h-8 overflow-hidden text-[10px] break-words leading-snug text-hlpMuted' title={line}>
-                    {isLoading ? <span className={`inline-block h-3 w-full ${skeletonPulseClass}`} /> : <span>{line}</span>}
+                  <div className={`mt-auto flex flex-wrap items-center justify-between border-t border-hlpBorder ${panelInsetPad} text-[8px] text-hlpDim`}>
+                    <span>{isLoading ? <span className={`inline-block h-3 w-20 ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '--'}</span>
+                    <span>events {isLoading ? '--' : crewSignals[role]}/{maxSignals}</span>
                   </div>
-
-                  <div className='text-[8px] uppercase tracking-[0.12em] text-hlpDim/70'>
-                    {isLoading ? <span className={`inline-block h-3 w-full ${skeletonPulseClass}`} /> : <span>{nextGate}</span>}
-                  </div>
-                </div>
-
-                <div className={`mt-auto flex flex-wrap items-center justify-between border-t border-hlpBorder ${panelInsetPad} text-[8px] text-hlpDim`}>
-                  <span>{isLoading ? <span className={`inline-block h-3 w-20 ${skeletonPulseClass}`} /> : last?.ts ? formatTime(last.ts) : '--'}</span>
-                  <span>events {isLoading ? '--' : crewSignals[role]}/{maxSignals}</span>
-                </div>
-              </article>
-            )
-          })}
-        </div>
-      )}
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </section>
   )
 }

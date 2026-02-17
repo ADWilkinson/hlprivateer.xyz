@@ -1005,9 +1005,10 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- Never invent symbols, metrics, or events not present in context.',
   '- Return strictly structured JSON only, no commentary.',
   'DATA SOURCE CLASSIFICATION:',
-  '- CRITICAL (must be present to trade): price feeds, orderbook, funding rates, open interest, account state.',
-  '- SUPPLEMENTARY (useful but NOT required): Twitter/social, Fear & Greed index, CoinGecko sector data.',
-  '- Missing SUPPLEMENTARY data MUST NOT block trading or reduce confidence. Trade on CRITICAL data alone when supplementary sources are offline.',
+  '- EXECUTION-CRITICAL (must be present to trade): price feeds, orderbook, funding rates, open interest, account state.',
+  '- ANALYSIS-CORE (default every cycle): Hyperliquid market/account data, Twitter/X narrative flow, CoinGecko Pro market + sector context.',
+  '- OPTIONAL ENRICHMENT (only if needed): Fear & Greed, web search, DeFiLlama, Binance/public API context.',
+  '- If ANALYSIS-CORE is partially degraded, continue from EXECUTION-CRITICAL data and reflect reduced certainty explicitly.',
   'BIAS TO ACTION:',
   '- When CRITICAL data presents a tradeable setup (funding divergence, momentum, mean-reversion, correlation break), TAKE THE TRADE.',
   '- HOLD is only appropriate when there is genuinely no setup across the universe — it is NOT a safe default.',
@@ -1023,39 +1024,33 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
 ]
 
 const AGENT_DATA_SOURCES_PRESET: string[] = [
-  'Mandatory research stack for this system:',
-  '1) Hyperliquid orderbook + market controls',
+  'Mandatory analysis stack (priority ordered):',
+  '1) Hyperliquid market + account microstructure (core).',
   '   - https://api.hyperliquid.xyz/info',
   '   - https://api.hyperliquid.xyz/exchange',
   '   - https://api.hyperliquid.xyz/ws',
-  '   - /apps/runtime (market-data consumer + risk gate)',
-  '2) Social + narrative intelligence',
-  '   - Twitter/X v2 recent search: https://api.twitter.com/2/tweets/search/recent',
-  '   - Twitter/X docs: https://docs.x.com/x-api',
-  `   - Credentials file (server): ${env.OPENCLAW_TWITTER_CREDS_PATH}`,
-  '3) OpenClaw local data tooling (structured outputs)',
-  `   - ${env.OPENCLAW_MARKET_DATA_PATH} snapshot`,
-  `   - ${env.OPENCLAW_MARKET_DATA_PATH} funding`,
-  `   - ${env.OPENCLAW_MARKET_DATA_PATH} tvl`,
-  '4) Reference + SDK integration stack',
+  '   - Runtime normalized feeds + risk outputs from /apps/runtime',
+  '2) Social/narrative intelligence via Twitter/X v2 (core).',
+  '   - https://api.twitter.com/2/tweets/search/recent',
+  '   - https://docs.x.com/x-api',
+  '3) CoinGecko Pro market/sector context (core).',
+  `   - base URL: ${env.COINGECKO_BASE_URL}`,
+  `   - auth: X-Cg-Pro-Api-Key via COINGECKO_API_KEY (${env.COINGECKO_API_KEY ? 'configured' : 'missing'})`,
+  '   - preferred endpoints: /coins/markets, /coins/categories, /global',
+  '4) Optional enrichment sources (only when they improve confidence materially).',
+  `   - Brave Search API: ${env.BRAVE_API_URL}`,
   '   - https://api.llama.fi',
   '   - https://yields.llama.fi',
-  '   - https://docs.hyperliquid.xyz',
-  '5) Broad market + sentiment context',
-  '   - https://api.coingecko.com/api/v3/coins/list',
-  '   - https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1',
-  '   - https://api.coingecko.com/api/v3/global',
-  '   - https://api.coingecko.com/api/v3/global/decentralized_finance_defi',
   '   - https://api.alternative.me/fng/',
-  `   - Brave Search API: ${env.BRAVE_API_URL}`,
   '   - https://data-api.binance.com',
+  'Default behavior: decide from Hyperliquid + Twitter/X + CoinGecko Pro first; use enrichment sources only when needed.'
 ]
 
 function buildAgentSourceAppendix(): string[] {
   return [...AGENT_DATA_SOURCES_PRESET]
 }
 
-const FLOOR_TAPE_CONTEXT_LINES = 12
+const FLOOR_TAPE_CONTEXT_LINES = 8
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
 const DECK_STATUS_HEARTBEAT_MS = 60_000
 const STRATEGIST_NO_ACTION_SUPPRESS_MS = 60_000
@@ -1093,6 +1088,7 @@ const RISK_RECOVERY_TTL_MS = 120_000
 const RISK_POLICY_TUNING_COOLDOWN_MS = 120_000
 
 let claudeAvailableCached: boolean | null = null
+let codexAvailableCached: boolean | null = null
 
 async function isClaudeAvailable(): Promise<boolean> {
   if (claudeAvailableCached !== null) {
@@ -1102,6 +1098,24 @@ async function isClaudeAvailable(): Promise<boolean> {
   const available = await isCommandAvailable('claude')
   claudeAvailableCached = available
   return available
+}
+
+async function isCodexAvailable(): Promise<boolean> {
+  if (codexAvailableCached !== null) {
+    return codexAvailableCached
+  }
+
+  const available = await isCommandAvailable('codex')
+  codexAvailableCached = available
+  return available
+}
+
+async function canUseCodex(nowMs = Date.now()): Promise<boolean> {
+  if (codexDisabledUntilMs > nowMs) {
+    return false
+  }
+
+  return await isCodexAvailable()
 }
 
 type RuntimeRiskReason = {
@@ -1397,11 +1411,20 @@ function summarizeActiveBasketContext(context: UniverseSelection['context'] | un
 }
 
 const PROMPT_CONTEXT_MAX_CHARS = 65000
+const PROMPT_TRUNCATION_LOG_COOLDOWN_MS = 60_000
+const promptTruncationLastLogAt = new Map<string, number>()
 
-function toPromptPayload(value: unknown): string {
+function toPromptPayload(value: unknown, label: 'FLOOR_CONTEXT' | 'TASK_CONTEXT'): string {
   const raw = JSON.stringify(value)
   if (raw.length <= PROMPT_CONTEXT_MAX_CHARS) {
     return raw
+  }
+
+  const nowMs = Date.now()
+  const lastLogAt = promptTruncationLastLogAt.get(label) ?? 0
+  if (nowMs - lastLogAt >= PROMPT_TRUNCATION_LOG_COOLDOWN_MS) {
+    promptTruncationLastLogAt.set(label, nowMs)
+    console.warn(`${label} truncated rawLength=${raw.length} limit=${PROMPT_CONTEXT_MAX_CHARS}`)
   }
 
   const fallback = {
@@ -1795,8 +1818,8 @@ function buildAgentPrompt(params: {
     params.schemaHint,
     '',
     `BUILD_CONTEXT_MS=${nowMs}`,
-    `FLOOR_CONTEXT=${toPromptPayload(buildCrewFloorContext(nowMs))}`,
-    `TASK_CONTEXT=${toPromptPayload(params.context)}`
+    `FLOOR_CONTEXT=${toPromptPayload(buildCrewFloorContext(nowMs), 'FLOOR_CONTEXT')}`,
+    `TASK_CONTEXT=${toPromptPayload(params.context, 'TASK_CONTEXT')}`
   ].join('\n')
 }
 
@@ -2247,13 +2270,36 @@ async function maybeSelectBasket(params: {
           return
         }
       } else {
-        await publishTape({
-          correlationId: ulid(),
-          role: 'ops',
-          level: 'WARN',
-          line: `basket selection failed: ${String(primaryError).slice(0, 120)}`
-        })
-        return
+        const canUseCodexLlm = await canUseCodex(nowMs)
+        if (canUseCodexLlm) {
+          try {
+            chosen = await generateBasketSelection({ llm: 'codex', model: env.CODEX_MODEL, input })
+            await publishTape({
+              correlationId: ulid(),
+              role: 'ops',
+              level: 'WARN',
+              line: `basket claude failed; using codex ${env.CODEX_MODEL}: ${String(primaryError).slice(0, 120)}`
+            })
+          } catch (fallbackError) {
+            const disabled = maybeDisableCodexFromError(fallbackError, nowMs)
+            const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+            await publishTape({
+              correlationId: ulid(),
+              role: 'ops',
+              level: 'WARN',
+              line: `basket claude+codex fallback failed: ${summarizeCodexError(fallbackError)}${untilNote}`
+            })
+            return
+          }
+        } else {
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: 'basket selection failed: claude and codex unavailable; skipping basket refresh'
+          })
+          return
+        }
       }
     }
 
@@ -3424,15 +3470,16 @@ async function runResearchAgent(): Promise<void> {
 	  let intelSummary: Record<string, unknown> | null = null
 	  if (env.AGENT_INTEL_ENABLED) {
 	    try {
-	      lastExternalIntel = await buildExternalIntelPack({
-	        symbols: activeBasket.symbols,
-	        twitterCredsPath: env.OPENCLAW_TWITTER_CREDS_PATH,
-	        twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
-	        twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
-	        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
-	        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
-	        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined
-	      })
+		      lastExternalIntel = await buildExternalIntelPack({
+		        symbols: activeBasket.symbols,
+		        twitterCredsPath: env.OPENCLAW_TWITTER_CREDS_PATH,
+		        twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
+		        twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
+		        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
+		        twitterCacheTtlMs: env.AGENT_INTEL_TWITTER_CACHE_TTL_MS,
+		        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
+		        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined
+		      })
 	      intelSummary = summarizeExternalIntel(lastExternalIntel)
 
 	      await publishAudit({
@@ -3514,13 +3561,36 @@ async function runResearchAgent(): Promise<void> {
         return
       }
     } else {
-      await publishTape({
-        correlationId: ulid(),
-        role: 'ops',
-        level: 'WARN',
-        line: `research llm unavailable: ${String(primaryError).slice(0, 140)}`
-      })
-      return
+      const canUseCodexLlm = await canUseCodex(now)
+      if (canUseCodexLlm) {
+        try {
+          report = await generateResearchReport({ llm: 'codex', model: env.CODEX_MODEL, input })
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `research claude failed; using codex ${env.CODEX_MODEL}: ${String(primaryError).slice(0, 120)}`
+          })
+        } catch (fallbackError) {
+          const disabled = maybeDisableCodexFromError(fallbackError, now)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `research claude+codex failed; skipping research refresh: ${summarizeCodexError(fallbackError)}${untilNote}`
+          })
+          return
+        }
+      } else {
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: 'research llm unavailable: claude and codex unavailable; skipping research refresh'
+        })
+        return
+      }
     }
   }
 
@@ -3644,13 +3714,36 @@ async function runRiskAgent(): Promise<void> {
         return
       }
     } else {
-      await publishTape({
-        correlationId: ulid(),
-        role: 'ops',
-        level: 'WARN',
-        line: `risk llm unavailable: ${String(primaryError).slice(0, 140)}`
-      })
-      return
+      const canUseCodexLlm = await canUseCodex(now)
+      if (canUseCodexLlm) {
+        try {
+          report = await generateRiskReport({ llm: 'codex', model: env.CODEX_MODEL, input })
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `risk claude failed; using codex ${env.CODEX_MODEL}: ${String(primaryError).slice(0, 120)}`
+          })
+        } catch (fallbackError) {
+          const disabled = maybeDisableCodexFromError(fallbackError, now)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: `risk claude+codex failed; skipping risk refresh: ${summarizeCodexError(fallbackError)}${untilNote}`
+          })
+          return
+        }
+      } else {
+        await publishTape({
+          correlationId: ulid(),
+          role: 'ops',
+          level: 'WARN',
+          line: 'risk llm unavailable: claude and codex unavailable; skipping risk refresh'
+        })
+        return
+      }
     }
   }
 
@@ -3841,13 +3934,36 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
           return
         }
       } else {
-        await publishTape({
-          correlationId: ulid(),
-          role: 'ops',
-          level: 'WARN',
-          line: `directive refresh failed: ${String(primaryError).slice(0, 120)}`
-        })
-        return
+        const canUseCodexLlm = await canUseCodex(nowMs)
+        if (canUseCodexLlm) {
+          try {
+            raw = await generateStrategistDirective({ llm: 'codex', model: env.CODEX_MODEL, input })
+            await publishTape({
+              correlationId: ulid(),
+              role: 'ops',
+              level: 'WARN',
+              line: `directive claude failed; using codex ${env.CODEX_MODEL}: ${String(primaryError).slice(0, 120)}`
+            })
+          } catch (fallbackError) {
+            const disabled = maybeDisableCodexFromError(fallbackError, nowMs)
+            const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+            await publishTape({
+              correlationId: ulid(),
+              role: 'ops',
+              level: 'WARN',
+              line: `directive refresh failed after claude+codex fallback: ${summarizeCodexError(fallbackError)}${untilNote}`
+            })
+            return
+          }
+        } else {
+          await publishTape({
+            correlationId: ulid(),
+            role: 'ops',
+            level: 'WARN',
+            line: 'directive refresh failed: claude and codex unavailable, holding previous directive'
+          })
+          return
+        }
       }
     }
 
@@ -4241,13 +4357,36 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
         return
       }
     } else {
-      await publishTape({
-        correlationId: proposal.proposalId,
-        role: 'ops',
-        level: 'WARN',
-        line: `scribe llm unavailable: ${String(primaryError).slice(0, 140)}`
-      })
-      return
+      const canUseCodexLlm = await canUseCodex(nowMs)
+      if (canUseCodexLlm) {
+        try {
+          analysis = await generateAnalysis({ llm: 'codex', model: env.CODEX_MODEL, input: analysisInput })
+          await publishTape({
+            correlationId: proposal.proposalId,
+            role: 'ops',
+            level: 'WARN',
+            line: `scribe claude failed; using codex ${env.CODEX_MODEL}: ${String(primaryError).slice(0, 120)}`
+          })
+        } catch (fallbackError) {
+          const disabled = maybeDisableCodexFromError(fallbackError, nowMs)
+          const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
+          await publishTape({
+            correlationId: proposal.proposalId,
+            role: 'ops',
+            level: 'WARN',
+            line: `scribe claude+codex failed; skipping scribe update: ${summarizeCodexError(fallbackError)}${untilNote}`
+          })
+          return
+        }
+      } else {
+        await publishTape({
+          correlationId: proposal.proposalId,
+          role: 'ops',
+          level: 'WARN',
+          line: 'scribe llm unavailable: claude and codex unavailable; skipping scribe update'
+        })
+        return
+      }
     }
   }
 

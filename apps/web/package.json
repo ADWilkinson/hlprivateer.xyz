@@ -7,9 +7,10 @@
     "build": "bunx next build",
     "build:static": "HLP_STATIC_EXPORT=1 bunx next build",
     "start": "bunx next start -p 3000",
-    "typecheck": "bun tsc --noEmit",
+    "typecheck": "bunx tsc --noEmit",
     "test": "bunx vitest run",
-    "lint": "bunx vitest run --passWithNoTests"
+    "lint": "bunx vitest run --passWithNoTests",
+    "assets:generate": "bash scripts/generate-brand-assets.sh"
   },
   "dependencies": {
     "next": "^15.1.7",

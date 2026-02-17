@@ -70,8 +70,9 @@ export function StatusStrip({
         </div>
       </button>
 
-      {!isCollapsed && (
-        <>
+      <div id={`section-${sectionId}`} hidden={isCollapsed}>
+        {!isCollapsed && (
+          <>
           <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
             {isLoading ? (
               <>
@@ -128,8 +129,9 @@ export function StatusStrip({
             )}
           </div>
 
-        </>
-      )}
+          </>
+        )}
+      </div>
     </section>
   )
 }
