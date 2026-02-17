@@ -51,7 +51,7 @@ export const runtimeEnv = z
     RISK_MAX_LEVERAGE: z.coerce.number().default(20),
     // Preferred leverage target used by agent layers for sizing (runtime still enforces max leverage as a hard cap).
     RISK_TARGET_LEVERAGE: z.coerce.number().positive().default(20),
-    RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(20),
+    RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(100),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
     RISK_MAX_NOTIONAL_USD: z.coerce.number().default(50000),
     RISK_STALE_DATA_MS: z.coerce.number().default(3000),
