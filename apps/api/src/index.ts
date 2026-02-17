@@ -25,6 +25,7 @@ import { createChallenge, verifyChallenge } from './x402'
 import type { RouteConfig } from '@x402/core/server'
 import type { Network } from '@x402/core/types'
 import { createX402FacilitatorGate } from './x402-facilitator'
+import { Erc8004FeedbackService } from './erc8004-feedback'
 import { registerAuth, OPERATOR_ADMIN_ROLE, OPERATOR_VIEW_ROLE } from './middleware'
 import { ApiStore } from './store'
 import { initializeTelemetry, stopTelemetry } from './telemetry'
@@ -170,6 +171,18 @@ app.setErrorHandler(async (error, request, reply) => {
   reply.code(statusCode).send({ error: errorName, message })
 })
 
+let feedbackService: Erc8004FeedbackService | null = null
+if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null && env.ERC8004_FEEDBACK_PRIVATE_KEY) {
+  feedbackService = new Erc8004FeedbackService({
+    chainId: env.ERC8004_CHAIN_ID as 8453 | 84532,
+    agentId: BigInt(env.ERC8004_AGENT_ID),
+    rpcUrl: env.ERC8004_RPC_URL,
+    privateKey: env.ERC8004_FEEDBACK_PRIVATE_KEY as `0x${string}`,
+    logger: app.log,
+  })
+  app.log.info({ chainId: env.ERC8004_CHAIN_ID, agentId: env.ERC8004_AGENT_ID }, 'erc8004 feedback service started')
+}
+
 let x402Facilitator: Awaited<ReturnType<typeof createX402FacilitatorGate>> | null = null
 if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
   const payTo = String(env.X402_PAYTO ?? '').trim()
@@ -190,54 +203,93 @@ if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
     'GET /v1/agent/stream/snapshot': {
       accepts: acceptExact(env.X402_PRICE_STREAM_SNAPSHOT),
       description: 'HL Privateer public floor snapshot (agent access)',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { mode: 'READY', pnlPct: 4.2, accountValue: 12500, positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, unrealizedPnl: 42 }], tape: [] }
+      }}}
     },
     'GET /v1/agent/analysis/latest': {
       accepts: acceptExact(env.X402_PRICE_ANALYSIS_LATEST),
       description: 'Latest HL Privateer agent analysis',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { id: 'ana_01', role: 'strategist', thesis: 'Bullish momentum on HYPE', signals: ['HYPE long'], confidence: 0.82, ts: '2026-02-16T12:00:00Z' }
+      }}}
     },
     'GET /v1/agent/analysis': {
       accepts: acceptExact(env.X402_PRICE_ANALYSIS_HISTORY),
       description: 'HL Privateer agent analysis history',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: { latest: 'false', limit: '10', cursor: '0' },
+        output: { items: [], cursor: null, hasMore: false }
+      }}}
     },
     'GET /v1/agent/positions': {
       accepts: acceptExact(env.X402_PRICE_POSITIONS),
       description: 'Current HL Privateer positions',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, markPx: 23.5, unrealizedPnl: 20, leverage: 3 }] }
+      }}}
     },
     'GET /v1/agent/orders': {
       accepts: acceptExact(env.X402_PRICE_ORDERS),
       description: 'Current HL Privateer orders',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { orders: [{ symbol: 'HYPE', side: 'buy', size: 25, price: 22.8, type: 'limit', status: 'open' }] }
+      }}}
     },
     'GET /v1/agent/data/overview': {
       accepts: acceptExact(env.X402_PRICE_MARKET_DATA),
       description: 'HL Privateer market + execution overview for machine agents',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { mode: 'READY', pnlPct: 4.2, riskPolicy: { maxLeverage: 20, maxDrawdownPct: 20 }, signals: [], executions: [] }
+      }}}
     },
     'GET /v1/agent/insights': {
       accepts: acceptExact(env.X402_PRICE_AGENT_INSIGHTS),
       description: 'HL Privateer floor insights bundle (health, mode, policy, risk, tape)',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: { scope: 'ai' },
+        output: { health: 'ok', mode: 'READY', riskPolicy: {}, analysis: null, positions: [], tape: [] }
+      }}}
     },
     'GET /v1/agent/copy-trade/signals': {
       accepts: acceptExact(env.X402_PRICE_COPY_TRADE_SIGNALS),
       description: 'HL Privateer copy-trade signals and analyst events',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: { limit: '20' },
+        output: { signals: [{ type: 'proposal', symbol: 'HYPE', side: 'long', confidence: 0.82, ts: '2026-02-16T12:00:00Z' }] }
+      }}}
     },
     'GET /v1/agent/copy-trade/positions': {
       accepts: acceptExact(env.X402_PRICE_COPY_TRADE_POSITIONS),
       description: 'HL Privateer positions formatted for copy-trading consumers',
-      mimeType: 'application/json'
+      mimeType: 'application/json',
+      extensions: { bazaar: { info: {
+        input: {},
+        output: { positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, weight: 0.4 }], updatedAt: '2026-02-16T12:00:00Z' }
+      }}}
     }
   }
 
   x402Facilitator = await createX402FacilitatorGate({
     apiBaseUrl: env.API_BASE_URL,
     facilitatorUrl: env.X402_FACILITATOR_URL,
-    routes
+    routes,
+    onSettled: feedbackService
+      ? (route, paidAmountUsd) => feedbackService!.recordSettlement(route, paidAmountUsd)
+      : undefined,
   })
 
   app.addHook('preSerialization', x402Facilitator.preSerialization)
@@ -636,6 +688,50 @@ app.addHook('onRequest', async (request, _reply) => {
   }
 })
 
+let cachedReputationSummary: { count: number; summaryValue: number; summaryValueDecimals: number } | null = null
+let reputationRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null) {
+  const refreshReputation = async () => {
+    try {
+      const { createPublicClient, http } = await import('viem')
+      const { base, baseSepolia } = await import('viem/chains')
+      const chain = env.ERC8004_CHAIN_ID === 8453 ? base : baseSepolia
+      const publicClient = createPublicClient({ chain, transport: http(env.ERC8004_RPC_URL) })
+      const [count, summaryValue, summaryValueDecimals] = await publicClient.readContract({
+        address: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
+        abi: [{
+          type: 'function' as const,
+          name: 'getSummary' as const,
+          inputs: [
+            { name: 'agentId', type: 'uint256' as const },
+            { name: 'clientAddresses', type: 'address[]' as const },
+            { name: 'tag1', type: 'string' as const },
+            { name: 'tag2', type: 'string' as const },
+          ],
+          outputs: [
+            { name: 'count', type: 'uint256' as const },
+            { name: 'summaryValue', type: 'int256' as const },
+            { name: 'summaryValueDecimals', type: 'uint8' as const },
+          ],
+          stateMutability: 'view' as const,
+        }] as const,
+        functionName: 'getSummary',
+        args: [BigInt(env.ERC8004_AGENT_ID!), [], '', ''],
+      })
+      cachedReputationSummary = {
+        count: Number(count),
+        summaryValue: Number(summaryValue),
+        summaryValueDecimals,
+      }
+    } catch (err) {
+      app.log.debug({ err }, 'erc8004 reputation refresh failed (registry may not be deployed)')
+    }
+  }
+  void refreshReputation()
+  reputationRefreshTimer = setInterval(() => void refreshReputation(), 300_000)
+}
+
 app.get('/health', routeRateLimit(180, 60_000), async () => ({ status: 'ok', service: 'api' }))
 
 app.get('/v1/public/pnl', routeRateLimit(180, 60_000), async () => {
@@ -648,6 +744,22 @@ app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async () => {
 
 app.get('/v1/public/floor-tape', routeRateLimit(180, 60_000), async () => {
   return FloorTapeLineSchema.array().parse(store.getPublicSnapshot().recentTape)
+})
+
+app.get('/v1/public/identity', routeRateLimit(30, 60_000), async () => {
+  if (!env.ERC8004_ENABLED || env.ERC8004_AGENT_ID == null) {
+    return { erc8004: null, reputation: null }
+  }
+  return {
+    erc8004: {
+      chainId: env.ERC8004_CHAIN_ID,
+      agentId: env.ERC8004_AGENT_ID,
+      identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+      reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
+      registrationFile: `${env.PUBLIC_BASE_URL}/.well-known/agent-registration.json`,
+    },
+    reputation: cachedReputationSummary,
+  }
 })
 
 app.post('/v1/operator/login', routeRateLimit(20, 60_000), async (request, reply) => {
@@ -1790,6 +1902,8 @@ const start = async () => {
 }
 
 const shutdown = async () => {
+  if (reputationRefreshTimer) clearInterval(reputationRefreshTimer)
+  if (feedbackService) await feedbackService.stop().catch(() => undefined)
   await store.close().catch(() => undefined)
   await stopTelemetry()
   process.exit(0)

@@ -108,14 +108,14 @@ export function AsciiTable<T extends Record<string, unknown>>({
           {data.length === 0 ? (
             <tr>
               <td className='px-4 py-6 text-center text-hlpMuted' colSpan={columns.length}>
-                {emptyText}
+                {'> ' + emptyText}
               </td>
             </tr>
           ) : (
             data.map((row, rowIndex) => (
               <tr
                 key={String((row as { id?: string }).id ?? rowIndex)}
-                className={rowIndex % 2 === 0 ? 'bg-transparent' : 'bg-hlpPanel/35'}
+                className={`${rowIndex % 2 === 0 ? 'bg-transparent' : 'bg-hlpPanel/35'} hover:bg-hlpSurface/40 transition-colors duration-100`}
               >
                 {columns.map((column) => (
                   <td

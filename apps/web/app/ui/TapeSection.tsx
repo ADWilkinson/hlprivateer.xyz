@@ -2,6 +2,7 @@ import { AsciiBadge } from './ascii-kit'
 import { formatTime, type TapeEntry } from './floor-dashboard'
 import { type RefObject } from 'react'
 import { cardClass, collapsibleHeaderClass, inlineBadgeClass, inverseControlClass, panelBodyPad, sectionStripClass, skeletonPulseClass, terminalPanelClass } from './ascii-style'
+import { Collapsible } from './Collapsible'
 
 type TapeSectionProps = {
   tape: TapeEntry[]

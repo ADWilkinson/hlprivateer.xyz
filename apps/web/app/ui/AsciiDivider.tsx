@@ -10,7 +10,7 @@ const patterns: Record<DividerVariant, string> = {
 export function AsciiDivider({ variant = 'wave', className = '' }: { variant?: DividerVariant; className?: string }) {
   return (
     <div
-      className={`text-center text-hlpBorder text-[10px] tracking-[0.25em] select-none py-2 overflow-hidden whitespace-nowrap ${className}`}
+      className={`text-center text-hlpDim/25 text-[9px] tracking-[0.3em] select-none py-3 overflow-hidden whitespace-nowrap ${className}`}
       aria-hidden='true'
     >
       {patterns[variant]}

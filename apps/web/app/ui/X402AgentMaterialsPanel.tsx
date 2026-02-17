@@ -1,5 +1,6 @@
 import { AsciiBadge, AsciiTable } from './ascii-kit'
 import { cardClass, collapsibleHeaderClass, inverseControlClass, panelBodyPad, sectionTitleClass } from './ascii-style'
+import { Collapsible } from './Collapsible'
 
 type AgentRouteRow = {
   id: string

@@ -11,6 +11,7 @@ src/
 ├── middleware.ts             # JWT auth, role-based authorization
 ├── x402.ts                  # Mock x402 challenge/verify (dev)
 ├── x402-facilitator.ts      # Facilitator-backed x402 (prod)
+├── erc8004-feedback.ts      # ERC-8004 batched reputation feedback after x402 settlements
 ├── security.ts              # Prompt injection filters, sanitization, abuse tracking
 ├── store.ts                 # In-memory state + persistence layer (ApiStore)
 ├── telemetry.ts             # OpenTelemetry initialization
@@ -39,6 +40,7 @@ src/
 - `GET /v1/public/pnl` - PnL % + mode + timestamp
 - `GET /v1/public/floor-snapshot` - Public snapshot (positions, tape)
 - `GET /v1/public/floor-tape` - Recent floor tape
+- `GET /v1/public/identity` - ERC-8004 on-chain identity + reputation (cached 5min)
 
 ### Operator Routes (JWT)
 - `POST /v1/operator/login` - Mint JWT (requires `OPERATOR_LOGIN_SECRET`)

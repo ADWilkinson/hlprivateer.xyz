@@ -21,13 +21,32 @@
 - `GET /v1/public/pnl`
 - `GET /v1/public/floor-snapshot`
 - `GET /v1/public/floor-tape`
+- `GET /v1/public/identity`
 
-Response example:
+Response example (`/v1/public/pnl`):
 ```json
 {
   "pnlPct": 1.92,
   "mode": "READY",
   "updatedAt": "2026-02-13T16:20:00Z"
+}
+```
+
+Response example (`/v1/public/identity`):
+```json
+{
+  "erc8004": {
+    "chainId": 8453,
+    "agentId": 1,
+    "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "reputationRegistry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+    "registrationFile": "https://hlprivateer.xyz/.well-known/agent-registration.json"
+  },
+  "reputation": {
+    "count": 42,
+    "summaryValue": 42,
+    "summaryValueDecimals": 0
+  }
 }
 ```
 

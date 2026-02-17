@@ -19,6 +19,7 @@ import {
   sectionTitleClass,
   skeletonPulseClass,
 } from './ascii-style'
+import { Collapsible } from './Collapsible'
 
 type CrewLast = Record<CrewRole, TapeEntry | null>
 

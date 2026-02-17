@@ -20,6 +20,7 @@ export async function createX402FacilitatorGate(params: {
   apiBaseUrl: string
   facilitatorUrl: string
   routes: Record<string, RouteConfig>
+  onSettled?: (route: string, paidAmountUsd: number) => void
 }): Promise<{
   preHandler: (request: FastifyRequest, reply: FastifyReply) => Promise<void>
   preSerialization: (request: FastifyRequest, reply: FastifyReply, payload: unknown) => Promise<unknown>
@@ -92,6 +93,15 @@ export async function createX402FacilitatorGate(params: {
 
     for (const [name, value] of Object.entries(settled.headers ?? {})) {
       reply.header(name, value)
+    }
+
+    if (params.onSettled) {
+      const url = new URL(request.raw.url ?? request.url, params.apiBaseUrl)
+      const routeConfig = params.routes[`${request.method} ${url.pathname}`]
+      const price = routeConfig?.accepts && typeof routeConfig.accepts === 'object' && 'price' in routeConfig.accepts
+        ? Number(String(routeConfig.accepts.price).replace(/^\$/, ''))
+        : 0.01
+      params.onSettled(url.pathname, Number.isFinite(price) ? price : 0.01)
     }
 
     return payload

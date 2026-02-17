@@ -9,22 +9,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        hlpBg: '#ffffff',
+        hlpBg: '#fafafa',
         hlpPanel: '#ffffff',
-        hlpSurface: '#f4f4f4',
-        hlpInverseBg: '#161616',
-        hlpDeepBg: '#0d0d0d',
+        hlpSurface: '#f0f0f0',
+        hlpInverseBg: '#111111',
+        hlpDeepBg: '#080808',
         hlpFg: '#000000',
         hlpMuted: '#6f6f6f',
         hlpDim: '#a8a8a8',
-        hlpHealthy: '#3D5A45',
-        hlpPositive: '#0072B5',
-        hlpWarning: '#DC7F5A',
-        hlpNegative: '#9E4445',
+        hlpHealthy: '#2D8544',
+        hlpPositive: '#0066CC',
+        hlpWarning: '#D4652E',
+        hlpNegative: '#B5302F',
         hlpBorder: '#e0e0e0',
         hlpBorderStrong: '#000000',
         hlpNeutral: '#000000',
-        hlpAccent: '#0072B5',
+        hlpAccent: '#0066CC',
       },
       fontFamily: {
         mono: ['var(--font-hlp-mono)', 'IBM Plex Mono', 'SFMono-Regular', 'ui-monospace', 'monospace'],
@@ -48,7 +48,7 @@ const config: Config = {
           to: { opacity: '1', transform: 'translateY(0)' },
         },
         'hlp-hot': {
-          '0%': { backgroundColor: 'rgba(0, 0, 0, 0.06)' },
+          '0%': { backgroundColor: 'rgba(0, 0, 0, 0.10)' },
           '100%': { backgroundColor: 'transparent' },
         },
         'hlp-led': {

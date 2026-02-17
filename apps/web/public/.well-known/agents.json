@@ -1,4 +1,11 @@
 {
+  "erc8004": {
+    "chainId": 8453,
+    "agentId": 17903,
+    "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "reputationRegistry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+    "registrationFile": "https://hlprivateer.xyz/.well-known/agent-registration.json"
+  },
   "schema": "https://openagents.com/schema/v1",
   "name": "HL Privateer",
   "description": "Open Hyperliquid discretionary desk. A fund of autonomous agents making discretionary trading calls. Follow trades, read analysis, copy positions — pay per call via x402.",

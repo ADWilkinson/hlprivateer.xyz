@@ -9,6 +9,7 @@ import {
   panelHeaderPad,
   skeletonPulseClass,
 } from './ascii-style'
+import { Collapsible } from './Collapsible'
 import { type Snapshot } from './floor-dashboard'
 
 const SMALL_PNL_FORMAT = new Intl.NumberFormat('en-US', {
@@ -337,7 +338,7 @@ function SparklineCard({
                 d={stats.path}
                 fill='none'
                 stroke='currentColor'
-                className={colorClass}
+                className={`${colorClass} sparkline-draw-in`}
                 strokeWidth='0.7'
                 strokeLinecap='square'
                 strokeLinejoin='miter'

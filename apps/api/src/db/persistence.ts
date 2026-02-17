@@ -442,6 +442,11 @@ function createDisabledStore(reason: string): ApiPersistence {
       const previousHash = previousRows[0]?.hash ?? null
       const hash = computeAuditHash(event, previousHash)
 
+      const rawDetails = { ...(event.details ?? {}), previousHash }
+      const sanitizedDetails = JSON.parse(
+        JSON.stringify(rawDetails).replace(/[\uD800-\uDFFF]/g, '')
+      ) as Record<string, unknown>
+
       const inserted = await store.db
         .insert(audits)
         .values({
@@ -451,10 +456,7 @@ function createDisabledStore(reason: string): ApiPersistence {
           resource: event.resource,
           correlationId: event.correlationId,
           ts: new Date(event.ts),
-          details: {
-            ...(event.details ?? {}),
-            previousHash
-          },
+          details: sanitizedDetails,
           hash
         })
         .returning({ id: audits.id })

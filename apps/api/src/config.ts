@@ -88,7 +88,12 @@ const envSchema = z.object({
   RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().default(1.1),
   RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(0.015),
   API_RATE_LIMIT_MAX: z.coerce.number().default(120),
-  API_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000)
+  API_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
+  ERC8004_ENABLED: booleanFromEnv.default(false),
+  ERC8004_CHAIN_ID: z.coerce.number().default(8453),
+  ERC8004_AGENT_ID: z.coerce.number().optional(),
+  ERC8004_RPC_URL: z.string().default('https://base-mainnet.g.alchemy.com/v2/REDACTED'),
+  ERC8004_FEEDBACK_PRIVATE_KEY: z.string().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -99,7 +104,9 @@ const parsed = envSchema.parse({
   REDIS_URL: loadEnvValue('REDIS_URL'),
   JWT_SECRET: loadEnvValue('JWT_SECRET'),
   OPERATOR_LOGIN_SECRET: loadEnvValue('OPERATOR_LOGIN_SECRET'),
-  X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET')
+  X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET'),
+  ERC8004_RPC_URL: loadEnvValue('ERC8004_RPC_URL'),
+  ERC8004_FEEDBACK_PRIVATE_KEY: loadEnvValue('ERC8004_FEEDBACK_PRIVATE_KEY'),
 })
 
 const DEFAULT_JWT_SECRET = "replace-me"

@@ -1,0 +1,31 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "HL Privateer",
+  "description": "Open Hyperliquid discretionary desk. Autonomous agents making discretionary trading calls. Follow trades, read analysis, copy positions -- pay per call via x402.",
+  "image": "https://hlprivateer.xyz/icon.svg",
+  "services": [
+    {
+      "name": "web",
+      "endpoint": "https://hlprivateer.xyz"
+    },
+    {
+      "name": "x402-api",
+      "endpoint": "https://api.hlprivateer.xyz",
+      "version": "1.0.0"
+    },
+    {
+      "name": "websocket",
+      "endpoint": "wss://ws.hlprivateer.xyz",
+      "version": "1.0.0"
+    }
+  ],
+  "x402Support": true,
+  "active": true,
+  "registrations": [
+    {
+      "agentId": 17903,
+      "agentRegistry": "eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    }
+  ],
+  "supportedTrust": ["reputation"]
+}

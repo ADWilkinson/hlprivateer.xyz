@@ -33,6 +33,7 @@ type SectionKey = 'status' | 'pnl' | 'crew' | 'tape' | 'x402'
 
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
+const STANDBY_SUPPRESS_MS = 900_000
 const MAX_TRAJECTORY_POINTS = 240
 const TRAJECTORY_REFRESH_MS = 8000
 const INITIAL_FETCH_TIMEOUT_MS = 7000
@@ -404,6 +405,7 @@ export default function DeckPage() {
     x402: false,
   })
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
+  const standbySeenRef = useRef<Record<string, number>>({})
   const seenTapeRef = useRef<Set<string>>(new Set())
   const reconnectAttemptsRef = useRef(0)
 
@@ -514,6 +516,19 @@ export default function DeckPage() {
         entry.role = 'ops'
         entry.level = 'WARN'
         entry.line = `risk denied: ${display}`
+        return true
+      }
+
+      if (/\bstandby\b/i.test(lowered)) {
+        const key = role ?? 'unknown'
+        const now = Date.now()
+        const lastSeen = standbySeenRef.current[key] ?? 0
+        if (now - lastSeen < STANDBY_SUPPRESS_MS) {
+          setSuppressedNoAction((value) => value + 1)
+          return false
+        }
+        standbySeenRef.current[key] = now
+        touchCrew(role, entry.level || 'INFO', entry.line)
         return true
       }
 
@@ -846,22 +861,22 @@ export default function DeckPage() {
 
         <div className='flex flex-wrap items-end justify-center gap-x-10 gap-y-3 py-5 animate-hlp-fade-up-delay-1'>
           <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>MARKET PNL</div>
-            <div className={`text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none ${pnlColor}`}>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MARKET PNL</div>
+            <div className={`text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none ${pnlColor}`}>
               {pnlStr}
             </div>
           </div>
           <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
           <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>ACCOUNT VALUE</div>
-            <div className='text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none text-hlpFg'>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>ACCOUNT VALUE</div>
+            <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
               {equityStr}
             </div>
           </div>
           <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
           <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.24em] text-hlpDim mb-1'>MODE</div>
-            <div className='text-[22px] sm:text-[28px] font-bold tracking-[0.04em] leading-none text-hlpFg'>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MODE</div>
+            <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
               {modeStr}
             </div>
           </div>

@@ -259,7 +259,13 @@ export default function LandingPage() {
         <AsciiTable<OpenPosition>
           caption='open positions'
           columns={[
-            { key: 'symbol', header: 'SYMBOL', align: 'left', width: '32%' },
+            {
+              key: 'symbol',
+              header: 'SYMBOL',
+              align: 'left',
+              width: '32%',
+              render: (value) => <span className='font-medium'>{String(value ?? '')}</span>,
+            },
             {
               key: 'side',
               header: 'SIDE',

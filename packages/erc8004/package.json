@@ -1,9 +1,15 @@
 {
-  "name": "@hl/privateer-agent-sdk",
+  "name": "@hl/privateer-erc8004",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
   "scripts": {
     "build": "bunx tsc -p tsconfig.json",
     "typecheck": "bunx tsc --noEmit",
@@ -11,7 +17,6 @@
     "lint": "bunx vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@hl/privateer-contracts": "workspace:*",
     "viem": "^2.21.0",
     "zod": "^3.24.1"
   },

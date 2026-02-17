@@ -53,6 +53,21 @@ export const env = z
     AGENT_RISK_LLM: z.enum(['claude', 'codex', 'none']).optional(),
     AGENT_STRATEGIST_LLM: z.enum(['claude', 'codex', 'none']).optional(),
     AGENT_SCRIBE_LLM: z.enum(['claude', 'codex', 'none']).optional(),
+    // Per-role Claude model overrides (defaults to CLAUDE_MODEL).
+    AGENT_RESEARCH_CLAUDE_MODEL: z.string().optional(),
+    AGENT_RISK_CLAUDE_MODEL: z.string().optional(),
+    AGENT_STRATEGIST_CLAUDE_MODEL: z.string().optional(),
+    AGENT_SCRIBE_CLAUDE_MODEL: z.string().optional(),
+    // Per-role Codex model overrides (defaults to CODEX_MODEL).
+    AGENT_RESEARCH_CODEX_MODEL: z.string().optional(),
+    AGENT_RISK_CODEX_MODEL: z.string().optional(),
+    AGENT_STRATEGIST_CODEX_MODEL: z.string().optional(),
+    AGENT_SCRIBE_CODEX_MODEL: z.string().optional(),
+    // Per-role reasoning effort overrides (defaults to CODEX_REASONING_EFFORT).
+    AGENT_RESEARCH_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+    AGENT_RISK_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+    AGENT_STRATEGIST_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+    AGENT_SCRIBE_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
     AGENT_PIPELINE_BASE_MS: z.coerce
       .number()
       .int()

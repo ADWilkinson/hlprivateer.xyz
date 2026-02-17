@@ -912,25 +912,54 @@ function maybeDisableCodexFromError(error: unknown, nowMs: number): { untilMs: n
   return { untilMs, reason: usage.summary }
 }
 
-function llmForRole(role: FloorRole, nowMs = Date.now()): LlmChoice {
-  const base = env.AGENT_LLM
-  let chosen: LlmChoice = base
+type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
+
+interface LlmRoleConfig {
+  provider: LlmChoice
+  model: string
+  reasoningEffort: ReasoningEffort
+  claudeFallbackModel: string
+}
+
+function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
+  let provider: LlmChoice = env.AGENT_LLM
+  let claudeModel: string | undefined
+  let codexModel: string | undefined
+  let reasoning: ReasoningEffort | undefined
+
   if (role === 'research') {
-    chosen = env.AGENT_RESEARCH_LLM ?? base
+    provider = env.AGENT_RESEARCH_LLM ?? provider
+    claudeModel = env.AGENT_RESEARCH_CLAUDE_MODEL
+    codexModel = env.AGENT_RESEARCH_CODEX_MODEL
+    reasoning = env.AGENT_RESEARCH_REASONING_EFFORT
   } else if (role === 'risk') {
-    chosen = env.AGENT_RISK_LLM ?? base
+    provider = env.AGENT_RISK_LLM ?? provider
+    claudeModel = env.AGENT_RISK_CLAUDE_MODEL
+    codexModel = env.AGENT_RISK_CODEX_MODEL
+    reasoning = env.AGENT_RISK_REASONING_EFFORT
   } else if (role === 'strategist' || role === 'execution') {
-    chosen = env.AGENT_STRATEGIST_LLM ?? base
+    provider = env.AGENT_STRATEGIST_LLM ?? provider
+    claudeModel = env.AGENT_STRATEGIST_CLAUDE_MODEL
+    codexModel = env.AGENT_STRATEGIST_CODEX_MODEL
+    reasoning = env.AGENT_STRATEGIST_REASONING_EFFORT
   } else if (role === 'scribe') {
-    chosen = env.AGENT_SCRIBE_LLM ?? base
+    provider = env.AGENT_SCRIBE_LLM ?? provider
+    claudeModel = env.AGENT_SCRIBE_CLAUDE_MODEL
+    codexModel = env.AGENT_SCRIBE_CODEX_MODEL
+    reasoning = env.AGENT_SCRIBE_REASONING_EFFORT
   }
 
-  // Circuit-break Codex when its CLI reports a usage limit to avoid repeated failures.
-  if (chosen === 'codex' && codexDisabledUntilMs > nowMs) {
-    return 'claude'
+  if (provider === 'codex' && codexDisabledUntilMs > nowMs) {
+    provider = 'claude'
   }
 
-  return chosen
+  const resolvedClaudeModel = claudeModel ?? env.CLAUDE_MODEL
+  return {
+    provider,
+    model: provider === 'claude' ? resolvedClaudeModel : (codexModel ?? env.CODEX_MODEL),
+    reasoningEffort: reasoning ?? env.CODEX_REASONING_EFFORT,
+    claudeFallbackModel: resolvedClaudeModel
+  }
 }
 
 function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
@@ -1053,6 +1082,7 @@ function buildAgentSourceAppendix(): string[] {
 const FLOOR_TAPE_CONTEXT_LINES = 8
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
 const DECK_STATUS_HEARTBEAT_MS = 60_000
+const IDLE_HEARTBEAT_MS = 60_000
 const STRATEGIST_NO_ACTION_SUPPRESS_MS = 60_000
 
 type FloorTapeLine = {
@@ -1187,6 +1217,8 @@ function toInterAgentRoleContext(
 const floorTapeHistory: FloorTapeLine[] = []
 let lastDeckStatusSignature = ''
 let lastDeckStatusHeartbeatAtMs = 0
+let lastExecutionHeartbeatAtMs = 0
+let lastScribeHeartbeatAtMs = 0
 
 function compactReportFields(report: unknown, keep: readonly string[]): Record<string, unknown> | null {
   if (!report || typeof report !== 'object' || Array.isArray(report)) {
@@ -1804,13 +1836,13 @@ function buildAgentPrompt(params: {
 }): string {
   const nowMs = Date.now()
   return [
-    `You are HL Privateer ${params.role}.`,
-    `Mission: ${params.mission}`,
-    '',
     ...COMMON_AGENT_PROMPT_PREAMBLE,
     '',
     'Data-source stack you can pull from autonomously:',
     ...buildAgentSourceAppendix(),
+    '',
+    `You are HL Privateer ${params.role}.`,
+    `Mission: ${params.mission}`,
     '',
     'Role-specific constraints:',
     ...params.rules.map((rule) => `- ${rule}`),
@@ -2009,6 +2041,7 @@ function buildBasketCandidates(params: {
 async function generateBasketSelection(params: {
   llm: LlmChoice
   model: string
+  reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
 }): Promise<{ basketSymbols: string[]; rationale: string }> {
   const schema = {
@@ -2058,7 +2091,7 @@ async function generateBasketSelection(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
 
   return {
@@ -2231,25 +2264,24 @@ async function maybeSelectBasket(params: {
       }
     }
 
-    const llm = llmForRole('strategist', nowMs)
-    const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+    const basketConfig = llmConfigForRole('strategist', nowMs)
 
     let chosen: { basketSymbols: string[]; rationale: string } | null = null
     try {
-      chosen = await generateBasketSelection({ llm, model, input })
+      chosen = await generateBasketSelection({ llm: basketConfig.provider, model: basketConfig.model, reasoningEffort: basketConfig.reasoningEffort, input })
     } catch (primaryError) {
-      if (llm === 'codex') {
+      if (basketConfig.provider === 'codex') {
         const canUseClaude = await isClaudeAvailable()
         if (canUseClaude) {
           try {
-            chosen = await generateBasketSelection({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+            chosen = await generateBasketSelection({ llm: 'claude', model: basketConfig.claudeFallbackModel, input })
             const disabled = maybeDisableCodexFromError(primaryError, nowMs)
             const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
             await publishTape({
               correlationId: ulid(),
               role: 'ops',
               level: 'WARN',
-              line: `basket codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+              line: `basket codex failed; using claude ${basketConfig.claudeFallbackModel}: ${summarizeCodexError(primaryError)}${untilNote}`
             })
           } catch (fallbackError) {
             await publishTape({
@@ -2687,6 +2719,7 @@ function buildExitProposal(params: {
 async function generateAnalysis(params: {
   llm: LlmChoice
   model: string
+  reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
 }): Promise<{ headline: string; thesis: string; risks: string[]; confidence: number }> {
   const schema = {
@@ -2737,7 +2770,7 @@ async function generateAnalysis(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
 
   const confidence = clamp(Number(raw.confidence), 0, 1)
@@ -2760,6 +2793,7 @@ type ResearchReportResult = {
 async function generateResearchReport(params: {
   llm: LlmChoice
   model: string
+  reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
 }): Promise<ResearchReportResult> {
   const schema = {
@@ -2818,7 +2852,7 @@ async function generateResearchReport(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
 
   const suggestedQueries = Array.isArray(raw.suggestedTwitterQueries)
@@ -2856,6 +2890,7 @@ type RiskReportResult = {
 async function generateRiskReport(params: {
   llm: LlmChoice
   model: string
+  reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
 }): Promise<RiskReportResult> {
   const schema = {
@@ -2931,7 +2966,7 @@ async function generateRiskReport(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
 
   const posture = raw.posture === 'GREEN' || raw.posture === 'AMBER' || raw.posture === 'RED' ? raw.posture : 'AMBER'
@@ -2952,6 +2987,7 @@ async function generateRiskReport(params: {
 async function generateStrategistDirective(params: {
   llm: LlmChoice
   model: string
+  reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
 }): Promise<{ decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }> {
   const planSchema = {
@@ -3043,7 +3079,7 @@ async function generateStrategistDirective(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
 
   const decision: StrategistDirectiveDecision =
@@ -3134,6 +3170,7 @@ let lastResearchReport: (ResearchReportResult & { computedAt: string }) | null =
 let lastRiskReport: (RiskReportResult & { computedAt: string }) | null = null
 let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; confidence: number; computedAt: string } | null = null
 let lastExternalIntel: ExternalIntelPack | null = null
+let cachedTwitterIntel: { data: ExternalIntelPack['twitter']; fetchedAtMs: number } | undefined
 let agentSuggestedTwitterQueries: string[] = []
 let autoHaltActive = false
 let autoHaltHealthySinceMs = 0
@@ -3326,6 +3363,36 @@ function tickStalenessMs(symbols: string[]): { maxAgeMs: number; missing: string
   }
 
   return { maxAgeMs, missing }
+}
+
+async function emitIdleHeartbeats(): Promise<void> {
+  const now = Date.now()
+
+  if (now - lastExecutionHeartbeatAtMs >= IDLE_HEARTBEAT_MS) {
+    lastExecutionHeartbeatAtMs = now
+    const age = lastProposalPublishedAt ? formatIdleAge(now - lastProposalPublishedAt) : null
+    await publishTape({
+      correlationId: ulid(),
+      role: 'execution',
+      line: age ? `standby -- last proposal ${age} ago` : 'standby -- awaiting proposals'
+    })
+  }
+
+  if (now - lastScribeHeartbeatAtMs >= IDLE_HEARTBEAT_MS) {
+    lastScribeHeartbeatAtMs = now
+    const age = lastAnalysisAt ? formatIdleAge(now - lastAnalysisAt) : null
+    await publishTape({
+      correlationId: ulid(),
+      role: 'scribe',
+      line: age ? `standby -- last analysis ${age} ago` : 'standby -- awaiting trades'
+    })
+  }
+}
+
+function formatIdleAge(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
+  return `${(ms / 3_600_000).toFixed(1)}h`
 }
 
 async function runOpsAgent(): Promise<void> {
@@ -3522,25 +3589,24 @@ async function runResearchAgent(): Promise<void> {
 	    }
 	  }
 
-  const llm = llmForRole('research', now)
-  const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+  const researchConfig = llmConfigForRole('research', now)
 
   let report: ResearchReportResult | null = null
   try {
-    report = await generateResearchReport({ llm, model, input })
+    report = await generateResearchReport({ llm: researchConfig.provider, model: researchConfig.model, reasoningEffort: researchConfig.reasoningEffort, input })
   } catch (primaryError) {
-    if (llm === 'codex') {
+    if (researchConfig.provider === 'codex') {
       const canUseClaude = await isClaudeAvailable()
       if (canUseClaude) {
         try {
-          report = await generateResearchReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          report = await generateResearchReport({ llm: 'claude', model: researchConfig.claudeFallbackModel, input })
           const disabled = maybeDisableCodexFromError(primaryError, now)
           const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
             correlationId: ulid(),
             role: 'ops',
             level: 'WARN',
-            line: `research codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+            line: `research codex failed; using claude ${researchConfig.claudeFallbackModel}: ${summarizeCodexError(primaryError)}${untilNote}`
           })
         } catch (fallbackError) {
           await publishTape({
@@ -3675,25 +3741,24 @@ async function runRiskAgent(): Promise<void> {
 	    }
 	  }
 
-  const llm = llmForRole('risk', now)
-  const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+  const riskConfig = llmConfigForRole('risk', now)
 
   let report: RiskReportResult | null = null
   try {
-    report = await generateRiskReport({ llm, model, input })
+    report = await generateRiskReport({ llm: riskConfig.provider, model: riskConfig.model, reasoningEffort: riskConfig.reasoningEffort, input })
   } catch (primaryError) {
-    if (llm === 'codex') {
+    if (riskConfig.provider === 'codex') {
       const canUseClaude = await isClaudeAvailable()
       if (canUseClaude) {
         try {
-          report = await generateRiskReport({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+          report = await generateRiskReport({ llm: 'claude', model: riskConfig.claudeFallbackModel, input })
           const disabled = maybeDisableCodexFromError(primaryError, now)
           const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
             correlationId: ulid(),
             role: 'ops',
             level: 'WARN',
-            line: `risk codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+            line: `risk codex failed; using claude ${riskConfig.claudeFallbackModel}: ${summarizeCodexError(primaryError)}${untilNote}`
           })
         } catch (fallbackError) {
           await publishTape({
@@ -3895,25 +3960,24 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 	      }
 	    }
 
-    const llm = llmForRole('strategist', nowMs)
-    const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+    const stratConfig = llmConfigForRole('strategist', nowMs)
 
     let raw: { decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }
     try {
-      raw = await generateStrategistDirective({ llm, model, input })
+      raw = await generateStrategistDirective({ llm: stratConfig.provider, model: stratConfig.model, reasoningEffort: stratConfig.reasoningEffort, input })
     } catch (primaryError) {
-      if (llm === 'codex') {
+      if (stratConfig.provider === 'codex') {
         const canUseClaude = await isClaudeAvailable()
         if (canUseClaude) {
           try {
-            raw = await generateStrategistDirective({ llm: 'claude', model: env.CLAUDE_MODEL, input })
+            raw = await generateStrategistDirective({ llm: 'claude', model: stratConfig.claudeFallbackModel, input })
             const disabled = maybeDisableCodexFromError(primaryError, nowMs)
             const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
             await publishTape({
               correlationId: ulid(),
               role: 'ops',
               level: 'WARN',
-              line: `directive codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+              line: `directive codex failed; using claude ${stratConfig.claudeFallbackModel}: ${summarizeCodexError(primaryError)}${untilNote}`
             })
           } catch (fallbackError) {
             await publishTape({
@@ -4264,6 +4328,7 @@ async function runStrategistCycle(): Promise<void> {
     role: 'execution',
     line: `tactics slippage=${tactics.expectedSlippageBps}bps cap=${tactics.maxSlippageBps}bps`
   })
+  lastExecutionHeartbeatAtMs = Date.now()
 
   await publishProposal({ actorId: roleActorId('strategist'), proposal: parsed.proposal })
   await publishAudit({
@@ -4302,6 +4367,7 @@ async function runStrategistCycle(): Promise<void> {
 }
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNotionalUsd: number }): Promise<void> {
+  lastScribeHeartbeatAtMs = Date.now()
   const nowMs = Date.now()
   const universe = new Set<string>([...activeBasket.symbols, ...lastPositions.map((position) => position.symbol)])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
@@ -4319,24 +4385,23 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
 	    proposal
 	  }
 
-  const llm = llmForRole('scribe', nowMs)
-  const model = llm === 'claude' ? env.CLAUDE_MODEL : env.CODEX_MODEL
+  const scribeConfig = llmConfigForRole('scribe', nowMs)
   let analysis: { headline: string; thesis: string; risks: string[]; confidence: number } | null = null
   try {
-    analysis = await generateAnalysis({ llm, model, input: analysisInput })
+    analysis = await generateAnalysis({ llm: scribeConfig.provider, model: scribeConfig.model, reasoningEffort: scribeConfig.reasoningEffort, input: analysisInput })
   } catch (primaryError) {
-    if (llm === 'codex') {
+    if (scribeConfig.provider === 'codex') {
       const canUseClaude = await isClaudeAvailable()
       if (canUseClaude) {
         try {
-          analysis = await generateAnalysis({ llm: 'claude', model: env.CLAUDE_MODEL, input: analysisInput })
+          analysis = await generateAnalysis({ llm: 'claude', model: scribeConfig.claudeFallbackModel, input: analysisInput })
           const disabled = maybeDisableCodexFromError(primaryError, nowMs)
           const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
             correlationId: proposal.proposalId,
             role: 'ops',
             level: 'WARN',
-            line: `scribe codex failed; using claude ${env.CLAUDE_MODEL}: ${summarizeCodexError(primaryError)}${untilNote}`
+            line: `scribe codex failed; using claude ${scribeConfig.claudeFallbackModel}: ${summarizeCodexError(primaryError)}${untilNote}`
           })
         } catch (fallbackError) {
           await publishTape({
@@ -4600,6 +4665,7 @@ const start = async (): Promise<void> => {
           const held = basketFromPositions(lastPositions)
           if (held.length > 0 && sameBasket(held, basketPivot.basketSymbols)) {
             basketPivot = null
+            lastExecutionHeartbeatAtMs = Date.now()
             void publishTape({
               correlationId: ulid(),
               role: 'execution',
@@ -4690,6 +4756,7 @@ const start = async (): Promise<void> => {
 
       try {
         await runOpsAgent()
+        await emitIdleHeartbeats()
         await runStrategyPipeline()
         consecutiveFailures = 0
       } catch (error) {

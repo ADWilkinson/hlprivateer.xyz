@@ -120,3 +120,5 @@ export function signPayload(payload: string, secret: string): string {
   verifier.end()
   return createHash('sha256').update(payload + secret).digest('hex')
 }
+
+export { discoverAgent, type DiscoveredAgent } from './discovery'
