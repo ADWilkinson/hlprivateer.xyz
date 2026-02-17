@@ -372,7 +372,7 @@ function buildCopyTradePositionSummary(positions: typeof store.positions) {
     short: bySide.SHORT ? Number(bySide.SHORT.notionalUsd.toFixed(4)) : 0
   }
 
-  const netExposureUsd = longShortBalance.long + longShortBalance.short
+  const netExposureUsd = longShortBalance.long - longShortBalance.short
   return {
     sideSummary: bySide,
     basketSymbols,
@@ -1829,7 +1829,7 @@ app.get('/metrics', routeRateLimit(20, 60_000), async () => {
   return await promClient.register.metrics()
 })
 
-bus.consume('hlp.ui.events', '0-0', (envelope) => {
+const stopUiConsumer = bus.consume('hlp.ui.events', '0-0', (envelope) => {
   if (envelope.type === 'STATE_UPDATE') {
     const payload = envelope.payload as any
     store.setSnapshot(payload)
@@ -1876,7 +1876,7 @@ bus.consume('hlp.ui.events', '0-0', (envelope) => {
   return Promise.resolve()
 })
 
-bus.consume('hlp.audit.events', '0-0', (envelope) => {
+const stopAuditConsumer = bus.consume('hlp.audit.events', '0-0', (envelope) => {
   const payload = envelope.payload as AuditEvent
   if (payload && payload.action && payload.actorId) {
     store.addAudit({
@@ -1904,6 +1904,10 @@ const start = async () => {
 const shutdown = async () => {
   if (reputationRefreshTimer) clearInterval(reputationRefreshTimer)
   if (feedbackService) await feedbackService.stop().catch(() => undefined)
+  const stopUi = await stopUiConsumer
+  const stopAudit = await stopAuditConsumer
+  await stopUi().catch(() => undefined)
+  await stopAudit().catch(() => undefined)
   await store.close().catch(() => undefined)
   await stopTelemetry()
   process.exit(0)

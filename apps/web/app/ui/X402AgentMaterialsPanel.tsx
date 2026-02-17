@@ -1,6 +1,5 @@
 import { AsciiBadge, AsciiTable } from './ascii-kit'
 import { cardClass, collapsibleHeaderClass, inverseControlClass, panelBodyPad, sectionTitleClass } from './ascii-style'
-import { Collapsible } from './Collapsible'
 
 type AgentRouteRow = {
   id: string
@@ -143,7 +142,7 @@ export function X402AgentMaterialsPanel({
         <span className={sectionTitleClass}>[HL] PRIVATEER / X402 + AGENTS</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '\u2212'}
+            {isCollapsed ? '+' : '-'}
           </span>
           <AsciiBadge tone='inverse'>
             external access

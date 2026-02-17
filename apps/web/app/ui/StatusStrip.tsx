@@ -1,6 +1,5 @@
 import { AsciiBadge } from './ascii-kit'
 import { cardClass, collapsibleHeaderClass, inverseControlClass, skeletonPulseClass, statusCellClass } from './ascii-style'
-import { Collapsible } from './Collapsible'
 import {
   badgeVariantForDrift,
   badgeVariantForHealth,
@@ -63,7 +62,7 @@ export function StatusStrip({
         <span>FLOOR STATUS</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '\u2212'}
+            {isCollapsed ? '+' : '-'}
           </span>
           <AsciiBadge tone='info' variant='angle'>
             telemetry

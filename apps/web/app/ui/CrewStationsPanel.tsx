@@ -19,7 +19,6 @@ import {
   sectionTitleClass,
   skeletonPulseClass,
 } from './ascii-style'
-import { Collapsible } from './Collapsible'
 
 type CrewLast = Record<CrewRole, TapeEntry | null>
 
@@ -91,7 +90,7 @@ export function CrewStationsPanel({
         <span className={sectionTitleClass}>CREW STATIONS</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '\u2212'}
+            {isCollapsed ? '+' : '-'}
           </span>
           <AsciiBadge tone='inverse'>{isLoading ? 'BOOTING' : '7 AGENTS'}</AsciiBadge>
         </div>

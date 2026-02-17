@@ -9,7 +9,6 @@ import {
   panelHeaderPad,
   skeletonPulseClass,
 } from './ascii-style'
-import { Collapsible } from './Collapsible'
 import { type Snapshot } from './floor-dashboard'
 
 const SMALL_PNL_FORMAT = new Intl.NumberFormat('en-US', {
@@ -421,7 +420,7 @@ export function PnlPanel({
         <span className='uppercase tracking-[0.24em]'>PNL TRAJECTORY</span>
         <div className='flex items-center gap-2'>
           <span className={inverseControlClass}>
-            {isCollapsed ? '+' : '-'}
+            {isCollapsed ? '+' : '\u2212'}
           </span>
           <AsciiBadge tone='inverse'>performance stream</AsciiBadge>
         </div>

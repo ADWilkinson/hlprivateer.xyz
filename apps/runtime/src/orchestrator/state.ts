@@ -1963,25 +1963,6 @@ function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal
   return Number(Math.max(100, baseTargetNotional * scale).toFixed(2))
 }
 
-const PROPOSAL_NOTIONAL_PRECISION = 6
-
-function normalizeProposalNotional(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Number(Math.abs(value).toFixed(PROPOSAL_NOTIONAL_PRECISION))
-}
-
-function buildProposal(
-  state: RuntimeState,
-  targetNotional: number,
-  basketSymbolsCsv: string,
-  signals: PluginSignal[],
-  minimumMeaningfulNotionalUsd = 0,
-  currentPositions: readonly OperatorPosition[] = state.positions
-): StrategyProposal | null {
-  return null
-}
 
 function envelopeId() {
   return ulid()

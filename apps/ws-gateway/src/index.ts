@@ -840,7 +840,7 @@ wss.on('connection', (ws, request) => {
   })
 })
 
-bus.consume('hlp.ui.events', '0-0', (envelope) => {
+const stopUiConsumer = bus.consume('hlp.ui.events', '0-0', (envelope) => {
   const eventChannel: Channel = broadcastChannelForType(envelope.type)
   const payload = eventChannel === 'public'
     ? sanitizeForPublic(envelope.type, envelope.payload)
@@ -861,7 +861,7 @@ bus.consume('hlp.ui.events', '0-0', (envelope) => {
   }
 })
 
-bus.consume('hlp.audit.events', '0-0', (envelope) => {
+const stopAuditConsumer = bus.consume('hlp.audit.events', '0-0', (envelope) => {
   const event: Extract<WsServerMessage, { type: 'event' }> = {
     type: 'event',
     channel: 'audit',
@@ -895,6 +895,10 @@ setInterval(() => {
 
 const shutdown = async () => {
   wsConnections.set(0)
+  const stopUi = await stopUiConsumer
+  const stopAudit = await stopAuditConsumer
+  await stopUi().catch(() => undefined)
+  await stopAudit().catch(() => undefined)
   await stopTelemetry()
   server.close()
   process.exit(0)
