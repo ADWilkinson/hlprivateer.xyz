@@ -343,7 +343,7 @@ export default function DeckPage() {
     { ts: new Date().toISOString(), role: 'ops', level: 'INFO', line: 'booting floor' },
   ])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
-  const [nowTick, setNowTick] = useState<number>(Date.now())
+  const [nowTick, setNowTick] = useState<number>(() => Date.now())
   const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>(() =>
     readStoredSeries<{ ts: string; pnlPct: number }>(PNL_SERIES_STORAGE_KEY, (raw) => {
       if (
@@ -392,7 +392,7 @@ export default function DeckPage() {
   const [suppressedNoAction, setSuppressedNoAction] = useState(0)
   const [deckFeedAgeMs, setDeckFeedAgeMs] = useState<number>(0)
   const [deckMissing, setDeckMissing] = useState<number>(0)
-  const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(Date.now())
+  const [deckHeartbeatMs, setDeckHeartbeatMs] = useState<number>(() => Date.now())
   const [riskDeniedCount, setRiskDeniedCount] = useState(0)
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')

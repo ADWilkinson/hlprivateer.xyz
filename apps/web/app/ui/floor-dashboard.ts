@@ -135,7 +135,7 @@ export const TAPE_DISPLAY_LIMIT = 64
 export type CrewHeartbeat = Record<CrewRole, number>
 export type CrewStats = Record<CrewRole, number>
 
-export const CREW: CrewRole[] = ['scout', 'research', 'strategist', 'execution', 'risk', 'scribe', 'ops']
+const CREW: CrewRole[] = ['scout', 'research', 'strategist', 'execution', 'risk', 'scribe', 'ops']
 export const HEARTBEAT_WINDOW_MS = 90_000
 export const SILENCE_REFRESH_MS = 3_000
 
@@ -305,10 +305,3 @@ export function renderAsciiChart(values: number[], width: number, height: number
   }
 }
 
-export function floorHeartbeatGlyph(level: number): string {
-  if (level >= 75) return '*****'
-  if (level >= 40) return '====='
-  if (level >= 20) return '-----'
-  if (level > 0) return '.....'
-  return '_____'
-}

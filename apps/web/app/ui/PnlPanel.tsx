@@ -31,6 +31,9 @@ type TrajectoryPoint = { ts: string; pnlPct: number }
 type AccountValuePoint = { ts: string; accountValueUsd: number }
 type TimedValuePoint = { ts: string; value: number }
 
+const EMPTY_PNL: TrajectoryPoint[] = []
+const EMPTY_ACCOUNT: AccountValuePoint[] = []
+
 type PnlPanelProps = {
   snapshot: Snapshot
   trajectory?: TrajectoryPoint[]
@@ -389,8 +392,8 @@ function SparklineCard({
 
 export function PnlPanel({
   snapshot,
-  trajectory = [],
-  accountValueTrajectory = [],
+  trajectory = EMPTY_PNL,
+  accountValueTrajectory = EMPTY_ACCOUNT,
   isLoading = false,
   isCollapsed = false,
   onToggle,

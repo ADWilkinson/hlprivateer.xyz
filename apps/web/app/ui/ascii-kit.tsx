@@ -6,7 +6,7 @@ type BadgeVariant = 'square' | 'angle' | 'curly'
 
 type TableAlign = 'left' | 'center' | 'right'
 
-export type AsciiTableColumn<T> = {
+type AsciiTableColumn<T> = {
   key: keyof T | string
   header: string
   align?: TableAlign
@@ -138,4 +138,3 @@ export function AsciiTable<T extends Record<string, unknown>>({
   )
 }
 
-export type { BadgeTone, BadgeVariant, TableAlign }

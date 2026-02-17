@@ -75,7 +75,7 @@ export function TapeSection({
                     return (
                       <div
                         className={`relative z-10 flex min-w-0 items-start gap-1.5 ${panelBodyPad} text-[10px] leading-[1.45] ${i === 0 ? 'bg-hlpSurface/75 animate-hlp-hot' : ''} ${levelTone}`}
-                        key={`${i}-${entry.ts}`}
+                        key={`${entry.ts}-${entry.role ?? ''}-${entry.line.slice(0, 60)}`}
                       >
                         <span className='w-3 shrink-0 text-[10px] text-hlpFg'>{i === 0 ? '\u25B8' : '\u00A0'}</span>
                         <span className='min-w-0 flex-[0_0_66px] shrink-0 text-[10px] text-hlpDim'>{formatTime(entry.ts)}</span>
