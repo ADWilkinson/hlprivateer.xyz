@@ -11,6 +11,7 @@ import {
   commandPolicy,
   PublicPnlResponseSchema,
   PublicSnapshotSchema,
+  PublicTrajectoryResponseSchema,
   PaymentProofSchema,
   EntitlementSchema,
   EntitlementTierSchema,
@@ -744,6 +745,13 @@ app.get('/v1/public/floor-snapshot', routeRateLimit(180, 60_000), async () => {
 
 app.get('/v1/public/floor-tape', routeRateLimit(180, 60_000), async () => {
   return FloorTapeLineSchema.array().parse(store.getPublicSnapshot().recentTape)
+})
+
+app.get('/v1/public/trajectory', routeRateLimit(60, 60_000), async () => {
+  return PublicTrajectoryResponseSchema.parse({
+    points: store.getTrajectory(),
+    sampledEveryMs: 8000
+  })
 })
 
 app.get('/v1/public/identity', routeRateLimit(30, 60_000), async () => {

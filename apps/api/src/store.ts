@@ -7,6 +7,7 @@ import {
   type OperatorOrder,
   type OperatorPosition,
   type TierCapabilityMap,
+  type TrajectoryPoint,
   PublicSnapshot,
   PublicPnlResponse,
   TradeState
@@ -15,6 +16,8 @@ import { createApiStore, type ApiPersistence } from './db/persistence'
 import { env } from './config'
 
 const PUBLIC_TAPE_HISTORY_LIMIT = 120
+const TRAJECTORY_MAX_POINTS = 480
+const TRAJECTORY_SAMPLE_MS = 8000
 
 type RateLimitLevel = 'warn' | 'error'
 
@@ -99,6 +102,8 @@ export class ApiStore {
   public abuses = new Map<string, number>()
   private tierCapabilities: TierCapabilityMap = DEFAULT_TIER_CAPABILITIES
   private auditTailHash = createHash('sha256').update('hlprivateer-audit-genesis').digest('hex')
+  private trajectoryBuffer: TrajectoryPoint[] = []
+  private lastTrajectorySampleAt = 0
   private persistence: ApiPersistence = {
     enabled: false,
     ready: false,
@@ -224,10 +229,36 @@ export class ApiStore {
       lastUpdateAt: snapshot.lastUpdateAt ?? new Date().toISOString()
     }
 
+    this.sampleTrajectory()
+
     const reason = typeof snapshot.reason === 'string' ? snapshot.reason : 'state update'
     void this.persistence
       .saveSystemState(this.snapshot.mode, reason)
       .catch((error) => logPersistenceWriteError('saveSystemState', error, { mode: this.snapshot.mode, reason }))
+  }
+
+  private sampleTrajectory(): void {
+    const { pnlPct, accountValueUsd, mode } = this.snapshot
+    if (mode === 'INIT' || mode === 'WARMUP') return
+    if (!pnlPct || !Number.isFinite(pnlPct)) return
+    const now = Date.now()
+    if (now - this.lastTrajectorySampleAt < TRAJECTORY_SAMPLE_MS) return
+    this.lastTrajectorySampleAt = now
+    const point: TrajectoryPoint = {
+      ts: new Date().toISOString(),
+      pnlPct,
+      ...(accountValueUsd !== undefined && Number.isFinite(accountValueUsd) && accountValueUsd > 0
+        ? { accountValueUsd }
+        : {})
+    }
+    this.trajectoryBuffer.push(point)
+    if (this.trajectoryBuffer.length > TRAJECTORY_MAX_POINTS) {
+      this.trajectoryBuffer = this.trajectoryBuffer.slice(-TRAJECTORY_MAX_POINTS)
+    }
+  }
+
+  public getTrajectory(): TrajectoryPoint[] {
+    return this.trajectoryBuffer
   }
 
   public setPositions(positions: OperatorPosition[]) {

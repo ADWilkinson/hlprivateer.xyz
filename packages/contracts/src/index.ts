@@ -192,6 +192,19 @@ export const PublicPnlResponseSchema = z.object({
 })
 export type PublicPnlResponse = z.infer<typeof PublicPnlResponseSchema>
 
+export const TrajectoryPointSchema = z.object({
+  ts: z.string().datetime(),
+  pnlPct: z.number(),
+  accountValueUsd: z.number().optional()
+})
+export type TrajectoryPoint = z.infer<typeof TrajectoryPointSchema>
+
+export const PublicTrajectoryResponseSchema = z.object({
+  points: z.array(TrajectoryPointSchema),
+  sampledEveryMs: z.number()
+})
+export type PublicTrajectoryResponse = z.infer<typeof PublicTrajectoryResponseSchema>
+
 export const PublicSnapshotSchema = z.object({
   mode: TradeStateSchema,
   pnlPct: z.number(),

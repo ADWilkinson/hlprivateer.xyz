@@ -579,9 +579,10 @@ export default function DeckPage() {
 
     const load = async () => {
       try {
-        const [snapshotResult, tapeResult] = await Promise.allSettled([
+        const [snapshotResult, tapeResult, trajectoryResult] = await Promise.allSettled([
           fetchWithTimeout(apiUrl('/v1/public/floor-snapshot')),
           fetchWithTimeout(apiUrl('/v1/public/floor-tape')),
+          fetchWithTimeout(apiUrl('/v1/public/trajectory')),
         ])
 
         if (snapshotResult.status === 'fulfilled') {
@@ -630,6 +631,54 @@ export default function DeckPage() {
           }
         } else {
           logWarn('tape fetch threw', tapeResult.reason)
+        }
+
+        if (trajectoryResult.status === 'fulfilled') {
+          const trajectoryResponse = trajectoryResult.value
+          if (trajectoryResponse.ok) {
+            const rawTrajectory = await trajectoryResponse.json() as { points?: unknown[] }
+            const serverPoints = Array.isArray(rawTrajectory?.points) ? rawTrajectory.points : []
+            if (running && serverPoints.length > 0) {
+              setPnlSeries((current) => {
+                const serverPnl = serverPoints
+                  .filter((p): p is { ts: string; pnlPct: number } =>
+                    typeof p === 'object' && p !== null &&
+                    typeof (p as { ts?: unknown }).ts === 'string' &&
+                    typeof (p as { pnlPct?: unknown }).pnlPct === 'number' &&
+                    Number.isFinite((p as { pnlPct: number }).pnlPct) &&
+                    (p as { pnlPct: number }).pnlPct !== 0
+                  )
+                  .map((p) => ({ ts: p.ts, pnlPct: p.pnlPct }))
+                const merged = [...serverPnl, ...current]
+                  .sort((a, b) => a.ts.localeCompare(b.ts))
+                const seen = new Set<string>()
+                return merged.filter((p) => {
+                  if (seen.has(p.ts)) return false
+                  seen.add(p.ts)
+                  return true
+                }).slice(-MAX_TRAJECTORY_POINTS)
+              })
+              setAccountValueSeries((current) => {
+                const serverAv = serverPoints
+                  .filter((p): p is { ts: string; accountValueUsd: number } =>
+                    typeof p === 'object' && p !== null &&
+                    typeof (p as { ts?: unknown }).ts === 'string' &&
+                    typeof (p as { accountValueUsd?: unknown }).accountValueUsd === 'number' &&
+                    Number.isFinite((p as { accountValueUsd: number }).accountValueUsd) &&
+                    (p as { accountValueUsd: number }).accountValueUsd > 0
+                  )
+                  .map((p) => ({ ts: p.ts, accountValueUsd: p.accountValueUsd }))
+                const merged = [...serverAv, ...current]
+                  .sort((a, b) => a.ts.localeCompare(b.ts))
+                const seen = new Set<string>()
+                return merged.filter((p) => {
+                  if (seen.has(p.ts)) return false
+                  seen.add(p.ts)
+                  return true
+                }).slice(-MAX_TRAJECTORY_POINTS)
+              })
+            }
+          }
         }
       } catch (error) {
         logError('initial load failed', error)
