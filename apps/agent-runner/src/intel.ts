@@ -388,7 +388,7 @@ export async function buildExternalIntelPack(params: {
     pack.twitter = cached.data
   } else {
     const creds = params.twitterBearerToken && params.twitterBearerToken.trim()
-      ? { bearerToken: params.twitterBearerToken.trim(), authToken: null, ct0: null, handleHint: null } as TwitterCreds
+      ? { bearerToken: decodeMaybeURIComponent(params.twitterBearerToken), authToken: null, ct0: null, handleHint: null } as TwitterCreds
       : await loadTwitterCreds({ credsPath: params.twitterCredsPath })
 
     const twitterBearer = creds.bearerToken
