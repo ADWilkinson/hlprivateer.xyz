@@ -1200,8 +1200,8 @@ function summarizeInterAgentContext(nowMs = Date.now()): Record<string, InterAge
   entries.strategist = toInterAgentRoleContext(lastDirectiveAt, nowMs, staleThresholdMs, 'heartbeat')
   entries.scribe = toInterAgentRoleContext(lastAnalysisAt, nowMs, staleThresholdMs, 'heartbeat')
   entries.ops = toInterAgentRoleContext(lastOpsAt, nowMs, staleThresholdMs, 'heartbeat')
-  entries.scout = toInterAgentRoleContext(lastProposalPublishedAt, nowMs, staleThresholdMs, 'heartbeat')
-  entries.execution = toInterAgentRoleContext(lastProposalPublishedAt, nowMs, staleThresholdMs, 'heartbeat')
+  entries.scout = toInterAgentRoleContext(Math.max(lastProposalPublishedAt, lastDirectiveAt), nowMs, staleThresholdMs, 'heartbeat')
+  entries.execution = toInterAgentRoleContext(Math.max(lastProposalPublishedAt, lastDirectiveAt), nowMs, staleThresholdMs, 'heartbeat')
   return entries
 }
 
@@ -3457,6 +3457,11 @@ function summarizePositionsForAgents(positions: OperatorPosition[]): { drift: 'I
     return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
   }
 
+  const tolerance = env.RISK_NOTIONAL_PARITY_TOLERANCE
+  if (tolerance >= 1.0) {
+    return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
+  }
+
   const longs = positions
     .filter((position) => position.side === 'LONG')
     .reduce((sum, position) => sum + Math.max(0, Math.abs(position.notionalUsd)), 0)
@@ -3470,10 +3475,12 @@ function summarizePositionsForAgents(positions: OperatorPosition[]): { drift: 'I
   }
 
   const mismatch = Math.abs(longs - shorts) / (gross / 2)
-  if (mismatch > 0.2) {
+  const breachThreshold = Math.max(0.2, tolerance * 2)
+  const driftThreshold = Math.max(0.05, tolerance)
+  if (mismatch > breachThreshold) {
     return { drift: 'BREACH', posture: 'RED' }
   }
-  if (mismatch > 0.05) {
+  if (mismatch > driftThreshold) {
     return { drift: 'POTENTIAL_DRIFT', posture: 'AMBER' }
   }
   return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
