@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
-import { Liveline } from 'liveline'
+import dynamic from 'next/dynamic'
+
+const Liveline = dynamic(() => import('liveline').then((m) => m.Liveline), { ssr: false })
 import { AsciiBadge } from './ascii-kit'
 import {
   cardClass,
@@ -108,6 +110,7 @@ export function PnlPanel({
                       momentum={true}
                       referenceLine={{ value: 0, label: '0%' }}
                       formatValue={formatPnl}
+                      window={2400}
                     />
                   </div>
                 </article>
@@ -125,6 +128,7 @@ export function PnlPanel({
                       theme='light'
                       color='#0066CC'
                       formatValue={(v) => USD_FORMAT.format(v)}
+                      window={2400}
                     />
                   </div>
                 </article>
