@@ -1029,19 +1029,23 @@ function computeExecutionTactics(params: { signals: PluginSignal[] }): { expecte
 const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
   '- Objective: create fully discretionary positions — directional (single-asset long or short) OR paired structures — based on data-driven conviction.',
-  '- Directional trades are equally valid as pair trades. Choose the structure that best fits the setup: if one asset has a clear thesis, go directional. If a relative-value opportunity exists, use pairs.',
+  '- DIRECTIONAL TRADES ARE THE DEFAULT. A single-asset long or short with a clear thesis is the simplest, highest-conviction structure. Use it when one asset has momentum, funding edge, or catalyst.',
+  '- Pair trades are valid when a specific relative-value divergence exists (e.g., sector rotation, funding spread, correlation break). Do NOT default to pairs just because multiple assets exist in the universe.',
+  '- The universe is large (28 assets). Scan the ENTIRE universe for the best opportunity — do not limit yourself to BTC/ETH.',
+  '- Use aixbt signals and momentum scores to identify which assets have active catalysts, narrative momentum, or signal confluence. High aixbt momentum + confirming price/funding = strong directional setup.',
   '- Do not assume any fixed alpha symbol or fixed directional bias.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
   '- Never invent symbols, metrics, or events not present in context.',
   '- Return strictly structured JSON only, no commentary.',
   'DATA SOURCE CLASSIFICATION:',
   '- EXECUTION-CRITICAL (must be present to trade): price feeds, orderbook, funding rates, open interest, account state.',
-  '- ANALYSIS-CORE (default every cycle): Hyperliquid market/account data, Twitter/X narrative flow, CoinGecko Pro market + sector context.',
+  '- ANALYSIS-CORE (default every cycle): Hyperliquid market/account data, aixbt signals + momentum, Twitter/X narrative flow, CoinGecko Pro market + sector context.',
   '- OPTIONAL ENRICHMENT (only if needed): Fear & Greed, web search, DeFiLlama, Binance/public API context.',
   '- If ANALYSIS-CORE is partially degraded, continue from EXECUTION-CRITICAL data and reflect reduced certainty explicitly.',
   'BIAS TO ACTION:',
-  '- When CRITICAL data presents a tradeable setup (funding divergence, momentum, mean-reversion, correlation break), TAKE THE TRADE.',
-  '- HOLD is only appropriate when there is genuinely no setup across the universe — it is NOT a safe default.',
+  '- When CRITICAL data presents a tradeable setup (funding divergence, momentum, mean-reversion, correlation break, aixbt signal), TAKE THE TRADE.',
+  '- A single directional position in the strongest setup beats a hedged pair in weak setups.',
+  '- HOLD is only appropriate when there is genuinely no setup across the ENTIRE 28-asset universe — it is NOT a safe default.',
   '- The deterministic risk engine independently validates every proposal with hard caps. Your job is to find setups, not to second-guess risk gates.',
   'RISK RECOVERY:',
   '- When a recent risk DENY cites DRAWDOWN/EXPOSURE/LEVERAGE, require immediate risk-reduction first.',
@@ -1060,20 +1064,25 @@ const AGENT_DATA_SOURCES_PRESET: string[] = [
   '   - https://api.hyperliquid.xyz/exchange',
   '   - https://api.hyperliquid.xyz/ws',
   '   - Runtime normalized feeds + risk outputs from /apps/runtime',
-  '2) Social/narrative intelligence via Twitter/X v2 (core).',
+  '2) aixbt signal intelligence (core).',
+  `   - https://api.aixbt.tech/v2 (${env.AIXBT_ENABLED && env.AIXBT_API_KEY ? 'configured' : 'missing'})`,
+  '   - Provides: momentum scores, cross-source signal detection, project-level intelligence.',
+  '   - Use aixbt signals to identify catalysts, narrative shifts, and momentum divergences across the universe.',
+  '   - High momentum score + confirming price action = strong directional setup.',
+  '3) Social/narrative intelligence via Twitter/X v2 (core).',
   '   - https://api.twitter.com/2/tweets/search/recent',
   '   - https://docs.x.com/x-api',
-  '3) CoinGecko Pro market/sector context (core).',
+  '4) CoinGecko Pro market/sector context (core).',
   `   - base URL: ${env.COINGECKO_BASE_URL}`,
   `   - auth: X-Cg-Pro-Api-Key via COINGECKO_API_KEY (${env.COINGECKO_API_KEY ? 'configured' : 'missing'})`,
   '   - preferred endpoints: /coins/markets, /coins/categories, /global',
-  '4) Optional enrichment sources (only when they improve confidence materially).',
+  '5) Optional enrichment sources (only when they improve confidence materially).',
   `   - Brave Search API: ${env.BRAVE_API_URL}`,
   '   - https://api.llama.fi',
   '   - https://yields.llama.fi',
   '   - https://api.alternative.me/fng/',
   '   - https://data-api.binance.com',
-  'Default behavior: decide from Hyperliquid + Twitter/X + CoinGecko Pro first; use enrichment sources only when needed.'
+  'Default behavior: decide from Hyperliquid + aixbt + Twitter/X + CoinGecko Pro first; use enrichment sources only when needed.'
 ]
 
 function buildAgentSourceAppendix(): string[] {
@@ -1488,7 +1497,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   const basketAgeMs = msSince(Date.parse(activeBasket.selectedAt), now)
 
   return {
-    objective: `Fully discretionary trading — directional (single-asset conviction) or paired (relative-value) — with bounded risk and explicit thesis.`,
+    objective: `Fully discretionary trading across a 28-asset universe — directional single-asset conviction is the default; pairs only when specific relative-value divergence exists — with bounded risk and explicit thesis.`,
     generatedAt: new Date(now).toISOString(),
     mode: lastMode,
     requestedMode: requestedModeFromEnv(),
@@ -2861,14 +2870,16 @@ async function generateResearchReport(params: {
   const prompt = [
     buildAgentPrompt({
       role: 'research-agent',
-      mission: 'Classify current market regime and return one actionable recommendation.',
+      mission: 'Classify current market regime, identify the strongest directional opportunity across the full 28-asset universe, and return one actionable recommendation.',
       rules: [
       'Use only context and observed signals; do not speculate on external events.',
-      'Output one actionable recommendation — not a portfolio plan, not a vague "monitor" statement.',
+      'Output one actionable recommendation — not a portfolio plan, not a vague "monitor" statement. Name the specific asset(s) with the best setup.',
       'If data indicates regime shift, indicate it explicitly in regime.',
+      'Use aixbt signals and momentum scores to identify assets with active catalysts or narrative momentum. Cross-reference with price, funding, and OI data.',
       'CONFIDENCE reflects signal QUALITY not QUANTITY: strong price+funding alignment with clear directional setup should yield >= 0.6 even without social/supplementary data.',
       'Missing Twitter/social data is NOT regime uncertainty — it means supplementary context is unavailable. Classify regime from price, funding, OI, and correlation data.',
       'When historical context is provided, use it for trend continuity detection — if the same regime has persisted for multiple cycles, confidence should be HIGHER not lower.',
+      'SCAN THE FULL UNIVERSE: do not limit analysis to BTC/ETH. Mid-cap assets (UNI, AAVE, LINK, PENDLE, TAO, SOL, etc.) often have higher-alpha directional setups.',
       'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3084,16 +3095,19 @@ async function generateStrategistDirective(params: {
   const prompt = [
 	    buildAgentPrompt({
 	      role: 'strategist-directive agent',
-	      mission: 'Choose the best execution directive and provide an explicit plan — either directional (single-asset conviction trade) or paired (relative-value) — based on the data. Both are equally valid strategies.',
+	      mission: 'Choose the best execution directive and provide an explicit plan. DIRECTIONAL single-asset trades are the default when one asset has a clear edge. Pairs are valid only when a specific relative-value divergence exists.',
 	      rules: [
 	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
-	        'OPEN: establish a new discretionary position set. If risk posture is GREEN and you are FLAT, you SHOULD be opening a position.',
+	        'OPEN: establish a new discretionary position. If risk posture is GREEN and you are FLAT, you SHOULD be opening a position. Prefer 1-leg directional trades when one asset has the strongest thesis.',
 	        'REBALANCE: revise existing exposure using explicit plan legs.',
-        'HOLD: keep current exposure. HOLD requires genuine absence of tradeable setups across the ENTIRE universe — NOT as a safe default.',
+        'HOLD: keep current exposure. HOLD requires genuine absence of tradeable setups across ALL 28 assets in the universe — NOT as a safe default.',
         'EXIT: flatten all exposure immediately (no plan needed).',
+        'DIRECTIONAL IS DEFAULT: a single long or short in the asset with the best setup (momentum, funding edge, catalyst, aixbt signal) is preferred over a hedged pair unless a specific relative-value divergence justifies pairing.',
         'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), force EXIT / flat-first behavior.',
         'MINIMUM VIABLE TRADE: even a small directional position with a clear thesis beats perpetual HOLD. The risk engine caps downside — your job is to find upside.',
+        'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',
+        'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
         'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
         'Risk budgets and timeHorizonHours should match current volatility regime, not be artificially conservative.',
         'Do not propose both plan and decision HOLD.'
@@ -3580,7 +3594,11 @@ async function runResearchAgent(): Promise<void> {
 		        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
 		        twitterCacheTtlMs: env.AGENT_INTEL_TWITTER_CACHE_TTL_MS,
 		        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
-		        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined
+		        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined,
+		        aixbtApiKey: env.AIXBT_API_KEY || undefined,
+		        aixbtEnabled: env.AIXBT_ENABLED,
+		        aixbtTimeoutMs: env.AIXBT_TIMEOUT_MS,
+		        aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS
 		      })
 	      intelSummary = summarizeExternalIntel(lastExternalIntel)
 

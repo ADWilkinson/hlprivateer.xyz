@@ -167,6 +167,12 @@ export const env = z
     CLAUDE_CODE_API_KEY: z.string().optional(),
     CLAUDE_CODE_API_KEY_FILE: z.string().optional(),
 
+    // aixbt signal intelligence (optional).
+    AIXBT_API_KEY: z.string().default(''),
+    AIXBT_ENABLED: booleanFromEnv.default(true),
+    AIXBT_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
+    AIXBT_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(5 * 60_000),
+
     // CoinGecko Pro (optional) for spot/sector context.
     COINGECKO_API_KEY: z.string().optional(),
     COINGECKO_BASE_URL: z.string().default('https://pro-api.coingecko.com/api/v3'),
@@ -184,6 +190,7 @@ export const env = z
     ...process.env,
     GITHUB_JOURNAL_BRANCH: resolvedGitHubJournalBranch,
     REDIS_URL: loadEnvValue('REDIS_URL'),
+    AIXBT_API_KEY: loadEnvValue('AIXBT_API_KEY'),
     TWITTER_BEARER_TOKEN: loadEnvValue('TWITTER_BEARER_TOKEN'),
     OPENAI_API_KEY: loadEnvValue('OPENAI_API_KEY'),
     ANTHROPIC_API_KEY: loadEnvValue('ANTHROPIC_API_KEY'),

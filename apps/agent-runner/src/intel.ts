@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { fetchAixbtIntel, summarizeAixbtIntel, type AixbtIntelPack } from './aixbt'
 
 type TwitterCredsFile = {
   bearer_token?: unknown
@@ -53,6 +54,11 @@ export type ExternalIntelPack = {
   fearGreed: {
     ok: boolean
     snapshot: FearGreedSnapshot | null
+  }
+  aixbt: {
+    enabled: boolean
+    ok: boolean
+    pack: AixbtIntelPack | null
   }
 }
 
@@ -348,6 +354,10 @@ export async function buildExternalIntelPack(params: {
   customQueries?: string[]
   cachedTwitter?: { data: ExternalIntelPack['twitter']; fetchedAtMs: number }
   twitterCooldownMs?: number
+  aixbtApiKey?: string
+  aixbtEnabled?: boolean
+  aixbtTimeoutMs?: number
+  aixbtCacheTtlMs?: number
 }): Promise<ExternalIntelPack> {
   const computedAt = new Date().toISOString()
   const nowMs = Date.now()
@@ -364,6 +374,11 @@ export async function buildExternalIntelPack(params: {
     fearGreed: {
       ok: false,
       snapshot: null
+    },
+    aixbt: {
+      enabled: Boolean(params.aixbtEnabled && params.aixbtApiKey),
+      ok: false,
+      pack: null
     }
   }
 
@@ -482,6 +497,28 @@ export async function buildExternalIntelPack(params: {
     pack.fearGreed.ok = false
   }
 
+  if (pack.aixbt.enabled && params.aixbtApiKey) {
+    try {
+      const aixbtPack = await fetchAixbtIntel({
+        apiKey: params.aixbtApiKey,
+        tickers: symbols,
+        timeoutMs: params.aixbtTimeoutMs ?? params.timeoutMs,
+        cacheTtlMs: params.aixbtCacheTtlMs
+      })
+      pack.aixbt.pack = aixbtPack
+      pack.aixbt.ok = aixbtPack.ok
+    } catch (error) {
+      pack.aixbt.ok = false
+      pack.aixbt.pack = {
+        fetchedAt: new Date().toISOString(),
+        ok: false,
+        signals: [],
+        topMomentum: [],
+        error: sanitizeLine(String(error), 200)
+      }
+    }
+  }
+
   return pack
 }
 
@@ -532,6 +569,9 @@ export function summarizeExternalIntel(pack: ExternalIntelPack): Record<string, 
           timestamp: pack.fearGreed.snapshot.timestamp,
           error: pack.fearGreed.snapshot.error ? sanitizeLine(pack.fearGreed.snapshot.error, 160) : null
         }
-      : null
+      : null,
+    aixbt: pack.aixbt.pack
+      ? summarizeAixbtIntel(pack.aixbt.pack)
+      : { enabled: pack.aixbt.enabled, ok: false }
   }
 }
