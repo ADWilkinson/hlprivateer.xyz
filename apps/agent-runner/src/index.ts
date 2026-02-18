@@ -3649,6 +3649,7 @@ async function runResearchAgent(): Promise<void> {
 		        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined,
 		        aixbtApiKey: env.AIXBT_API_KEY || undefined,
 		        aixbtEnabled: env.AIXBT_ENABLED,
+		        aixbtIndigoEnabled: env.AIXBT_INDIGO_ENABLED,
 		        aixbtTimeoutMs: env.AIXBT_TIMEOUT_MS,
 		        aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS
 		      })

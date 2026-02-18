@@ -164,6 +164,7 @@ export const env = z
     // aixbt signal intelligence (optional).
     AIXBT_API_KEY: z.string().default(''),
     AIXBT_ENABLED: booleanFromEnv.default(true),
+    AIXBT_INDIGO_ENABLED: booleanFromEnv.default(true),
     AIXBT_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
     AIXBT_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(5 * 60_000),
 

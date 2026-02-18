@@ -433,6 +433,7 @@ export async function buildExternalIntelPack(params: {
   twitterCooldownMs?: number
   aixbtApiKey?: string
   aixbtEnabled?: boolean
+  aixbtIndigoEnabled?: boolean
   aixbtTimeoutMs?: number
   aixbtCacheTtlMs?: number
 }): Promise<ExternalIntelPack> {
@@ -583,7 +584,8 @@ export async function buildExternalIntelPack(params: {
         apiKey: params.aixbtApiKey,
         tickers: symbols,
         timeoutMs: params.aixbtTimeoutMs ?? params.timeoutMs,
-        cacheTtlMs: params.aixbtCacheTtlMs
+        cacheTtlMs: params.aixbtCacheTtlMs,
+        indigoEnabled: params.aixbtIndigoEnabled
       })
       pack.aixbt.pack = aixbtPack
       pack.aixbt.ok = aixbtPack.ok
@@ -592,8 +594,11 @@ export async function buildExternalIntelPack(params: {
       pack.aixbt.pack = {
         fetchedAt: new Date().toISOString(),
         ok: false,
+        basketSignals: [],
         signals: [],
         topMomentum: [],
+        momentumHistory: [],
+        indigoInsight: null,
         error: sanitizeLine(String(error), 200)
       }
     }
