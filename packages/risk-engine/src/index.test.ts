@@ -545,4 +545,97 @@ describe('risk-engine', () => {
     expect(decision.decision).toBe('DENY')
     expect(decision.reasons.some((reason) => reason.code === 'ACTOR_NOT_ALLOWED')).toBe(true)
   })
+
+  it('allows rebalance that introduces a short into an all-long book (parity improving)', () => {
+    // Regression test: all-long portfolio (~$2476) + proposal to add small short ($146)
+    // was incorrectly triggering NOTIONAL_PARITY auto-mitigation and auto-flatten.
+    // The projected drift (177%) is lower than the conceptual current drift (all-long = infinite),
+    // so the move is parity-improving and must be allowed.
+    const decision = evaluateRisk(
+      { ...baseConfig, notionalParityTolerance: 1.0, maxDrawdownPct: 100, maxExposureUsd: 50000 },
+      {
+        state: 'REBALANCE',
+        actorType: 'internal_agent',
+        accountValueUsd: 10000,
+        dependenciesHealthy: true,
+        openPositions: [
+          { symbol: 'AAVE', side: 'LONG', qty: 10, notionalUsd: 1493 },
+          { symbol: 'ETH', side: 'LONG', qty: 0.1, notionalUsd: 197 },
+          { symbol: 'ENS', side: 'LONG', qty: 4, notionalUsd: 151 },
+          { symbol: 'TAO', side: 'LONG', qty: 1, notionalUsd: 487 },
+          { symbol: 'HYPE', side: 'LONG', qty: 5, notionalUsd: 148 }
+        ],
+        ticks: {
+          HYPE: { symbol: 'HYPE', px: 30, bid: 29.9, ask: 30.1, bidSize: 10000, askSize: 10000, updatedAt: new Date().toISOString() },
+          PYTH: { symbol: 'PYTH', px: 0.3, bid: 0.299, ask: 0.301, bidSize: 1000000, askSize: 1000000, updatedAt: new Date().toISOString() }
+        },
+        proposal: {
+          proposalId: 'p-rebalance-parity',
+          cycleId: 'c1',
+          summary: 'rebalance: close HYPE long, add HYPE short + PYTH long',
+          confidence: 0.8,
+          requestedMode: 'LIVE',
+          createdBy: 'privateer-floor:strategist',
+          actions: [
+            {
+              type: 'REBALANCE',
+              rationale: 'reduce HYPE exposure, add PYTH',
+              notionalUsd: 294,
+              expectedSlippageBps: 5,
+              legs: [
+                { symbol: 'HYPE', side: 'SELL', notionalUsd: 294 },
+                { symbol: 'PYTH', side: 'BUY', notionalUsd: 146 }
+              ]
+            }
+          ]
+        }
+      }
+    )
+
+    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
+    expect(decision.decision).not.toBe('DENY')
+  })
+
+  it('still denies when a rebalance would increase parity imbalance from an already-mixed book', () => {
+    const decision = evaluateRisk(
+      { ...baseConfig, notionalParityTolerance: 0.5 },
+      {
+        state: 'REBALANCE',
+        actorType: 'internal_agent',
+        accountValueUsd: 10000,
+        dependenciesHealthy: true,
+        openPositions: [
+          { symbol: 'HYPE', side: 'LONG', qty: 10, notionalUsd: 1000 },
+          { symbol: 'ETH', side: 'SHORT', qty: 0.2, notionalUsd: 400 }
+        ],
+        ticks: {
+          HYPE: { symbol: 'HYPE', px: 100, bid: 99, ask: 101, bidSize: 10000, askSize: 10000, updatedAt: new Date().toISOString() },
+          BTC: { symbol: 'BTC', px: 67000, bid: 66999, ask: 67001, bidSize: 10, askSize: 10, updatedAt: new Date().toISOString() }
+        },
+        proposal: {
+          proposalId: 'p-worsen-parity',
+          cycleId: 'c1',
+          summary: 'add more longs, worsening imbalance',
+          confidence: 0.8,
+          requestedMode: 'LIVE',
+          createdBy: 'privateer-floor:strategist',
+          actions: [
+            {
+              type: 'ENTER',
+              rationale: 'add exposure',
+              notionalUsd: 1000,
+              expectedSlippageBps: 5,
+              legs: [
+                { symbol: 'HYPE', side: 'BUY', notionalUsd: 500 },
+                { symbol: 'BTC', side: 'BUY', notionalUsd: 500 }
+              ]
+            }
+          ]
+        }
+      }
+    )
+
+    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(true)
+    expect(decision.decision).toBe('DENY')
+  })
 })

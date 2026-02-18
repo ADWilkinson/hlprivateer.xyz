@@ -94,6 +94,16 @@ function computeProjectedLongShort(positions: PositionSnapshot[], proposal: Stra
   return { longUsd, shortUsd, grossUsd: longUsd + shortUsd }
 }
 
+function computeCurrentLongShort(positions: PositionSnapshot[]): { longUsd: number; shortUsd: number; grossUsd: number } {
+  let longUsd = 0
+  let shortUsd = 0
+  for (const position of positions) {
+    if (position.side === 'LONG') longUsd += Math.abs(position.notionalUsd)
+    else shortUsd += Math.abs(position.notionalUsd)
+  }
+  return { longUsd, shortUsd, grossUsd: longUsd + shortUsd }
+}
+
 function checkNotionalExposurePolicy(positions: PositionSnapshot[], proposal: StrategyProposal, tolerance: number): CheckResult {
   const projected = computeProjectedLongShort(positions, proposal)
   if (projected.grossUsd === 0) {
@@ -108,6 +118,19 @@ function checkNotionalExposurePolicy(positions: PositionSnapshot[], proposal: St
   const denominator = projected.grossUsd / 2
   const drift = Math.abs(projected.longUsd - projected.shortUsd) / denominator
   if (drift > tolerance) {
+    // Allow if the proposal is improving parity. When the current state is
+    // all-one-sided, any introduction of the opposite side moves toward balance
+    // and must not be blocked. Also allow if drift is strictly decreasing.
+    const current = computeCurrentLongShort(positions)
+    // Only apply improving-parity logic when the book has actual exposure and
+    // is all-one-sided. Flat → imbalanced transitions still require parity.
+    if (current.grossUsd > 0 && (current.longUsd === 0 || current.shortUsd === 0)) {
+      return { ok: true }
+    }
+    const currentDrift = Math.abs(current.longUsd - current.shortUsd) / (current.grossUsd / 2)
+    if (drift <= currentDrift) {
+      return { ok: true }
+    }
     return {
       ok: false,
       reason: `projected notional imbalance ${(drift * 100).toFixed(2)}% exceeds ${(tolerance * 100).toFixed(2)}%`

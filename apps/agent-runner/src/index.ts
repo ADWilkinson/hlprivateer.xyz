@@ -3116,6 +3116,7 @@ async function generateRiskReport(params: {
         'You may TIGHTEN other parameters (reduce exposure, tighten slippage) in volatile/uncertain markets while keeping leverage high.',
         'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). Do NOT recommend changes to maxDrawdownPct. The operator accepts full drawdown risk.',
         'Focus risk management on position sizing, exposure limits, and leverage — not drawdown caps.',
+        'SESSION PNL: pnlPct in context is cumulative session realized P&L, not current position risk. When positions are flat, pnlPct is historical context only — do not use it to elevate posture or tighten policy. Only observable market conditions (volatility, price feeds, liquidity) affect posture.',
         'Only recommend changes with clear justification tied to observable market conditions. Do not change params arbitrarily.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3228,6 +3229,7 @@ async function generateStrategistDirective(params: {
         'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), force EXIT / flat-first behavior.',
         'MINIMUM VIABLE TRADE: even a small directional position with a clear thesis beats perpetual HOLD. The risk engine caps downside — your job is to find upside.',
+        'NO LOSS RECOVERY: do not oversize positions to recover session losses. state.pnlPct reflects historical realized P&L — treat each new trade on its own merit using targetNotionalUsd as the size baseline. Chasing losses is a risk amplifier, not a recovery strategy.',
         'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',
         'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
         'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
