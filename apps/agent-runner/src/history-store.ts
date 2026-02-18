@@ -31,6 +31,17 @@ export interface IntelHistoryEntry {
   fearGreedValue: number | null
   symbolCount: number
   tweetCount: number
+  twitterQueryCount?: number
+  twitterErrorCount?: number
+  twitterTopLikeCount?: number
+  twitterCacheState?: 'live' | 'cooldown' | 'query_cache' | 'disabled'
+  aixbtOk?: boolean
+  aixbtSignalCount?: number
+  aixbtBasketSignalCount?: number
+  aixbtMomentumRisingCount?: number
+  aixbtMomentumFallingCount?: number
+  sentimentScore?: number | null
+  symbolSentiment?: Array<{ symbol: string; score: number | null; mentions: number }>
 }
 
 type HistoryEntry = ResearchHistoryEntry | RiskHistoryEntry | DirectiveHistoryEntry | IntelHistoryEntry

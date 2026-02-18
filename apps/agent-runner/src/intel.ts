@@ -54,6 +54,7 @@ export type ExternalIntelPack = {
   twitter: {
     enabled: boolean
     ok: boolean
+    cacheState: 'live' | 'cooldown' | 'query_cache' | 'disabled'
     queries: TwitterQueryResult[]
     handleHint?: string
   }
@@ -432,6 +433,7 @@ export async function buildExternalIntelPack(params: {
   twitterBearerToken?: string
   twitterEnabled: boolean
   twitterMaxResults: number
+  twitterMaxQueries?: number
   twitterCacheTtlMs?: number
   timeoutMs: number
   customQueries?: string[]
@@ -440,8 +442,10 @@ export async function buildExternalIntelPack(params: {
   aixbtApiKey?: string
   aixbtEnabled?: boolean
   aixbtIndigoEnabled?: boolean
+  aixbtIndigoMinIntervalMs?: number
   aixbtTimeoutMs?: number
   aixbtCacheTtlMs?: number
+  aixbtMomentumProjectLimit?: number
   defiLlamaEnabled?: boolean
   defiLlamaTimeoutMs?: number
   defiLlamaCacheTtlMs?: number
@@ -456,6 +460,7 @@ export async function buildExternalIntelPack(params: {
     twitter: {
       enabled: Boolean(params.twitterEnabled),
       ok: false,
+      cacheState: params.twitterEnabled ? 'live' : 'disabled',
       queries: []
     },
     fearGreed: {
@@ -477,7 +482,7 @@ export async function buildExternalIntelPack(params: {
   const cooldownMs = params.twitterCooldownMs ?? 0
   const cached = params.cachedTwitter
   if (cached && cooldownMs > 0 && nowMs - cached.fetchedAtMs < cooldownMs) {
-    pack.twitter = cached.data
+    pack.twitter = { ...cached.data, cacheState: 'cooldown' }
   } else {
     const creds = await loadTwitterCreds({ credsPath: params.twitterCredsPath })
     if (params.twitterBearerToken && params.twitterBearerToken.trim()) {
@@ -494,6 +499,7 @@ export async function buildExternalIntelPack(params: {
 
     if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth && !hasOAuth1)) {
       pack.twitter.ok = false
+      pack.twitter.cacheState = 'disabled'
     } else {
       const baseClauses = ['-is:retweet', 'lang:en']
       const symbolQueries = symbols.map((symbol) => {
@@ -510,7 +516,17 @@ export async function buildExternalIntelPack(params: {
 
       const defaultQueries = [...symbolQueries, ...globalQueries]
       const custom = (params.customQueries ?? []).filter(Boolean).slice(0, 4)
-      const queries = [...defaultQueries, ...custom].slice(0, 10)
+      const maxQueries = clampInt(params.twitterMaxQueries ?? 10, 1, 20)
+      const seen = new Set<string>()
+      const queries = [...defaultQueries, ...custom]
+        .map((query) => sanitizeLine(query, 280))
+        .filter((query) => {
+          const key = query.toLowerCase()
+          if (!query || seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        .slice(0, maxQueries)
 
       const cacheTtlMs = clampInt(params.twitterCacheTtlMs ?? 180_000, 0, 900_000)
       const cacheKey = JSON.stringify({
@@ -523,6 +539,7 @@ export async function buildExternalIntelPack(params: {
       if (cacheTtlMs > 0 && twitterQueryCache && twitterQueryCache.key === cacheKey && nowMs < twitterQueryCache.expiresAtMs) {
         pack.twitter.queries = twitterQueryCache.results
         pack.twitter.ok = twitterQueryCache.ok
+        pack.twitter.cacheState = 'query_cache'
       } else {
         const results = await mapWithConcurrency(queries, 2, async (query) =>
           twitterSearchRecent({
@@ -540,6 +557,7 @@ export async function buildExternalIntelPack(params: {
         )
         pack.twitter.queries = results
         pack.twitter.ok = results.some((r) => r.tweets.length > 0 && !r.error)
+        pack.twitter.cacheState = 'live'
 
         if (cacheTtlMs > 0 && results.some((result) => !result.error)) {
           twitterQueryCache = {
@@ -622,7 +640,9 @@ export async function buildExternalIntelPack(params: {
         tickers: symbols,
         timeoutMs: params.aixbtTimeoutMs ?? params.timeoutMs,
         cacheTtlMs: params.aixbtCacheTtlMs,
-        indigoEnabled: params.aixbtIndigoEnabled
+        indigoEnabled: params.aixbtIndigoEnabled,
+        indigoMinIntervalMs: params.aixbtIndigoMinIntervalMs,
+        momentumProjectLimit: params.aixbtMomentumProjectLimit
       })
       pack.aixbt.pack = aixbtPack
       pack.aixbt.ok = aixbtPack.ok
@@ -677,6 +697,7 @@ export function summarizeExternalIntel(pack: ExternalIntelPack): Record<string, 
     twitter: {
       enabled: pack.twitter.enabled,
       ok: pack.twitter.ok,
+      cacheState: pack.twitter.cacheState,
       statusNote: twitterStatusNote,
       handleHint: pack.twitter.handleHint ?? null,
       queryCount: pack.twitter.queries.length,

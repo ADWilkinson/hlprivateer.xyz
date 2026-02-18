@@ -3382,7 +3382,7 @@ const HISTORY_DIR = path.join(JOURNAL_PATH, 'history')
 const researchHistory = new HistoryStore<ResearchHistoryEntry>(HISTORY_DIR, 'research.ndjson')
 const riskHistory = new HistoryStore<RiskHistoryEntry>(HISTORY_DIR, 'risk.ndjson')
 const directiveHistory = new HistoryStore<DirectiveHistoryEntry>(HISTORY_DIR, 'directive.ndjson')
-const intelHistory = new HistoryStore<IntelHistoryEntry>(HISTORY_DIR, 'intel.ndjson')
+const intelHistory = new HistoryStore<IntelHistoryEntry>(HISTORY_DIR, 'intel.ndjson', env.AGENT_INTEL_HISTORY_MAX_ENTRIES)
 
 async function publishAudit(event: AuditEvent): Promise<void> {
   queueJournalWrite(event)
@@ -3603,6 +3603,183 @@ function formatIdleAge(ms: number): string {
   return `${(ms / 3_600_000).toFixed(1)}h`
 }
 
+const BULLISH_SENTIMENT_TERMS = [
+  'bullish', 'breakout', 'uptrend', 'long', 'buy', 'accumulate', 'squeeze', 'bid', 'strength', 'outperform', 'expansion'
+]
+const BEARISH_SENTIMENT_TERMS = [
+  'bearish', 'breakdown', 'downtrend', 'short', 'sell', 'de-risk', 'deleveraging', 'liquidation', 'risk-off', 'exploit', 'outage'
+]
+
+type IntelTrendMetrics = {
+  tweetCount: number
+  twitterQueryCount: number
+  twitterErrorCount: number
+  twitterTopLikeCount: number
+  twitterScore: number | null
+  symbolSentiment: Array<{ symbol: string; score: number | null; mentions: number }>
+  aixbtSignalCount: number
+  aixbtBasketSignalCount: number
+  aixbtMomentumRisingCount: number
+  aixbtMomentumFallingCount: number
+  aixbtScore: number | null
+  sentimentScore: number | null
+}
+
+function scoreSentimentText(text: string): number {
+  const normalized = text.toLowerCase()
+  let score = 0
+  for (const term of BULLISH_SENTIMENT_TERMS) {
+    if (normalized.includes(term)) score += 1
+  }
+  for (const term of BEARISH_SENTIMENT_TERMS) {
+    if (normalized.includes(term)) score -= 1
+  }
+  if (score === 0) return 0
+  return score > 0 ? 1 : -1
+}
+
+function queryMentionsSymbol(query: string, symbol: string): boolean {
+  const lowerQuery = query.toLowerCase()
+  const lowerSymbol = symbol.toLowerCase()
+  return lowerQuery.includes(`$${lowerSymbol}`) || lowerQuery.includes(lowerSymbol)
+}
+
+function tweetMentionsSymbol(text: string, symbol: string): boolean {
+  const lowerText = text.toLowerCase()
+  const lowerSymbol = symbol.toLowerCase()
+  return lowerText.includes(`$${lowerSymbol}`) || lowerText.includes(` ${lowerSymbol} `) || lowerText.startsWith(`${lowerSymbol} `)
+}
+
+function computeIntelTrendMetrics(pack: ExternalIntelPack): IntelTrendMetrics {
+  const symbolScores = new Map<string, { weighted: number; totalWeight: number; mentions: number }>()
+  for (const symbol of pack.symbols) {
+    symbolScores.set(symbol, { weighted: 0, totalWeight: 0, mentions: 0 })
+  }
+
+  let tweetCount = 0
+  let twitterErrorCount = 0
+  let twitterTopLikeCount = 0
+  let twitterWeighted = 0
+  let twitterWeightTotal = 0
+
+  for (const query of pack.twitter.queries) {
+    if (query.error) twitterErrorCount += 1
+    const querySymbols = pack.symbols.filter((symbol) => queryMentionsSymbol(query.query, symbol))
+
+    for (const tweet of query.tweets) {
+      tweetCount += 1
+      const likes = Math.max(0, tweet.metrics.likeCount ?? 0)
+      const retweets = Math.max(0, tweet.metrics.retweetCount ?? 0)
+      const replies = Math.max(0, tweet.metrics.replyCount ?? 0)
+      const quotes = Math.max(0, tweet.metrics.quoteCount ?? 0)
+      twitterTopLikeCount = Math.max(twitterTopLikeCount, likes)
+
+      const sentiment = scoreSentimentText(tweet.text)
+      const engagement = likes + retweets * 2 + replies + quotes * 2
+      const weight = 1 + Math.log1p(Math.max(0, engagement))
+
+      if (sentiment !== 0) {
+        twitterWeighted += sentiment * weight
+        twitterWeightTotal += weight
+      }
+
+      const mentionedSymbols = querySymbols.length > 0
+        ? querySymbols
+        : pack.symbols.filter((symbol) => tweetMentionsSymbol(tweet.text, symbol))
+      for (const symbol of mentionedSymbols) {
+        const bucket = symbolScores.get(symbol)
+        if (!bucket) continue
+        bucket.mentions += 1
+        if (sentiment !== 0) {
+          bucket.weighted += sentiment * weight
+          bucket.totalWeight += weight
+        }
+      }
+    }
+  }
+
+  const twitterScore = twitterWeightTotal > 0
+    ? clamp(Math.round((twitterWeighted / twitterWeightTotal) * 100), -100, 100)
+    : null
+
+  const aixbtPack = pack.aixbt.pack
+  const aixbtSignalCount = aixbtPack ? aixbtPack.signals.length : 0
+  const aixbtBasketSignalCount = aixbtPack ? aixbtPack.basketSignals.length : 0
+  const aixbtMomentumRisingCount = aixbtPack ? aixbtPack.momentumHistory.filter((p) => p.trend === 'rising').length : 0
+  const aixbtMomentumFallingCount = aixbtPack ? aixbtPack.momentumHistory.filter((p) => p.trend === 'falling').length : 0
+
+  let aixbtWeighted = 0
+  let aixbtWeightTotal = 0
+  if (aixbtPack) {
+    for (const signal of [...aixbtPack.basketSignals, ...aixbtPack.signals]) {
+      const category = signal.category.toUpperCase()
+      if (category.includes('RISK_ALERT') || category.includes('REGULATORY')) {
+        aixbtWeighted -= 1
+        aixbtWeightTotal += 1
+      } else if (category.includes('PARTNERSHIP') || category.includes('TECH_EVENT') || category.includes('FINANCIAL_EVENT')) {
+        aixbtWeighted += 1
+        aixbtWeightTotal += 1
+      } else {
+        const textScore = scoreSentimentText(`${signal.category} ${signal.description}`)
+        if (textScore !== 0) {
+          aixbtWeighted += textScore
+          aixbtWeightTotal += 1
+        }
+      }
+    }
+  }
+
+  const momentumTotal = aixbtMomentumRisingCount + aixbtMomentumFallingCount
+  const momentumBias = momentumTotal > 0 ? (aixbtMomentumRisingCount - aixbtMomentumFallingCount) / momentumTotal : 0
+  const aixbtBaseScore = aixbtWeightTotal > 0 ? aixbtWeighted / aixbtWeightTotal : 0
+  const aixbtHasSignal = aixbtWeightTotal > 0 || momentumTotal > 0
+  const aixbtScore = aixbtHasSignal
+    ? clamp(Math.round((aixbtBaseScore * 0.7 + momentumBias * 0.3) * 100), -100, 100)
+    : null
+
+  const sentimentScore = twitterScore === null && aixbtScore === null
+    ? null
+    : twitterScore === null
+      ? aixbtScore
+      : aixbtScore === null
+        ? twitterScore
+        : clamp(Math.round(twitterScore * 0.65 + aixbtScore * 0.35), -100, 100)
+
+  const symbolSentiment = pack.symbols.map((symbol) => {
+    const bucket = symbolScores.get(symbol) ?? { weighted: 0, totalWeight: 0, mentions: 0 }
+    const score = bucket.totalWeight > 0
+      ? clamp(Math.round((bucket.weighted / bucket.totalWeight) * 100), -100, 100)
+      : null
+    return { symbol, score, mentions: bucket.mentions }
+  })
+
+  return {
+    tweetCount,
+    twitterQueryCount: pack.twitter.queries.length,
+    twitterErrorCount,
+    twitterTopLikeCount,
+    twitterScore,
+    symbolSentiment,
+    aixbtSignalCount,
+    aixbtBasketSignalCount,
+    aixbtMomentumRisingCount,
+    aixbtMomentumFallingCount,
+    aixbtScore,
+    sentimentScore
+  }
+}
+
+function shouldRefreshExternalIntel(nowMs: number, currentSymbols: string[]): boolean {
+  if (!lastExternalIntel) return true
+  if (env.AGENT_INTEL_MIN_REFRESH_MS <= 0) return true
+  const lastComputedAtMs = safeDateMs(lastExternalIntel.computedAt)
+  if (lastComputedAtMs === null) return true
+  const symbolKey = currentSymbols.map((symbol) => sanitizeLine(String(symbol).toUpperCase(), 24)).filter(Boolean).join(',')
+  const previousSymbolKey = lastExternalIntel.symbols.join(',')
+  if (symbolKey !== previousSymbolKey) return true
+  return nowMs - lastComputedAtMs >= env.AGENT_INTEL_MIN_REFRESH_MS
+}
+
 async function runOpsAgent(): Promise<void> {
   const now = Date.now()
   if (now - lastOpsAt < env.AGENT_OPS_INTERVAL_MS) {
@@ -3691,75 +3868,111 @@ async function runResearchAgent(): Promise<void> {
   const latestVol = latestSignalFromPack(signalPack, 'volatility')
   const latestCorr = latestSignalFromPack(signalPack, 'correlation')
   const latestFunding = latestSignalFromPack(signalPack, 'funding')
-	  const regime =
-	    latestVol && Math.abs(latestVol.value) > 15
-	      ? 'high vol'
-	      : latestCorr && latestCorr.value < 0.1
-	        ? 'correlation break risk'
-	        : 'stable'
+  const regime =
+    latestVol && Math.abs(latestVol.value) > 15
+      ? 'high vol'
+      : latestCorr && latestCorr.value < 0.1
+        ? 'correlation break risk'
+        : 'stable'
 
-	  let intelSummary: Record<string, unknown> | null = null
-	  if (env.AGENT_INTEL_ENABLED) {
-	    try {
-		      lastExternalIntel = await buildExternalIntelPack({
-		        symbols: activeBasket.symbols,
-		        twitterCredsPath: env.OPENCLAW_TWITTER_CREDS_PATH,
-		        twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
-		        twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
-		        twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
-		        twitterCacheTtlMs: env.AGENT_INTEL_TWITTER_CACHE_TTL_MS,
-		        timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
-		        customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined,
-		        aixbtApiKey: env.AIXBT_API_KEY || undefined,
-		        aixbtEnabled: env.AIXBT_ENABLED,
-		        aixbtIndigoEnabled: env.AIXBT_INDIGO_ENABLED,
-		        aixbtTimeoutMs: env.AIXBT_TIMEOUT_MS,
-		        aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS,
-		        defiLlamaEnabled: env.DEFI_LLAMA_ENABLED,
-		        defiLlamaTimeoutMs: env.DEFI_LLAMA_TIMEOUT_MS,
-		        defiLlamaCacheTtlMs: env.DEFI_LLAMA_CACHE_TTL_MS
-		      })
-	      intelSummary = summarizeExternalIntel(lastExternalIntel)
+  let intelSummary: Record<string, unknown> | null = null
+  let intelTrendMetrics: IntelTrendMetrics | null = null
+  if (env.AGENT_INTEL_ENABLED) {
+    try {
+      const refreshIntel = shouldRefreshExternalIntel(now, activeBasket.symbols)
+      if (refreshIntel) {
+        lastExternalIntel = await buildExternalIntelPack({
+          symbols: activeBasket.symbols,
+          twitterCredsPath: env.OPENCLAW_TWITTER_CREDS_PATH,
+          twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
+          twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
+          twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
+          twitterMaxQueries: env.AGENT_INTEL_TWITTER_MAX_QUERIES,
+          twitterCacheTtlMs: env.AGENT_INTEL_TWITTER_CACHE_TTL_MS,
+          cachedTwitter: cachedTwitterIntel,
+          twitterCooldownMs: env.AGENT_INTEL_TWITTER_COOLDOWN_MS,
+          timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
+          customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined,
+          aixbtApiKey: env.AIXBT_API_KEY || undefined,
+          aixbtEnabled: env.AIXBT_ENABLED,
+          aixbtIndigoEnabled: env.AIXBT_INDIGO_ENABLED,
+          aixbtIndigoMinIntervalMs: env.AIXBT_INDIGO_MIN_INTERVAL_MS,
+          aixbtTimeoutMs: env.AIXBT_TIMEOUT_MS,
+          aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS,
+          aixbtMomentumProjectLimit: env.AIXBT_MOMENTUM_PROJECT_LIMIT,
+          defiLlamaEnabled: env.DEFI_LLAMA_ENABLED,
+          defiLlamaTimeoutMs: env.DEFI_LLAMA_TIMEOUT_MS,
+          defiLlamaCacheTtlMs: env.DEFI_LLAMA_CACHE_TTL_MS
+        })
 
-	      await publishAudit({
-	        id: ulid(),
-	        ts: new Date().toISOString(),
-	        actorType: 'internal_agent',
-	        actorId: roleActorId('research'),
-	        action: 'intel.refresh',
-	        resource: 'agent.intel',
-	        correlationId: ulid(),
-	        details: intelSummary
-	      })
-	    } catch (error) {
-	      await publishTape({
-	        correlationId: ulid(),
-	        role: 'ops',
-	        level: 'WARN',
-	        line: `intel refresh failed: ${String(error).slice(0, 140)}`
-	      })
-	    }
-	  }
+        cachedTwitterIntel = lastExternalIntel.twitter.enabled
+          ? { data: lastExternalIntel.twitter, fetchedAtMs: now }
+          : undefined
 
-	  const input = {
-	    ts: new Date().toISOString(),
-	    mode: lastMode,
-	    universeSymbols: activeBasket.symbols.join(','),
-	    externalIntel: intelSummary,
-	    signals: {
-	      all: signalPack,
-	      latest: {
-	        vol: latestVol?.value ?? null,
-	        corr: latestCorr?.value ?? null,
-	        funding: latestFunding?.value ?? null
-	      }
-	    },
-	    inferredRegime: regime,
-	    historicalContext: {
-	      recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(5), ['ts', 'headline', 'regime', 'recommendation', 'confidence']),
-	      recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), ['ts', 'twitterOk', 'fearGreedValue', 'symbolCount', 'tweetCount'])
-	    }
-	  }
+        intelSummary = summarizeExternalIntel(lastExternalIntel)
+        await publishAudit({
+          id: ulid(),
+          ts: new Date().toISOString(),
+          actorType: 'internal_agent',
+          actorId: roleActorId('research'),
+          action: 'intel.refresh',
+          resource: 'agent.intel',
+          correlationId: ulid(),
+          details: {
+            ...intelSummary,
+            fetchPolicy: {
+              refreshed: true,
+              minRefreshMs: env.AGENT_INTEL_MIN_REFRESH_MS
+            }
+          }
+        })
+      } else if (lastExternalIntel) {
+        intelSummary = summarizeExternalIntel(lastExternalIntel)
+      }
+
+      if (lastExternalIntel) {
+        intelTrendMetrics = computeIntelTrendMetrics(lastExternalIntel)
+      }
+    } catch (error) {
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: `intel refresh failed: ${String(error).slice(0, 140)}`
+      })
+    }
+  }
+
+  const input = {
+    ts: new Date().toISOString(),
+    mode: lastMode,
+    universeSymbols: activeBasket.symbols.join(','),
+    externalIntel: intelSummary,
+    signals: {
+      all: signalPack,
+      latest: {
+        vol: latestVol?.value ?? null,
+        corr: latestCorr?.value ?? null,
+        funding: latestFunding?.value ?? null
+      }
+    },
+    inferredRegime: regime,
+    historicalContext: {
+      recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(5), ['ts', 'headline', 'regime', 'recommendation', 'confidence']),
+      recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), [
+        'ts',
+        'twitterOk',
+        'fearGreedValue',
+        'symbolCount',
+        'tweetCount',
+        'sentimentScore',
+        'twitterQueryCount',
+        'twitterCacheState',
+        'aixbtOk',
+        'aixbtSignalCount'
+      ])
+    }
+  }
 
   const researchConfig = llmConfigForRole('research', now)
 
@@ -3852,13 +4065,24 @@ async function runResearchAgent(): Promise<void> {
   }).catch(() => undefined)
 
   if (lastExternalIntel) {
-    const tweetCount = lastExternalIntel.twitter.queries.reduce((sum, q) => sum + q.tweets.length, 0)
+    const metrics = intelTrendMetrics ?? computeIntelTrendMetrics(lastExternalIntel)
     await intelHistory.push({
       ts: new Date().toISOString(),
       twitterOk: lastExternalIntel.twitter.ok,
       fearGreedValue: lastExternalIntel.fearGreed.snapshot?.value ?? null,
       symbolCount: lastExternalIntel.symbols.length,
-      tweetCount
+      tweetCount: metrics.tweetCount,
+      twitterQueryCount: metrics.twitterQueryCount,
+      twitterErrorCount: metrics.twitterErrorCount,
+      twitterTopLikeCount: metrics.twitterTopLikeCount,
+      twitterCacheState: lastExternalIntel.twitter.cacheState,
+      aixbtOk: lastExternalIntel.aixbt.ok,
+      aixbtSignalCount: metrics.aixbtSignalCount,
+      aixbtBasketSignalCount: metrics.aixbtBasketSignalCount,
+      aixbtMomentumRisingCount: metrics.aixbtMomentumRisingCount,
+      aixbtMomentumFallingCount: metrics.aixbtMomentumFallingCount,
+      sentimentScore: metrics.sentimentScore,
+      symbolSentiment: metrics.symbolSentiment
     }).catch(() => undefined)
   }
 
@@ -3908,10 +4132,21 @@ async function runRiskAgent(): Promise<void> {
 	    lastRiskDecision,
 	    currentRiskPolicy,
 	    historicalContext: {
-	      recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(5), ['ts', 'headline', 'posture', 'risks', 'confidence']),
-	      recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), ['ts', 'twitterOk', 'fearGreedValue', 'symbolCount', 'tweetCount'])
-	    }
-	  }
+      recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(5), ['ts', 'headline', 'posture', 'risks', 'confidence']),
+      recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), [
+        'ts',
+        'twitterOk',
+        'fearGreedValue',
+        'symbolCount',
+        'tweetCount',
+        'sentimentScore',
+        'twitterQueryCount',
+        'twitterCacheState',
+        'aixbtOk',
+        'aixbtSignalCount'
+      ])
+    }
+  }
 
   const riskConfig = llmConfigForRole('risk', now)
 

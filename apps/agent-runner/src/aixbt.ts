@@ -88,11 +88,19 @@ type AixbtApiResponse<T> = {
 }
 
 type AixbtCacheEntry = {
+  key: string
   data: AixbtIntelPack
   expiresAtMs: number
 }
 
 let cache: AixbtCacheEntry | null = null
+
+type IndigoCacheEntry = {
+  value: string | null
+  fetchedAtMs: number
+}
+
+let indigoCache: IndigoCacheEntry | null = null
 
 const CACHE_TTL_MS = 5 * 60_000
 
@@ -265,17 +273,32 @@ export async function fetchAixbtIntel(params: {
   timeoutMs: number
   cacheTtlMs?: number
   indigoEnabled?: boolean
+  indigoMinIntervalMs?: number
+  momentumProjectLimit?: number
 }): Promise<AixbtIntelPack> {
   const nowMs = Date.now()
   const ttl = params.cacheTtlMs ?? CACHE_TTL_MS
+  const momentumProjectLimit = Math.max(1, Math.min(10, Math.trunc(params.momentumProjectLimit ?? 6)))
+  const indigoMinIntervalMs = Math.max(0, Math.trunc(params.indigoMinIntervalMs ?? 30 * 60_000))
+  const tickerList = params.tickers.map((t) => t.toLowerCase()).slice(0, 20)
+  const cacheKey = JSON.stringify({
+    tickers: [...tickerList].sort(),
+    timeoutMs: params.timeoutMs,
+    indigoEnabled: params.indigoEnabled !== false,
+    momentumProjectLimit
+  })
 
-  if (cache && nowMs < cache.expiresAtMs) {
+  if (cache && cache.key === cacheKey && nowMs < cache.expiresAtMs) {
     return cache.data
   }
 
   const fetchedAt = new Date().toISOString()
-  const tickerFilter = params.tickers.map((t) => t.toLowerCase()).slice(0, 20).join(',')
+  const tickerFilter = tickerList.join(',')
   const reinforcedAfter = new Date(nowMs - 48 * 60 * 60 * 1000).toISOString()
+  const useCachedIndigo =
+    params.indigoEnabled !== false &&
+    indigoCache !== null &&
+    nowMs - indigoCache.fetchedAtMs < indigoMinIntervalMs
 
   try {
     // Phase 1: all independent fetches in parallel
@@ -334,14 +357,19 @@ export async function fetchAixbtIntel(params: {
 
       // Indigo AI synthesis of basket signals
       params.indigoEnabled !== false
-        ? fetchIndigoInsight({ apiKey: params.apiKey, tickers: params.tickers, timeoutMs: params.timeoutMs })
+        ? useCachedIndigo
+          ? Promise.resolve(indigoCache?.value ?? null)
+          : fetchIndigoInsight({ apiKey: params.apiKey, tickers: params.tickers, timeoutMs: params.timeoutMs }).then((value) => {
+              indigoCache = { value, fetchedAtMs: nowMs }
+              return value
+            })
         : Promise.resolve(null)
     ])
 
     // Phase 2: momentum history requires project IDs from phase 1
     const basketProjectsWithIds = (Array.isArray(basketProjectsRaw) ? basketProjectsRaw : [])
       .filter((p): p is AixbtRawProject & { id: string } => typeof p.id === 'string' && p.id.length > 0)
-      .slice(0, 6)
+      .slice(0, momentumProjectLimit)
 
     const momentumHistory = await Promise.all(
       basketProjectsWithIds.map((p) =>
@@ -369,7 +397,7 @@ export async function fetchAixbtIntel(params: {
       indigoInsight: typeof indigoText === 'string' ? indigoText : null
     }
 
-    cache = { data: pack, expiresAtMs: nowMs + ttl }
+    cache = { key: cacheKey, data: pack, expiresAtMs: nowMs + ttl }
     return pack
   } catch (error) {
     const pack: AixbtIntelPack = {
