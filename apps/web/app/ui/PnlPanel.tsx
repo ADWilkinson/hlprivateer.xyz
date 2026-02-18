@@ -23,9 +23,9 @@ const ACCOUNT_VALUE_FORMAT = new Intl.NumberFormat('en-US', {
 })
 const SPARKLINE_WIDTH = 720
 const SPARKLINE_HEIGHT = 300
-const SPARKLINE_PAD_X = 34
-const SPARKLINE_PAD_Y = 16
-const SPARKLINE_X_AXIS_Y = 228
+const SPARKLINE_PAD_X = 12
+const SPARKLINE_PAD_Y = 10
+const SPARKLINE_X_AXIS_Y = 274
 
 type TrajectoryPoint = { ts: string; pnlPct: number }
 type AccountValuePoint = { ts: string; accountValueUsd: number }
@@ -48,6 +48,7 @@ type SparklineMetric = {
   min: number
   max: number
   path: string
+  fillPath: string
   zeroY: number | null
   currentPointLabel: string
   currentPointX: number
@@ -128,6 +129,7 @@ function buildSparkline(
     min: 0,
     max: 0,
     path: '',
+    fillPath: '',
     zeroY: null,
     currentPointLabel: axisLabel(0),
     currentPointX: SPARKLINE_PAD_X,
@@ -177,11 +179,18 @@ function buildSparkline(
   const last = ordered[pointCount - 1]?.value ?? 0
   const zeroY = 0 <= max && 0 >= min ? getY(0) : null
   const currentSample = points[points.length - 1]
+  const firstPoint = points[0]
+  const lastPoint = points[points.length - 1]
+  const fillPath =
+    path && firstPoint && lastPoint
+      ? `${path} L ${lastPoint.x.toFixed(3)} ${xAxisY.toFixed(3)} L ${firstPoint.x.toFixed(3)} ${xAxisY.toFixed(3)} Z`
+      : ''
 
   return {
     min,
     max,
     path,
+    fillPath,
     zeroY,
     currentPointLabel: axisLabel(last),
     currentPointX: currentSample?.x ?? 0,
@@ -271,15 +280,15 @@ function SparklineCard({
                       x2={stats.width - stats.padX}
                       y1={y}
                       y2={y}
-                      className='stroke-hlpBorder/28'
-                      strokeWidth='0.22'
+                      className='stroke-hlpBorder/32'
+                      strokeWidth='0.25'
                     />
                     <text
-                      x={stats.padX - 1}
-                      y={y + 0.2}
-                      textAnchor='end'
+                      x={stats.padX + 3}
+                      y={y}
+                      textAnchor='start'
                       dominantBaseline='middle'
-                      className='text-[10px] sm:text-[9px] fill-hlpMuted'
+                      className='text-[10px] sm:text-[9px] fill-hlpMuted/80'
                     >
                       {axisLabel(value)}
                     </text>
@@ -336,12 +345,21 @@ function SparklineCard({
                 />
               ) : null}
 
+              {stats.fillPath ? (
+                <path
+                  d={stats.fillPath}
+                  fill='currentColor'
+                  stroke='none'
+                  className={`${colorClass} opacity-[0.07]`}
+                />
+              ) : null}
+
               <path
                 d={stats.path}
                 fill='none'
                 stroke='currentColor'
                 className={`${colorClass} sparkline-draw-in`}
-                strokeWidth='0.7'
+                strokeWidth='0.8'
                 strokeLinecap='square'
                 strokeLinejoin='miter'
               />
