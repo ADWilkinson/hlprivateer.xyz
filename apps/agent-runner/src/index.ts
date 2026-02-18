@@ -646,6 +646,40 @@ function formatIntelRefreshEmbed(d: Record<string, unknown>): DiscordEmbedResult
     fields.push({ name: 'Fear & Greed', value: sanitizeLine(String(fng), 32), inline: true })
   }
 
+  const aixbt = d.aixbt as Record<string, unknown> | null | undefined
+  if (aixbt && typeof aixbt === 'object') {
+    const ok = aixbt.ok ? 'ok' : 'degraded'
+    const basketCount = typeof aixbt.basketSignalCount === 'number' ? aixbt.basketSignalCount : 0
+    const broadCount = typeof aixbt.broadSignalCount === 'number' ? aixbt.broadSignalCount : 0
+    const statusParts = [`${ok} (${basketCount} basket, ${broadCount} broad)`]
+    if (aixbt.error) statusParts.push(sanitizeLine(String(aixbt.error), 80))
+    fields.push({ name: 'AIXBT', value: sanitizeLine(statusParts.join(' — '), 128), inline: true })
+
+    const basketSignals = Array.isArray(aixbt.basketSignals) ? (aixbt.basketSignals as Array<Record<string, unknown>>) : []
+    if (basketSignals.length > 0) {
+      const lines = basketSignals.slice(0, 3).map((s) => {
+        const cat = sanitizeLine(String(s.category ?? ''), 24)
+        const name = sanitizeLine(String(s.projectName ?? ''), 20).toUpperCase()
+        const desc = sanitizeLine(String(s.description ?? ''), 160)
+        return cat ? `**${name}** [${cat}] ${desc}` : `**${name}** ${desc}`
+      })
+      fields.push({ name: 'Basket Signals', value: sanitizeDiscordMultiline(lines.join('\n'), 1024) })
+    }
+
+    const momentumHistory = Array.isArray(aixbt.momentumHistory) ? (aixbt.momentumHistory as Array<Record<string, unknown>>) : []
+    if (momentumHistory.length > 0) {
+      const trendLine = momentumHistory
+        .map((p) => `${sanitizeLine(String(p.ticker ?? ''), 8).toUpperCase()}: ${sanitizeLine(String(p.trend ?? ''), 20)}`)
+        .join(' | ')
+      fields.push({ name: 'Momentum', value: sanitizeLine(trendLine, 256), inline: true })
+    }
+
+    const indigo = typeof aixbt.indigoInsight === 'string' ? aixbt.indigoInsight : null
+    if (indigo) {
+      fields.push({ name: 'Indigo', value: sanitizeDiscordMultiline(indigo.slice(0, 500), 512) })
+    }
+  }
+
   return { description: symbols ? `Intel refresh: ${symbols}` : 'Intel refresh', fields }
 }
 
