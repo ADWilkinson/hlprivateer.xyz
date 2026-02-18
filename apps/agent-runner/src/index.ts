@@ -1023,7 +1023,13 @@ function leverageAwareBaseTargetNotionalUsd(fallbackBaseUsd: number): number {
   const policy = resolveRiskLimitsForContext()
   const leverageCap = Math.max(0.1, policy.maxLeverage)
   const rawTarget = Number.isFinite(policy.targetLeverage) && policy.targetLeverage > 0 ? policy.targetLeverage : leverageCap
-  const targetLeverage = clamp(rawTarget, 0.1, leverageCap)
+
+  // Keep hard safety headroom below the runtime LEVERAGE deny threshold.
+  // This reduces reject churn from rounding, fast price moves, and leg recomposition drift.
+  const leverageHeadroomPct = 0.95
+  const leverageHeadroomAbs = 0.25
+  const effectiveLeverageCap = Math.max(0.1, Math.min(leverageCap * leverageHeadroomPct, leverageCap - leverageHeadroomAbs))
+  const targetLeverage = clamp(rawTarget, 0.1, effectiveLeverageCap)
 
   const leverageTarget = accountValueUsd * targetLeverage
   const cappedByExposure = policy.maxExposureUsd > 0 ? Math.min(leverageTarget, policy.maxExposureUsd) : leverageTarget
@@ -3152,10 +3158,11 @@ async function generateRiskReport(params: {
         'Do not output execution mechanics.',
         'POLICY MANAGEMENT: You control the live risk policy parameters. The current policy is included in context under "currentRiskPolicy".',
         'Set policyRecommendations to an object with any parameters you want to change, or null to keep current policy.',
-        'LEVERAGE PHILOSOPHY: Default to MAXIMUM leverage for capital efficiency. The system should always operate at the highest leverage the risk environment permits.',
-        'Only REDUCE leverage when there is a concrete, observable threat (extreme volatility spike, liquidity crisis, correlation breakdown, drawdown approaching hard cap).',
-        'When the threat passes, IMMEDIATELY restore leverage to maximum. Do not leave leverage reduced out of caution — capital efficiency is the priority.',
-        'You may TIGHTEN other parameters (reduce exposure, tighten slippage) in volatile/uncertain markets while keeping leverage high.',
+        'LEVERAGE PHILOSOPHY: Run high leverage for capital efficiency, but keep explicit headroom below the hard max to avoid reject churn.',
+        'Target effective leverage around ~90-95% of max in normal conditions (never pin exactly to the hard limit).',
+        'Only REDUCE leverage further when there is a concrete, observable threat (extreme volatility spike, liquidity crisis, correlation breakdown, drawdown acceleration).',
+        'When the threat passes, restore leverage toward high-but-not-max levels instead of exact hard max.',
+        'You may TIGHTEN other parameters (reduce exposure, tighten slippage) in volatile/uncertain markets while keeping leverage elevated.',
         'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). Do NOT recommend changes to maxDrawdownPct. The operator accepts full drawdown risk.',
         'Focus risk management on position sizing, exposure limits, and leverage — not drawdown caps.',
         'SESSION PNL: pnlPct in context is cumulative session realized P&L, not current position risk. When positions are flat, pnlPct is historical context only — do not use it to elevate posture or tighten policy. Only observable market conditions (volatility, price feeds, liquidity) affect posture.',
