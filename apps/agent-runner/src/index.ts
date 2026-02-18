@@ -14,6 +14,7 @@ import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMa
 import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
 import { buildExternalIntelPack, summarizeExternalIntel, type ExternalIntelPack } from './intel'
 import { HistoryStore, formatHistoryForPrompt, type ResearchHistoryEntry, type RiskHistoryEntry, type DirectiveHistoryEntry, type IntelHistoryEntry } from './history-store'
+import { buildProposalThesis } from './strategy-thesis'
 
 type Tick = {
   symbol: string
@@ -1421,6 +1422,17 @@ function summarizeProposalForContext(proposal: StrategyProposal | null): Record<
     actionType: firstAction?.type,
     confidence: proposal.confidence,
     requestedMode: proposal.requestedMode,
+    exitReason: proposal.exitReason,
+    thesis: proposal.thesis
+      ? {
+        thesisId: proposal.thesis.thesisId,
+        horizonClass: proposal.thesis.horizonClass,
+        timeframeMin: proposal.thesis.timeframeMin,
+        stopLossPct: proposal.thesis.stopLossPct,
+        takeProfitPct: proposal.thesis.takeProfitPct,
+        createdAt: proposal.thesis.createdAt
+      }
+      : null,
     rationale: firstAction?.rationale,
     expectedSlippageBps: firstAction?.expectedSlippageBps,
     maxSlippageBps: firstAction?.maxSlippageBps
@@ -2717,45 +2729,6 @@ function normalizeDirectivePlan(params: {
   }
 }
 
-function buildProposalThesis(params: { rationale: string; confidence: number }): {
-  thesisId: string
-  horizonClass: 'DAY' | 'SWING' | 'CORE'
-  timeframeMin: number
-  stopLossPct: number
-  takeProfitPct: number
-  invalidation: string
-  createdAt: string
-} {
-  const clampedConfidence = clamp(params.confidence, 0, 1)
-  const rationale = params.rationale.toLowerCase()
-
-  let horizonClass: 'DAY' | 'SWING' | 'CORE' = 'DAY'
-  let timeframeMin = Math.max(60, Math.round(env.AGENT_PIPELINE_BASE_MS / 60_000) * 4)
-
-  if (/\b(core|months?|position trade|investment)\b/.test(rationale)) {
-    horizonClass = 'CORE'
-    timeframeMin = 30 * 24 * 60
-  } else if (/\b(swing|multi-day|days?|week|weeks?)\b/.test(rationale)) {
-    horizonClass = 'SWING'
-    timeframeMin = 7 * 24 * 60
-  }
-
-  const stopBase = horizonClass === 'DAY' ? 1.6 : horizonClass === 'SWING' ? 2.8 : 4.5
-  const tpMult = horizonClass === 'DAY' ? 1.7 : horizonClass === 'SWING' ? 2.0 : 2.4
-  const stopLossPct = Number((stopBase + (1 - clampedConfidence) * (horizonClass === 'CORE' ? 1.8 : 1.2)).toFixed(2))
-  const takeProfitPct = Number((stopLossPct * tpMult).toFixed(2))
-
-  return {
-    thesisId: `thesis_${ulid()}`,
-    horizonClass,
-    timeframeMin,
-    stopLossPct,
-    takeProfitPct,
-    invalidation: params.rationale.slice(0, 500),
-    createdAt: new Date().toISOString()
-  }
-}
-
 function buildDiscretionaryProposal(params: {
   createdBy: string
   plan: DirectivePlan
@@ -2848,7 +2821,11 @@ function buildDiscretionaryProposal(params: {
     confidence,
     requestedMode: params.requestedMode,
     createdBy: params.createdBy,
-    thesis: buildProposalThesis({ rationale, confidence }),
+    thesis: buildProposalThesis({
+      rationale,
+      confidence,
+      pipelineBaseMs: env.AGENT_PIPELINE_BASE_MS
+    }),
     actions: [
       {
         type: actionType,
@@ -3276,12 +3253,15 @@ async function generateStrategistDirective(params: {
         'EXIT: flatten all exposure immediately (no plan needed).',
         'DIRECTIONAL IS DEFAULT: a single long or short in the asset with the best setup (momentum, funding edge, catalyst, aixbt signal) is preferred over a hedged pair unless a specific relative-value divergence justifies pairing.',
         'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
-        'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), force EXIT / flat-first behavior.',
+        'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), assume runtime risk recovery can force risk-off flattening; avoid discretionary churn around blocked states.',
+        'Use EXIT discretionarily only when thesis invalidation is clear (time stop, stop-loss/take-profit, or invalidation signal).',
         'MINIMUM VIABLE TRADE: even a small directional position with a clear thesis beats perpetual HOLD. The risk engine caps downside — your job is to find upside.',
         'NO LOSS RECOVERY: do not oversize positions to recover session losses. state.pnlPct reflects historical realized P&L — treat each new trade on its own merit using targetNotionalUsd as the size baseline. Chasing losses is a risk amplifier, not a recovery strategy.',
         'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',
         'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
         'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
+        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd or the runtime parser will drop it.',
+        'riskBudget.maxGrossNotionalUsd, riskBudget.maxNetNotionalUsd, and riskBudget.maxLeverage must be null or positive numbers.',
         'Risk budgets and timeHorizonHours should match current volatility regime, not be artificially conservative.',
         'Do not propose both plan and decision HOLD.'
       ],

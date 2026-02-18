@@ -43,6 +43,8 @@ Strategy knobs (shared with runtime):
 - `AGENT_MIN_REBALANCE_LEG_USD` (minimum per-leg execution size in USD)
 - `DRY_RUN`, `ENABLE_LIVE_OMS` (used by the agent-runner to mark proposals as `requestedMode=LIVE` when live is enabled)
 - `RUNTIME_FLAT_DUST_NOTIONAL_USD` (dust threshold; positions smaller than this are treated as flat to avoid recovery loops)
+- `RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS` (infra-only outage duration before runtime can auto-flatten)
+- `RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD`, `RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_PCT` (infra auto-flatten exposure gates)
 
 Universe selection:
 - `AGENT_UNIVERSE_SIZE`

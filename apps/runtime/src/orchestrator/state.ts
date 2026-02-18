@@ -23,6 +23,8 @@ import { createRuntimePluginManager } from '../services/plugin-manager'
 import { RuntimeStore } from '../db/persistence'
 import { RuntimeEnv } from '../config'
 import { canTransition } from '../state-machine'
+import { computeInfraAutoFlattenEligibility } from './infra-auto-flatten'
+import { shouldSuppressDiscretionaryExit, type ActiveThesisState } from './thesis-guard'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
 import type { PluginSignal } from '@hl/privateer-plugin-sdk'
@@ -316,21 +318,10 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastNoActionSignature = ''
   let lastDustSweepAtMs = 0
   const DUST_SWEEP_COOLDOWN_MS = 30_000
-  const INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS = 60 * 60_000
-  const INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS = 5 * 60_000
-  const INFRA_AUTO_FLATTEN_MIN_GROSS_USD = 1_500
-  const INFRA_AUTO_FLATTEN_MIN_GROSS_PCT = 0.35
-
-  type ActiveThesisState = {
-    thesisId: string
-    horizonClass: 'DAY' | 'SWING' | 'CORE'
-    startedAtMs: number
-    timeframeMin: number
-    stopLossPct: number
-    takeProfitPct: number
-    invalidation?: string
-    symbols: string[]
-  }
+  const infraAutoFlattenMinOutageMs = env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS
+  const infraAutoFlattenNoticeCooldownMs = env.RUNTIME_INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS
+  const infraAutoFlattenMinGrossUsd = Math.max(0, env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD)
+  const infraAutoFlattenMinGrossPct = Math.max(0, Math.min(1, env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_PCT))
   let activeThesis: ActiveThesisState | null = null
 
   const normalizeRiskSignature = (message: string): string =>
@@ -514,34 +505,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     hasMeaningfulExposure(positions)
   const driftFromMeaningful = (positions: readonly OperatorPosition[] = state.positions): ReturnType<typeof driftFrom> =>
     driftFrom({ ...state, positions: meaningfulPositions(positions) }, env.RISK_DRIFT_BREACH_PCT)
-
-  const shouldSuppressDiscretionaryExit = (proposal: StrategyProposal): { suppress: boolean; reason?: string } => {
-    if (proposal.actions.length === 0 || proposal.actions[0]?.type !== 'EXIT') {
-      return { suppress: false }
-    }
-    if ((proposal.exitReason ?? 'DISCRETIONARY') !== 'DISCRETIONARY') {
-      return { suppress: false }
-    }
-    if (!activeThesis) {
-      return { suppress: false }
-    }
-
-    const nowMs = Date.now()
-    const holdingMs = Math.max(0, nowMs - activeThesis.startedAtMs)
-    const thesisExpired = holdingMs >= activeThesis.timeframeMin * 60_000
-    const pnlPct = Number.isFinite(state.pnlPct) ? state.pnlPct : 0
-    const stopHit = pnlPct <= -Math.abs(activeThesis.stopLossPct)
-    const takeProfitHit = pnlPct >= Math.abs(activeThesis.takeProfitPct)
-
-    if (thesisExpired || stopHit || takeProfitHit) {
-      return { suppress: false }
-    }
-
-    return {
-      suppress: true,
-      reason: `thesis ${activeThesis.thesisId}/${activeThesis.horizonClass} still valid (holding=${Math.round(holdingMs / 60_000)}m pnl=${pnlPct.toFixed(2)}% stop=${activeThesis.stopLossPct}% tp=${activeThesis.takeProfitPct}% horizon=${activeThesis.timeframeMin}m)`
-    }
-  }
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
@@ -1139,7 +1102,12 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         urgency: urgency ? 'urgent' : 'scheduled'
       }, 'runtime.proposal')
 
-      const exitGuard = shouldSuppressDiscretionaryExit(proposal)
+      const exitGuard = shouldSuppressDiscretionaryExit({
+        proposal,
+        activeThesis,
+        pnlPct: state.pnlPct,
+        nowMs: Date.now()
+      })
       if (exitGuard.suppress) {
         runtimeProposalCounter.inc({ status: 'exit_suppressed_thesis_valid' })
         await addAudit('proposal.exit_suppressed', 'runtime', proposal.proposalId, {
@@ -1563,9 +1531,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         firstInfraFailureAtMs = nowMs
       }
       const outageMs = nowMs - firstInfraFailureAtMs
-      if (outageMs < INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS) {
-        const remainingMin = Math.ceil((INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS - outageMs) / 60_000)
-        if (nowMs - lastInfraAutoFlattenNoticeAtMs >= INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS) {
+      if (outageMs < infraAutoFlattenMinOutageMs) {
+        const remainingMin = Math.ceil((infraAutoFlattenMinOutageMs - outageMs) / 60_000)
+        if (nowMs - lastInfraAutoFlattenNoticeAtMs >= infraAutoFlattenNoticeCooldownMs) {
           lastInfraAutoFlattenNoticeAtMs = nowMs
           await publishStateUpdate(
             proposalId,
@@ -1576,17 +1544,26 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       }
 
       const grossUsd = exposureUsd(state.positions)
-      const accountValueUsd = Math.max(1, resolveRuntimeAccountValueUsd())
-      const grossPct = grossUsd / accountValueUsd
-      const flattenEligible = grossUsd >= INFRA_AUTO_FLATTEN_MIN_GROSS_USD || grossPct >= INFRA_AUTO_FLATTEN_MIN_GROSS_PCT
-      if (!flattenEligible) {
-        if (nowMs - lastInfraAutoFlattenNoticeAtMs >= INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS) {
+      const accountValueUsd = resolveRuntimeAccountValueUsd()
+      const flattenEligibility = computeInfraAutoFlattenEligibility({
+        grossUsd,
+        accountValueUsd: accountValueUsd > 0 ? accountValueUsd : null,
+        minGrossUsd: infraAutoFlattenMinGrossUsd,
+        minGrossPct: infraAutoFlattenMinGrossPct,
+        minimumMeaningfulExposureUsd: minimumFlatExposureUsd
+      })
+      if (!flattenEligibility.eligible) {
+        if (nowMs - lastInfraAutoFlattenNoticeAtMs >= infraAutoFlattenNoticeCooldownMs) {
           lastInfraAutoFlattenNoticeAtMs = nowMs
+          const grossPctLabel =
+            flattenEligibility.grossPct === null ? 'na' : `${(flattenEligibility.grossPct * 100).toFixed(1)}%`
           await publishStateUpdate(
             proposalId,
-            `risk degraded (${reasonMessage}); outage>${Math.floor(INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS / 60_000)}m but flatten skipped (gross=${grossUsd.toFixed(2)} usd, ${
-              (grossPct * 100).toFixed(1)
-            }% account below thresholds)`
+            `risk degraded (${reasonMessage}); outage>${Math.floor(infraAutoFlattenMinOutageMs / 60_000)}m but flatten skipped (gross=${grossUsd.toFixed(
+              2
+            )} usd, pct=${grossPctLabel}, minUsd=${flattenEligibility.effectiveMinGrossUsd.toFixed(2)}, minPct=${(
+              infraAutoFlattenMinGrossPct * 100
+            ).toFixed(1)}%)`
           )
         }
         return false

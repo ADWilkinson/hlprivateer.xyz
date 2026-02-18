@@ -63,6 +63,12 @@ export const runtimeEnv = z
       .nonnegative()
       .default(100)
       .transform((value) => Math.max(100, value)),
+    // Infra-only risk denies can auto-flatten after sustained outages.
+    // Gross gates are operator knobs so this behavior does not depend on hardcoded thresholds.
+    RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS: z.coerce.number().int().nonnegative().default(60 * 60_000),
+    RUNTIME_INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS: z.coerce.number().int().nonnegative().default(5 * 60_000),
+    RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD: z.coerce.number().nonnegative().default(0),
+    RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_PCT: z.coerce.number().min(0).max(1).default(0.35),
     // Account value should be sourced from exchange/live state, not hardcoded.
     // Market-data seed only (runtime trade entry is agent-driven).
     BASKET_SYMBOLS: z.string().default(''),
