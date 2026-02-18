@@ -102,6 +102,11 @@ function clampToInteger(value: unknown): number {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0
 }
 
+function parseDecimal(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function toOperatorOrder(row: OrderRow): OperatorOrder {
   return {
     orderId: row.orderId,
@@ -110,9 +115,9 @@ function toOperatorOrder(row: OrderRow): OperatorOrder {
     status: row.status === 'NEW' || row.status === 'WORKING' || row.status === 'PARTIALLY_FILLED' || row.status === 'FILLED' || row.status === 'CANCELLED' || row.status === 'FAILED'
       ? row.status
       : 'NEW',
-    notionalUsd: clampToInteger(row.notionalUsd),
-    filledQty: clampToInteger(row.filledQty),
-    avgFillPx: clampToInteger(row.avgFillPx),
+    notionalUsd: parseDecimal(row.notionalUsd),
+    filledQty: parseDecimal(row.filledQty),
+    avgFillPx: parseDecimal(row.avgFillPx),
     createdAt: parseTimestamp(row.createdAt),
     source: row.source === 'LIVE' ? 'LIVE' : 'SIM'
   }
@@ -122,11 +127,11 @@ function toOperatorPosition(row: PositionRow): OperatorPosition {
   return {
     symbol: row.symbol,
     side: row.side === 'LONG' || row.side === 'SHORT' ? row.side : 'LONG',
-    qty: clampToInteger(row.qty),
-    notionalUsd: clampToInteger(row.notionalUsd),
-    avgEntryPx: clampToInteger(row.avgEntryPx),
-    markPx: clampToInteger(row.markPx),
-    pnlUsd: clampToInteger(row.pnlUsd),
+    qty: parseDecimal(row.qty),
+    notionalUsd: parseDecimal(row.notionalUsd),
+    avgEntryPx: parseDecimal(row.avgEntryPx),
+    markPx: parseDecimal(row.markPx),
+    pnlUsd: parseDecimal(row.pnlUsd),
     updatedAt: parseTimestamp(row.updatedAt)
   }
 }
@@ -309,11 +314,11 @@ async function createPostgresStore(databaseUrl: string): Promise<RuntimeStore> {
           positionsToSave.map((position) => ({
             symbol: position.symbol,
             side: position.side,
-            qty: Math.round(position.qty),
-            notionalUsd: Math.round(position.notionalUsd),
-            avgEntryPx: Math.round(position.avgEntryPx),
-            markPx: Math.round(position.markPx),
-            pnlUsd: Math.round(position.pnlUsd),
+            qty: position.qty,
+            notionalUsd: position.notionalUsd,
+            avgEntryPx: position.avgEntryPx,
+            markPx: position.markPx,
+            pnlUsd: position.pnlUsd,
             userId: SYSTEM_USER_ID,
             updatedAt: new Date(position.updatedAt),
             createdAt: new Date(position.updatedAt)
@@ -347,9 +352,9 @@ async function createPostgresStore(databaseUrl: string): Promise<RuntimeStore> {
             side: order.side,
             status: order.status,
             idempotencyKey: `${order.source}:${order.orderId}`,
-            notionalUsd: Math.round(order.notionalUsd),
-            filledQty: Math.round(order.filledQty),
-            avgFillPx: Math.round(order.avgFillPx),
+            notionalUsd: order.notionalUsd,
+            filledQty: order.filledQty,
+            avgFillPx: order.avgFillPx,
             exchangeOrderId: null,
             source: order.source,
             createdAt: new Date(order.createdAt),

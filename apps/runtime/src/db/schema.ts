@@ -1,4 +1,4 @@
-import { boolean, integer, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, doublePrecision, integer, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 export const systemState = pgTable('system_state', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -33,9 +33,9 @@ export const orders = pgTable(
     side: text('side').notNull(),
     status: text('status').notNull(),
     idempotencyKey: text('idempotency_key').unique(),
-    notionalUsd: integer('notional_usd').notNull(),
-    filledQty: integer('filled_qty').notNull(),
-    avgFillPx: integer('avg_fill_px').notNull(),
+    notionalUsd: doublePrecision('notional_usd').notNull(),
+    filledQty: doublePrecision('filled_qty').notNull(),
+    avgFillPx: doublePrecision('avg_fill_px').notNull(),
     exchangeOrderId: text('exchange_order_id'),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     source: text('source').notNull(),
@@ -59,9 +59,9 @@ export const fills = pgTable(
     exchangeOrderId: text('exchange_order_id'),
     symbol: text('symbol').notNull(),
     side: text('side').notNull(),
-    filledQty: integer('filled_qty').notNull(),
-    avgFillPx: integer('avg_fill_px').notNull(),
-    notionalUsd: integer('notional_usd').notNull(),
+    filledQty: doublePrecision('filled_qty').notNull(),
+    avgFillPx: doublePrecision('avg_fill_px').notNull(),
+    notionalUsd: doublePrecision('notional_usd').notNull(),
     source: text('source').notNull(),
     rawEventId: text('raw_event_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
@@ -80,11 +80,11 @@ export const positions = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     symbol: text('symbol').notNull(),
     side: text('side').notNull(),
-    qty: integer('qty').notNull(),
-    notionalUsd: integer('notional_usd').notNull(),
-    avgEntryPx: integer('avg_entry_px').notNull(),
-    markPx: integer('mark_px').notNull(),
-    pnlUsd: integer('pnl_usd').notNull(),
+    qty: doublePrecision('qty').notNull(),
+    notionalUsd: doublePrecision('notional_usd').notNull(),
+    avgEntryPx: doublePrecision('avg_entry_px').notNull(),
+    markPx: doublePrecision('mark_px').notNull(),
+    pnlUsd: doublePrecision('pnl_usd').notNull(),
     userId: uuid('user_id').notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
