@@ -101,6 +101,26 @@ export const StrategyActionSchema = z
   })
   .strict()
 
+export const StrategyExitReasonSchema = z.enum([
+  'DISCRETIONARY',
+  'STOP_LOSS',
+  'TAKE_PROFIT',
+  'TIME_EXIT',
+  'INVALIDATION',
+  'RISK_OFF'
+])
+
+export const StrategyThesisSchema = z
+  .object({
+    thesisId: z.string().min(1),
+    timeframeMin: z.number().int().positive(),
+    stopLossPct: z.number().positive(),
+    takeProfitPct: z.number().positive(),
+    invalidation: z.string().min(3).max(500).optional(),
+    createdAt: z.string().datetime().optional()
+  })
+  .strict()
+
 export const StrategyProposalSchema = z
   .object({
     proposalId: z.string().min(1),
@@ -109,7 +129,9 @@ export const StrategyProposalSchema = z
     confidence: z.number().min(0).max(1),
     actions: z.array(StrategyActionSchema).min(1),
     createdBy: z.string().min(1),
-    requestedMode: z.enum(['SIM', 'LIVE']).default('SIM')
+    requestedMode: z.enum(['SIM', 'LIVE']).default('SIM'),
+    thesis: StrategyThesisSchema.optional(),
+    exitReason: StrategyExitReasonSchema.optional()
   })
   .strict()
 

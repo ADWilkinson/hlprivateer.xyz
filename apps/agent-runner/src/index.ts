@@ -2711,6 +2711,28 @@ function normalizeDirectivePlan(params: {
   }
 }
 
+function buildProposalThesis(params: { rationale: string; confidence: number }): {
+  thesisId: string
+  timeframeMin: number
+  stopLossPct: number
+  takeProfitPct: number
+  invalidation: string
+  createdAt: string
+} {
+  const clampedConfidence = clamp(params.confidence, 0, 1)
+  const timeframeMin = Math.max(60, Math.round(env.AGENT_PIPELINE_BASE_MS / 60_000) * 4)
+  const stopLossPct = Number((1.8 + (1 - clampedConfidence) * 1.6).toFixed(2))
+  const takeProfitPct = Number((stopLossPct * 1.8).toFixed(2))
+  return {
+    thesisId: `thesis_${ulid()}`,
+    timeframeMin,
+    stopLossPct,
+    takeProfitPct,
+    invalidation: params.rationale.slice(0, 500),
+    createdAt: new Date().toISOString()
+  }
+}
+
 function buildDiscretionaryProposal(params: {
   createdBy: string
   plan: DirectivePlan
@@ -2803,6 +2825,7 @@ function buildDiscretionaryProposal(params: {
     confidence,
     requestedMode: params.requestedMode,
     createdBy: params.createdBy,
+    thesis: buildProposalThesis({ rationale, confidence }),
     actions: [
       {
         type: actionType,
@@ -2824,6 +2847,7 @@ function buildExitProposal(params: {
   executionTactics: { expectedSlippageBps: number; maxSlippageBps: number }
   confidence?: number
   rationale?: string
+  exitReason?: 'DISCRETIONARY' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'TIME_EXIT' | 'INVALIDATION' | 'RISK_OFF'
 }): StrategyProposal | null {
   if (params.positions.length === 0) {
     return null
@@ -2869,6 +2893,7 @@ function buildExitProposal(params: {
     confidence,
     requestedMode: params.requestedMode,
     createdBy: params.createdBy,
+    exitReason: params.exitReason ?? 'DISCRETIONARY',
     actions: [
       {
         type: 'EXIT',
@@ -4347,7 +4372,8 @@ async function runStrategistCycle(): Promise<void> {
       requestedMode: requestedModeFromEnv(),
       executionTactics: tactics,
       confidence: activeDirective.confidence,
-      rationale: activeDirective.rationale
+      rationale: activeDirective.rationale,
+      exitReason: riskRecovery.active || lastMode === 'SAFE_MODE' ? 'RISK_OFF' : 'DISCRETIONARY'
     })
   } else if (activeDirective.decision === 'OPEN' || activeDirective.decision === 'REBALANCE') {
     if (!activeDirective.plan) {

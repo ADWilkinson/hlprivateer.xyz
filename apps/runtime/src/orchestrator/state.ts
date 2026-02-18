@@ -315,6 +315,17 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastDustSweepAtMs = 0
   const DUST_SWEEP_COOLDOWN_MS = 30_000
 
+  type ActiveThesisState = {
+    thesisId: string
+    startedAtMs: number
+    timeframeMin: number
+    stopLossPct: number
+    takeProfitPct: number
+    invalidation?: string
+    symbols: string[]
+  }
+  let activeThesis: ActiveThesisState | null = null
+
   const normalizeRiskSignature = (message: string): string =>
     message
       .toLowerCase()
@@ -491,6 +502,34 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     hasMeaningfulExposure(positions)
   const driftFromMeaningful = (positions: readonly OperatorPosition[] = state.positions): ReturnType<typeof driftFrom> =>
     driftFrom({ ...state, positions: meaningfulPositions(positions) }, env.RISK_DRIFT_BREACH_PCT)
+
+  const shouldSuppressDiscretionaryExit = (proposal: StrategyProposal): { suppress: boolean; reason?: string } => {
+    if (proposal.actions.length === 0 || proposal.actions[0]?.type !== 'EXIT') {
+      return { suppress: false }
+    }
+    if ((proposal.exitReason ?? 'DISCRETIONARY') !== 'DISCRETIONARY') {
+      return { suppress: false }
+    }
+    if (!activeThesis) {
+      return { suppress: false }
+    }
+
+    const nowMs = Date.now()
+    const holdingMs = Math.max(0, nowMs - activeThesis.startedAtMs)
+    const thesisExpired = holdingMs >= activeThesis.timeframeMin * 60_000
+    const pnlPct = Number.isFinite(state.pnlPct) ? state.pnlPct : 0
+    const stopHit = pnlPct <= -Math.abs(activeThesis.stopLossPct)
+    const takeProfitHit = pnlPct >= Math.abs(activeThesis.takeProfitPct)
+
+    if (thesisExpired || stopHit || takeProfitHit) {
+      return { suppress: false }
+    }
+
+    return {
+      suppress: true,
+      reason: `thesis ${activeThesis.thesisId} still valid (holding=${Math.round(holdingMs / 60_000)}m pnl=${pnlPct.toFixed(2)}% stop=${activeThesis.stopLossPct}% tp=${activeThesis.takeProfitPct}% horizon=${activeThesis.timeframeMin}m)`
+    }
+  }
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
@@ -879,6 +918,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       const pnlDenominatorUsd = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsd > 0 ? Number(((totalPnlUsd / pnlDenominatorUsd) * 100).toFixed(3)) : 0
       state.driftState = driftFromMeaningful()
+      if (!hasAnyExposure(state.positions)) {
+        activeThesis = null
+      }
 
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)
@@ -1083,6 +1125,19 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         requestedMode: proposal.requestedMode,
         urgency: urgency ? 'urgent' : 'scheduled'
       }, 'runtime.proposal')
+
+      const exitGuard = shouldSuppressDiscretionaryExit(proposal)
+      if (exitGuard.suppress) {
+        runtimeProposalCounter.inc({ status: 'exit_suppressed_thesis_valid' })
+        await addAudit('proposal.exit_suppressed', 'runtime', proposal.proposalId, {
+          proposalId: proposal.proposalId,
+          reason: exitGuard.reason,
+          exitReason: proposal.exitReason ?? 'DISCRETIONARY',
+          thesis: activeThesis
+        }, 'runtime.proposal')
+        await publishStateUpdate(proposal.proposalId, `exit suppressed (${exitGuard.reason})`)
+        return
+      }
 
       const dependencyHealth = await bus.health()
       // In DRY_RUN mode we allow running without Postgres persistence to reduce operational complexity.
@@ -1328,6 +1383,22 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
           logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
         )
+      }
+    }
+
+    if (action.type === 'EXIT') {
+      if (!hasAnyExposure(state.positions)) {
+        activeThesis = null
+      }
+    } else if (proposal.thesis && hasAnyExposure(state.positions)) {
+      activeThesis = {
+        thesisId: proposal.thesis.thesisId,
+        startedAtMs: Date.now(),
+        timeframeMin: Math.max(1, Math.round(proposal.thesis.timeframeMin)),
+        stopLossPct: Math.abs(proposal.thesis.stopLossPct),
+        takeProfitPct: Math.abs(proposal.thesis.takeProfitPct),
+        invalidation: proposal.thesis.invalidation,
+        symbols: [...new Set(action.legs.map((leg) => leg.symbol))]
       }
     }
 
