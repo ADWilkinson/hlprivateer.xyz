@@ -13,6 +13,8 @@ const marketDataAgeMs = new promClient.Gauge({
 
 const BASE_RECONNECT_MS = 250
 const MAX_RECONNECT_MS = 30_000
+const PING_INTERVAL_MS = 20_000
+const SILENCE_TIMEOUT_MS = 30_000
 
 type HyperliquidSubscription =
   | { type: 'allMids'; dex?: string }
@@ -51,10 +53,12 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
   private socket?: WebSocket
   private ageTimer?: ReturnType<typeof setInterval>
   private reconnectTimer?: ReturnType<typeof setTimeout>
+  private pingTimer?: ReturnType<typeof setInterval>
   private reconnectAttempts = 0
+  private lastActivityAt = 0
   private ticks = new Map<string, NormalizedTick>()
   private stopped = false
-  private mids = new Map<string, number>()
+  private mids = new Map<string, { px: number; ts: number }>()
   private lastPublishAtMs = new Map<string, number>()
 
   constructor(
@@ -81,6 +85,10 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
     if (this.ageTimer) {
       clearInterval(this.ageTimer)
     }
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer)
+      this.pingTimer = undefined
+    }
     this.socket?.close()
   }
 
@@ -89,11 +97,28 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
       return
     }
 
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer)
+      this.pingTimer = undefined
+    }
+
     const ws = new WebSocket(this.wsUrl)
     this.socket = ws
 
     ws.on('open', () => {
       this.reconnectAttempts = 0
+      this.lastActivityAt = Date.now()
+
+      this.pingTimer = setInterval(() => {
+        if (Date.now() - this.lastActivityAt > SILENCE_TIMEOUT_MS && !this.stopped) {
+          ws.terminate()
+          return
+        }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping()
+        }
+      }, PING_INTERVAL_MS)
+
       // Hyperliquid WS expects:
       // { "method": "subscribe", "subscription": { "type": "...", ... } }
       //
@@ -110,7 +135,12 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
       }
     })
 
+    ws.on('pong', () => {
+      this.lastActivityAt = Date.now()
+    })
+
     ws.on('message', (message: any) => {
+      this.lastActivityAt = Date.now()
       const raw = toText(message)
       if (!raw) {
         return
@@ -139,7 +169,7 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
         for (const [coin, midRaw] of Object.entries(mids as Record<string, unknown>)) {
           const mid = parseNumber(midRaw)
           if (typeof mid === 'number') {
-            this.mids.set(coin, mid)
+            this.mids.set(coin, { px: mid, ts: Date.now() })
           }
         }
         return
@@ -159,6 +189,10 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
     })
 
     ws.on('close', () => {
+      if (this.pingTimer) {
+        clearInterval(this.pingTimer)
+        this.pingTimer = undefined
+      }
       void this.scheduleReconnect()
     })
 
@@ -182,7 +216,8 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
     const bidSize = bidLevel ? parseNumber(bidLevel.sz) : undefined
     const askSize = askLevel ? parseNumber(askLevel.sz) : undefined
 
-    const mid = this.mids.get(coin)
+    const midEntry = this.mids.get(coin)
+    const mid = midEntry && (Date.now() - midEntry.ts) < 5000 ? midEntry.px : undefined
     const px =
       typeof bid === 'number' && typeof ask === 'number'
         ? (bid + ask) / 2
