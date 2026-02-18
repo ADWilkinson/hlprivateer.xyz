@@ -318,6 +318,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   const DUST_SWEEP_COOLDOWN_MS = 30_000
   const INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS = 60 * 60_000
   const INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS = 5 * 60_000
+  const INFRA_AUTO_FLATTEN_MIN_GROSS_USD = 1_500
+  const INFRA_AUTO_FLATTEN_MIN_GROSS_PCT = 0.35
 
   type ActiveThesisState = {
     thesisId: string
@@ -1568,6 +1570,23 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
           await publishStateUpdate(
             proposalId,
             `risk degraded (${reasonMessage}); holding positions, auto-flatten deferred (remaining ~${remainingMin}m before eligibility)`
+          )
+        }
+        return false
+      }
+
+      const grossUsd = exposureUsd(state.positions)
+      const accountValueUsd = Math.max(1, resolveRuntimeAccountValueUsd())
+      const grossPct = grossUsd / accountValueUsd
+      const flattenEligible = grossUsd >= INFRA_AUTO_FLATTEN_MIN_GROSS_USD || grossPct >= INFRA_AUTO_FLATTEN_MIN_GROSS_PCT
+      if (!flattenEligible) {
+        if (nowMs - lastInfraAutoFlattenNoticeAtMs >= INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS) {
+          lastInfraAutoFlattenNoticeAtMs = nowMs
+          await publishStateUpdate(
+            proposalId,
+            `risk degraded (${reasonMessage}); outage>${Math.floor(INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS / 60_000)}m but flatten skipped (gross=${grossUsd.toFixed(2)} usd, ${
+              (grossPct * 100).toFixed(1)
+            }% account below thresholds)`
           )
         }
         return false
