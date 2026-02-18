@@ -3658,7 +3658,6 @@ async function runStrategyPipeline(): Promise<void> {
 
 async function runResearchAgent(): Promise<void> {
   const now = Date.now()
-  lastResearchAt = now
 
   const signalPack = summarizeLatestSignals(now)
   const latestVol = latestSignalFromPack(signalPack, 'volatility')
@@ -3811,6 +3810,7 @@ async function runResearchAgent(): Promise<void> {
   }
 
   lastResearchReport = { ...report, computedAt: new Date().toISOString() }
+  lastResearchAt = Date.parse(lastResearchReport.computedAt)
 
   await researchHistory.push({
     ts: lastResearchReport.computedAt,
@@ -3854,7 +3854,6 @@ async function runResearchAgent(): Promise<void> {
 
 async function runRiskAgent(): Promise<void> {
   const now = Date.now()
-  lastRiskAt = now
 
   const summary = summarizePositionsForAgents(lastPositions)
   const signalPack = summarizeLatestSignals(now)
@@ -3959,6 +3958,7 @@ async function runRiskAgent(): Promise<void> {
   }
 
   lastRiskReport = { ...report, computedAt: new Date().toISOString() }
+  lastRiskAt = Date.parse(lastRiskReport.computedAt)
 
   await riskHistory.push({
     ts: lastRiskReport.computedAt,
