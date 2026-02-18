@@ -310,10 +310,14 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastRiskDeniedNoticeAtMs = 0
   let lastRiskAutoMitigationAtMs = 0
   let lastRiskAutoMitigationSignature = ''
+  let firstInfraFailureAtMs = 0
+  let lastInfraAutoFlattenNoticeAtMs = 0
   let lastNoActionNoticeAtMs = 0
   let lastNoActionSignature = ''
   let lastDustSweepAtMs = 0
   const DUST_SWEEP_COOLDOWN_MS = 30_000
+  const INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS = 60 * 60_000
+  const INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS = 5 * 60_000
 
   type ActiveThesisState = {
     thesisId: string
@@ -334,6 +338,11 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       .replace(/\s+/g, ' ')
       .replace(/\b[a-f0-9]{8,}\b/g, '')
       .trim()
+
+  const markInfraRecovered = (): void => {
+    firstInfraFailureAtMs = 0
+    lastInfraAutoFlattenNoticeAtMs = 0
+  }
 
   const normalizeRiskPolicy = (
     current: RuntimeRiskPolicy,
@@ -1000,6 +1009,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         if (canExitSafeMode) {
           lastSafeModeHoldNoticeAtMs = 0
           lastSafeModeNoExposureHoldNoticeAtMs = 0
+          markInfraRecovered()
           await setMode('READY', 'safe mode auto-resolve: no open exposure')
           return
         } else if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
@@ -1145,6 +1155,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       // In live mode, persistence health remains a hard dependency (fail-closed).
       const databaseHealth = env.DRY_RUN ? true : await store.health()
       const dependenciesHealthy = dependencyHealth.ok && databaseHealth
+      if (dependenciesHealthy) {
+        markInfraRecovered()
+      }
 
       await augmentTicksWithL2BookDepth({
         postInfo: hlClient?.postInfo,
@@ -1527,14 +1540,42 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       'SYSTEM_GATED'
     ])
     if (!reasons.some((entry) => mitigationCodes.has(String(entry.code).toUpperCase()))) {
+      markInfraRecovered()
       return false
     }
 
-    const reasonSignature = [...new Set(reasons
+    const reasonCodes = [...new Set(reasons
       .map((entry) => String(entry.code).trim().toUpperCase())
       .filter((entry) => entry.length > 0)
-    )].sort().join('|') || 'no_reason'
+    )]
+    const infraOnlyCodes = new Set(['SAFE_MODE', 'DEPENDENCY_FAILURE', 'STALE_DATA', 'SYSTEM_GATED'])
+    const hardRiskCodes = new Set(['DRAWDOWN', 'EXPOSURE', 'LEVERAGE', 'LIQUIDITY', 'SLIPPAGE_BREACH', 'NOTIONAL_PARITY'])
+    const isInfraOnlyMitigation = reasonCodes.length > 0 && reasonCodes.every((code) => infraOnlyCodes.has(code))
+    const hasHardRiskSignal = reasonCodes.some((code) => hardRiskCodes.has(code))
+
+    const reasonSignature = reasonCodes.sort().join('|') || 'no_reason'
     const nowMs = Date.now()
+
+    if (isInfraOnlyMitigation && !hasHardRiskSignal) {
+      if (firstInfraFailureAtMs === 0) {
+        firstInfraFailureAtMs = nowMs
+      }
+      const outageMs = nowMs - firstInfraFailureAtMs
+      if (outageMs < INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS) {
+        const remainingMin = Math.ceil((INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS - outageMs) / 60_000)
+        if (nowMs - lastInfraAutoFlattenNoticeAtMs >= INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS) {
+          lastInfraAutoFlattenNoticeAtMs = nowMs
+          await publishStateUpdate(
+            proposalId,
+            `risk degraded (${reasonMessage}); holding positions, auto-flatten deferred (remaining ~${remainingMin}m before eligibility)`
+          )
+        }
+        return false
+      }
+    } else {
+      markInfraRecovered()
+    }
+
     if (reasonSignature === lastRiskAutoMitigationSignature && nowMs - lastRiskAutoMitigationAtMs < RISK_AUTO_MITIGATION_COOLDOWN_MS) {
       return false
     }
