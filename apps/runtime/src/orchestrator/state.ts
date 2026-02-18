@@ -2081,7 +2081,8 @@ async function fetchHyperliquidL2BookSnapshotViaClient(
       px,
       bidDepthUsd: sumLevelsUsd(bids, levels),
       askDepthUsd: sumLevelsUsd(asks, levels),
-      updatedAtIso: isoFromEpoch(book.time)
+      // Use fetch-time freshness for risk staleness checks; exchange event timestamps can lag a few seconds.
+      updatedAtIso: new Date().toISOString()
     }
   } catch (error) {
     console.warn('[runtime-state] hyperliquid l2Book fetch via client failed', { coin }, error) // eslint-disable-line no-console
@@ -2128,7 +2129,8 @@ async function fetchHyperliquidL2BookSnapshot(infoUrl: string, coin: string, lev
         px,
         bidDepthUsd: sumLevelsUsd(bids, levels),
         askDepthUsd: sumLevelsUsd(asks, levels),
-        updatedAtIso: isoFromEpoch(book.time)
+        // Use fetch-time freshness for risk staleness checks; exchange event timestamps can lag a few seconds.
+        updatedAtIso: new Date().toISOString()
       }
     } catch (error) {
       if (attempt >= retries) {
@@ -2244,15 +2246,6 @@ function parseFiniteNumber(value: unknown): number | null {
   }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
-}
-
-function isoFromEpoch(value: number): string {
-  const ms = value < 10_000_000_000 ? value * 1000 : value
-  const date = new Date(ms)
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString()
-  }
-  return date.toISOString()
 }
 
 async function createMarketAdapterLazy(env: RuntimeEnv, bus: EventBus): Promise<MarketDataAdapter> {
