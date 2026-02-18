@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import { fetchAixbtIntel, summarizeAixbtIntel, type AixbtIntelPack } from './aixbt'
+import { fetchDefiLlamaIntel, summarizeDefiLlamaIntel, type DefiLlamaIntelPack } from './defillama'
 
 type TwitterCredsFile = {
   bearer_token?: unknown
@@ -64,6 +65,11 @@ export type ExternalIntelPack = {
     enabled: boolean
     ok: boolean
     pack: AixbtIntelPack | null
+  }
+  defiLlama: {
+    enabled: boolean
+    ok: boolean
+    pack: DefiLlamaIntelPack | null
   }
 }
 
@@ -436,6 +442,9 @@ export async function buildExternalIntelPack(params: {
   aixbtIndigoEnabled?: boolean
   aixbtTimeoutMs?: number
   aixbtCacheTtlMs?: number
+  defiLlamaEnabled?: boolean
+  defiLlamaTimeoutMs?: number
+  defiLlamaCacheTtlMs?: number
 }): Promise<ExternalIntelPack> {
   const computedAt = new Date().toISOString()
   const nowMs = Date.now()
@@ -455,6 +464,11 @@ export async function buildExternalIntelPack(params: {
     },
     aixbt: {
       enabled: Boolean(params.aixbtEnabled && params.aixbtApiKey),
+      ok: false,
+      pack: null
+    },
+    defiLlama: {
+      enabled: Boolean(params.defiLlamaEnabled),
       ok: false,
       pack: null
     }
@@ -578,6 +592,29 @@ export async function buildExternalIntelPack(params: {
     pack.fearGreed.ok = false
   }
 
+  if (pack.defiLlama.enabled) {
+    try {
+      const defiLlamaPack = await fetchDefiLlamaIntel({
+        enabled: true,
+        timeoutMs: params.defiLlamaTimeoutMs ?? params.timeoutMs,
+        cacheTtlMs: params.defiLlamaCacheTtlMs
+      })
+      pack.defiLlama.pack = defiLlamaPack
+      pack.defiLlama.ok = defiLlamaPack.ok
+    } catch (error) {
+      pack.defiLlama.ok = false
+      pack.defiLlama.pack = {
+        fetchedAt: new Date().toISOString(),
+        ok: false,
+        chainTvlTop: [],
+        stablecoinChainsTop: [],
+        hyperliquidDex: null,
+        hyperliquidFees: null,
+        error: sanitizeLine(String(error), 200)
+      }
+    }
+  }
+
   if (pack.aixbt.enabled && params.aixbtApiKey) {
     try {
       const aixbtPack = await fetchAixbtIntel({
@@ -624,12 +661,18 @@ export function summarizeExternalIntel(pack: ExternalIntelPack): Record<string, 
     : !pack.twitter.ok
       ? 'Twitter is OFFLINE. This is a SUPPLEMENTARY source — it does NOT affect trading capability. Trade on price/funding/OI/orderbook data.'
       : null
+  const defiLlamaStatusNote = !pack.defiLlama.enabled
+    ? 'DefiLlama is DISABLED. This is a SUPPLEMENTARY source — trading remains fully enabled.'
+    : !pack.defiLlama.ok
+      ? 'DefiLlama is OFFLINE. This is a SUPPLEMENTARY source — it does NOT affect trading capability.'
+      : null
+  const supplementaryStatusNotes = [twitterStatusNote, defiLlamaStatusNote].filter((note): note is string => Boolean(note))
 
   return {
     computedAt: pack.computedAt,
     symbols: pack.symbols,
-    statusNote: twitterStatusNote
-      ? `SUPPLEMENTARY DATA NOTE: ${twitterStatusNote}`
+    statusNote: supplementaryStatusNotes.length > 0
+      ? `SUPPLEMENTARY DATA NOTE: ${supplementaryStatusNotes.join(' ')}`
       : null,
     twitter: {
       enabled: pack.twitter.enabled,
@@ -655,6 +698,13 @@ export function summarizeExternalIntel(pack: ExternalIntelPack): Record<string, 
           error: pack.fearGreed.snapshot.error ? sanitizeLine(pack.fearGreed.snapshot.error, 160) : null
         }
       : null,
+    defiLlama: pack.defiLlama.pack
+      ? {
+          ...summarizeDefiLlamaIntel(pack.defiLlama.pack),
+          enabled: pack.defiLlama.enabled,
+          statusNote: defiLlamaStatusNote
+        }
+      : { enabled: pack.defiLlama.enabled, ok: false, statusNote: defiLlamaStatusNote },
     aixbt: pack.aixbt.pack
       ? summarizeAixbtIntel(pack.aixbt.pack)
       : { enabled: pack.aixbt.enabled, ok: false }

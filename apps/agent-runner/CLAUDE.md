@@ -49,6 +49,7 @@ Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structur
 - **Hyperliquid**: Universe metadata, funding rates, open interest, orderbook
 - **CoinGecko**: Sector breadth (DeFi, L1, Memes), TVL, volume
 - **Twitter/X**: Narrative velocity, mention counts (via `TWITTER_BEARER_TOKEN`)
+- **DefiLlama (optional)**: chain TVL/stablecoin context + Hyperliquid DEX/fees snapshots
 - **Price Features**: Returns (1h/4h/24h/7d), volatility, momentum, RSI-like indicators
 
 ## Proposal Flow

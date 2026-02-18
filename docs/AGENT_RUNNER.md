@@ -62,6 +62,9 @@ OpenClaw integration:
 - `AGENT_INTEL_TWITTER_ENABLED` (default true)
 - `AGENT_INTEL_TWITTER_MAX_RESULTS` (default 8)
 - `AGENT_INTEL_TIMEOUT_MS` (default 8000)
+- `DEFI_LLAMA_ENABLED` (default true; supplementary enrichment only)
+- `DEFI_LLAMA_TIMEOUT_MS` (default 4000)
+- `DEFI_LLAMA_CACHE_TTL_MS` (default 300000 / 5min)
 
 LLM:
 - Docker auth mounts (required for non-interactive Claude/Codex):

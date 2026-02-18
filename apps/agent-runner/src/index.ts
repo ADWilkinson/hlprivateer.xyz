@@ -1119,8 +1119,7 @@ const AGENT_DATA_SOURCES_PRESET: string[] = [
   '   - preferred endpoints: /coins/markets, /coins/categories, /global',
   '5) Optional enrichment sources (only when they improve confidence materially).',
   `   - Brave Search API: ${env.BRAVE_API_URL}`,
-  '   - https://api.llama.fi',
-  '   - https://yields.llama.fi',
+  `   - DefiLlama: https://api.llama.fi, https://coins.llama.fi, https://stablecoins.llama.fi (${env.DEFI_LLAMA_ENABLED ? 'enabled' : 'disabled'})`,
   '   - https://api.alternative.me/fng/',
   '   - https://data-api.binance.com',
   'Default behavior: decide from Hyperliquid + aixbt + Twitter/X + CoinGecko Pro first; use enrichment sources only when needed.'
@@ -3715,7 +3714,10 @@ async function runResearchAgent(): Promise<void> {
 		        aixbtEnabled: env.AIXBT_ENABLED,
 		        aixbtIndigoEnabled: env.AIXBT_INDIGO_ENABLED,
 		        aixbtTimeoutMs: env.AIXBT_TIMEOUT_MS,
-		        aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS
+		        aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS,
+		        defiLlamaEnabled: env.DEFI_LLAMA_ENABLED,
+		        defiLlamaTimeoutMs: env.DEFI_LLAMA_TIMEOUT_MS,
+		        defiLlamaCacheTtlMs: env.DEFI_LLAMA_CACHE_TTL_MS
 		      })
 	      intelSummary = summarizeExternalIntel(lastExternalIntel)
 
