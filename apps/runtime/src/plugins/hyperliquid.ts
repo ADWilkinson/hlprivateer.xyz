@@ -1,3 +1,6 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
 const DEFAULT_HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
 
 export interface HyperliquidCandle {
@@ -21,6 +24,13 @@ export interface HyperliquidFundingEntry {
 }
 
 let _postInfo: (<T>(body: unknown) => Promise<T>) | null = null
+const execFileAsync = promisify(execFile)
+
+function isCertVerificationError(error: unknown): boolean {
+  const text = String((error as any)?.message ?? error ?? '').toLowerCase()
+  const code = String((error as any)?.code ?? '').toLowerCase()
+  return text.includes('certificate') || text.includes('tls') || code.includes('certificate') || code.includes('tls')
+}
 
 export function setPostInfo(fn: <T>(body: unknown) => Promise<T>): void {
   _postInfo = fn
@@ -32,13 +42,33 @@ export function getPostInfo(): <T>(body: unknown) => Promise<T> {
 }
 
 async function fallbackPost<T>(infoUrl: string, body: unknown): Promise<T> {
-  const response = await fetch(infoUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) throw new Error(`hyperliquid info http ${response.status}`)
-  return (await response.json()) as T
+  try {
+    const response = await fetch(infoUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) throw new Error(`hyperliquid info http ${response.status}`)
+    return (await response.json()) as T
+  } catch (error) {
+    if (!isCertVerificationError(error)) {
+      throw error
+    }
+
+    const { stdout } = await execFileAsync('curl', [
+      '--silent',
+      '--show-error',
+      '--fail',
+      '--max-time',
+      '10',
+      '-H',
+      'content-type: application/json',
+      '--data',
+      JSON.stringify(body),
+      infoUrl,
+    ])
+    return JSON.parse(stdout) as T
+  }
 }
 
 export async function fetchCandleSnapshot(params: {

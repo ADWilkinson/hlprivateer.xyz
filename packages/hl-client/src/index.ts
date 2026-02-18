@@ -1,5 +1,7 @@
 import { HttpTransport } from '@nktkas/hyperliquid'
 import type { IRequestTransport } from '@nktkas/hyperliquid'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { createRateLimiter, type RateLimiter, type RateLimiterConfig } from './rate-limiter'
 import { createResponseCache, getTtlForPayload, stableCacheKey, type ResponseCache, type CacheConfig } from './cache'
 import { ThrottledTransport, type ThrottledTransportConfig } from './transport'
@@ -12,6 +14,37 @@ export { createResponseCache } from './cache'
 export { ThrottledTransport, type ThrottledTransportConfig } from './transport'
 
 const DEFAULT_INFO_URL = 'https://api.hyperliquid.xyz/info'
+const execFileAsync = promisify(execFile)
+
+function isCertVerificationError(error: unknown): boolean {
+  const text = String((error as any)?.message ?? error ?? '').toLowerCase()
+  const code = String((error as any)?.code ?? '').toLowerCase()
+  return (
+    text.includes('certificate') ||
+    text.includes('tls') ||
+    code.includes('certificate') ||
+    code.includes('tls')
+  )
+}
+
+async function postInfoViaCurl<T>(infoUrl: string, body: unknown, timeoutMs: number): Promise<T> {
+  const payload = JSON.stringify(body)
+  const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000))
+  const { stdout } = await execFileAsync('curl', [
+    '--silent',
+    '--show-error',
+    '--fail',
+    '--max-time',
+    String(timeoutSec),
+    '-H',
+    'content-type: application/json',
+    '--data',
+    payload,
+    infoUrl,
+  ])
+
+  return JSON.parse(stdout) as T
+}
 
 export interface HlClientConfig {
   isTestnet?: boolean
@@ -97,6 +130,14 @@ export function createHlClient(config: HlClientConfig): HlClient {
       }
 
       const result = (await response.json()) as T
+      if (key && ttl !== null) cache.set(key, result, ttl)
+      return result
+    } catch (error) {
+      if (!isCertVerificationError(error)) {
+        throw error
+      }
+
+      const result = await postInfoViaCurl<T>(infoUrl, body, timeoutMs)
       if (key && ttl !== null) cache.set(key, result, ttl)
       return result
     } finally {
