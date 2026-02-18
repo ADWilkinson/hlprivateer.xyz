@@ -110,9 +110,12 @@ export const StrategyExitReasonSchema = z.enum([
   'RISK_OFF'
 ])
 
+export const StrategyHorizonClassSchema = z.enum(['DAY', 'SWING', 'CORE'])
+
 export const StrategyThesisSchema = z
   .object({
     thesisId: z.string().min(1),
+    horizonClass: StrategyHorizonClassSchema,
     timeframeMin: z.number().int().positive(),
     stopLossPct: z.number().positive(),
     takeProfitPct: z.number().positive(),

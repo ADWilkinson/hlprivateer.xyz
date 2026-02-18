@@ -2713,6 +2713,7 @@ function normalizeDirectivePlan(params: {
 
 function buildProposalThesis(params: { rationale: string; confidence: number }): {
   thesisId: string
+  horizonClass: 'DAY' | 'SWING' | 'CORE'
   timeframeMin: number
   stopLossPct: number
   takeProfitPct: number
@@ -2720,11 +2721,27 @@ function buildProposalThesis(params: { rationale: string; confidence: number }):
   createdAt: string
 } {
   const clampedConfidence = clamp(params.confidence, 0, 1)
-  const timeframeMin = Math.max(60, Math.round(env.AGENT_PIPELINE_BASE_MS / 60_000) * 4)
-  const stopLossPct = Number((1.8 + (1 - clampedConfidence) * 1.6).toFixed(2))
-  const takeProfitPct = Number((stopLossPct * 1.8).toFixed(2))
+  const rationale = params.rationale.toLowerCase()
+
+  let horizonClass: 'DAY' | 'SWING' | 'CORE' = 'DAY'
+  let timeframeMin = Math.max(60, Math.round(env.AGENT_PIPELINE_BASE_MS / 60_000) * 4)
+
+  if (/\b(core|months?|position trade|investment)\b/.test(rationale)) {
+    horizonClass = 'CORE'
+    timeframeMin = 30 * 24 * 60
+  } else if (/\b(swing|multi-day|days?|week|weeks?)\b/.test(rationale)) {
+    horizonClass = 'SWING'
+    timeframeMin = 7 * 24 * 60
+  }
+
+  const stopBase = horizonClass === 'DAY' ? 1.6 : horizonClass === 'SWING' ? 2.8 : 4.5
+  const tpMult = horizonClass === 'DAY' ? 1.7 : horizonClass === 'SWING' ? 2.0 : 2.4
+  const stopLossPct = Number((stopBase + (1 - clampedConfidence) * (horizonClass === 'CORE' ? 1.8 : 1.2)).toFixed(2))
+  const takeProfitPct = Number((stopLossPct * tpMult).toFixed(2))
+
   return {
     thesisId: `thesis_${ulid()}`,
+    horizonClass,
     timeframeMin,
     stopLossPct,
     takeProfitPct,

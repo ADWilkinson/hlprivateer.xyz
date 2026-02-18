@@ -317,6 +317,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
   type ActiveThesisState = {
     thesisId: string
+    horizonClass: 'DAY' | 'SWING' | 'CORE'
     startedAtMs: number
     timeframeMin: number
     stopLossPct: number
@@ -527,7 +528,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
     return {
       suppress: true,
-      reason: `thesis ${activeThesis.thesisId} still valid (holding=${Math.round(holdingMs / 60_000)}m pnl=${pnlPct.toFixed(2)}% stop=${activeThesis.stopLossPct}% tp=${activeThesis.takeProfitPct}% horizon=${activeThesis.timeframeMin}m)`
+      reason: `thesis ${activeThesis.thesisId}/${activeThesis.horizonClass} still valid (holding=${Math.round(holdingMs / 60_000)}m pnl=${pnlPct.toFixed(2)}% stop=${activeThesis.stopLossPct}% tp=${activeThesis.takeProfitPct}% horizon=${activeThesis.timeframeMin}m)`
     }
   }
 
@@ -1393,6 +1394,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     } else if (proposal.thesis && hasAnyExposure(state.positions)) {
       activeThesis = {
         thesisId: proposal.thesis.thesisId,
+        horizonClass: proposal.thesis.horizonClass,
         startedAtMs: Date.now(),
         timeframeMin: Math.max(1, Math.round(proposal.thesis.timeframeMin)),
         stopLossPct: Math.abs(proposal.thesis.stopLossPct),
