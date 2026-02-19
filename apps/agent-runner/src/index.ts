@@ -4221,7 +4221,7 @@ async function runRiskAgent(): Promise<void> {
             correlationId: ulid(),
             role: 'ops',
             level: 'WARN',
-            line: `risk claude+codex failed; skipping risk refresh: ${summarizeCodexError(fallbackError)}${untilNote}`
+            line: `risk claude+codex failed; skipping risk refresh (claude: ${String(primaryError).slice(0, 120)}) (codex: ${summarizeCodexError(fallbackError)}${untilNote})`
           })
           return
         }

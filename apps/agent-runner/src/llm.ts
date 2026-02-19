@@ -482,7 +482,7 @@ export async function runClaudeStructured<T>(params: {
 
   const settingsPath = await writeSafeClaudeSettings()
 
-  const timeoutMs = params.timeoutMs ?? 90_000
+  const timeoutMs = params.timeoutMs ?? 120_000
   try {
     const args = [
       '-p',
