@@ -2485,7 +2485,7 @@ async function maybeSelectBasket(params: {
           return
         }
       } else {
-        const canUseCodexLlm = await canUseCodex(nowMs)
+        const canUseCodexLlm = await isCodexAvailable()
         if (canUseCodexLlm) {
           try {
             chosen = await generateBasketSelection({ llm: 'codex', model: env.CODEX_MODEL, input })
@@ -3142,7 +3142,8 @@ async function generateRiskReport(params: {
         'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). Do NOT recommend changes to maxDrawdownPct. The operator accepts full drawdown risk.',
         'Focus risk management on position sizing, exposure limits, and leverage — not drawdown caps.',
         'SESSION PNL: pnlPct in context is cumulative session realized P&L, not current position risk. When positions are flat, pnlPct is historical context only — do not use it to elevate posture or tighten policy. Only observable market conditions (volatility, price feeds, liquidity) affect posture.',
-        'Only recommend changes with clear justification tied to observable market conditions. Do not change params arbitrarily.'
+        'Only recommend changes with clear justification tied to observable market conditions. Do not change params arbitrarily.',
+        'TICK FEED RECOVERY: if current tick intervals across the universe are consistently below 55 000ms, the feed is healthy now. Do NOT stay elevated on posture from a prior outage if the feed has recovered. Recovery does not itself warrant AMBER — only concurrent market risks do.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -3856,9 +3857,26 @@ async function runStrategyPipeline(): Promise<void> {
 
   lastPipelineAt = now
 
+  const prevRecommendation = lastResearchReport?.recommendation ?? null
   await runResearchAgent()
+  const newRecommendation = lastResearchReport?.recommendation ?? null
+  if (prevRecommendation !== null && newRecommendation !== null && prevRecommendation !== newRecommendation) {
+    lastPipelineAt = now - env.AGENT_PIPELINE_BASE_MS + 5 * 60_000
+    await publishTape({
+      correlationId: ulid(),
+      role: 'ops',
+      level: 'INFO',
+      line: `research recommendation shifted: [${prevRecommendation}] → [${newRecommendation}]; next pipeline cycle in 5min`
+    })
+  }
+
   await runRiskAgent()
   await runStrategistCycle()
+
+  if (lastProposal !== null && lastResearchAt > lastAnalysisAt) {
+    lastAnalysisAt = Date.now()
+    await runScribeAnalysis(lastProposal, { targetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD })
+  }
 }
 
 async function runResearchAgent(): Promise<void> {
@@ -4012,7 +4030,7 @@ async function runResearchAgent(): Promise<void> {
         return
       }
     } else {
-      const canUseCodexLlm = await canUseCodex(now)
+      const canUseCodexLlm = await isCodexAvailable()
       if (canUseCodexLlm) {
         try {
           report = await generateResearchReport({ llm: 'codex', model: env.CODEX_MODEL, input })
@@ -4038,7 +4056,7 @@ async function runResearchAgent(): Promise<void> {
           correlationId: ulid(),
           role: 'ops',
           level: 'WARN',
-          line: 'research llm unavailable: claude and codex unavailable; skipping research refresh'
+          line: `research llm unavailable: claude and codex unavailable; skipping research refresh (claude error: ${String(primaryError).slice(0, 180)})`
         })
         return
       }
@@ -4186,7 +4204,7 @@ async function runRiskAgent(): Promise<void> {
         return
       }
     } else {
-      const canUseCodexLlm = await canUseCodex(now)
+      const canUseCodexLlm = await isCodexAvailable()
       if (canUseCodexLlm) {
         try {
           report = await generateRiskReport({ llm: 'codex', model: env.CODEX_MODEL, input })
@@ -4212,7 +4230,7 @@ async function runRiskAgent(): Promise<void> {
           correlationId: ulid(),
           role: 'ops',
           level: 'WARN',
-          line: 'risk llm unavailable: claude and codex unavailable; skipping risk refresh'
+          line: `risk llm unavailable: claude and codex unavailable; skipping risk refresh (claude error: ${String(primaryError).slice(0, 180)})`
         })
         return
       }
@@ -4328,7 +4346,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       mode: lastMode,
       state: lastStateUpdate ?? null,
       drift: summary.drift,
-      postureHint: summary.posture,
+      postureHint: lastRiskReport?.posture ?? summary.posture,
       targetNotionalUsd: params.targetNotionalUsd,
       heldSymbols,
       activeUniverse: {
@@ -4406,7 +4424,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
           return
         }
       } else {
-        const canUseCodexLlm = await canUseCodex(nowMs)
+        const canUseCodexLlm = await isCodexAvailable()
         if (canUseCodexLlm) {
           try {
             raw = await generateStrategistDirective({ llm: 'codex', model: env.CODEX_MODEL, input })
@@ -4432,7 +4450,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
             correlationId: ulid(),
             role: 'ops',
             level: 'WARN',
-            line: 'directive refresh failed: claude and codex unavailable, holding previous directive'
+            line: `directive refresh failed: claude and codex unavailable, holding previous directive (claude error: ${String(primaryError).slice(0, 180)})`
           })
           return
         }
@@ -4831,7 +4849,7 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
         return
       }
     } else {
-      const canUseCodexLlm = await canUseCodex(nowMs)
+      const canUseCodexLlm = await isCodexAvailable()
       if (canUseCodexLlm) {
         try {
           analysis = await generateAnalysis({ llm: 'codex', model: env.CODEX_MODEL, input: analysisInput })
@@ -4857,7 +4875,7 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
           correlationId: proposal.proposalId,
           role: 'ops',
           level: 'WARN',
-          line: 'scribe llm unavailable: claude and codex unavailable; skipping scribe update'
+          line: `scribe llm unavailable: claude and codex unavailable; skipping scribe update (claude error: ${String(primaryError).slice(0, 180)})`
         })
         return
       }
