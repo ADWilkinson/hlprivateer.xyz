@@ -495,9 +495,7 @@ export async function runClaudeStructured<T>(params: {
       '--json-schema',
       JSON.stringify(params.jsonSchema),
       '--model',
-      params.model,
-      '--max-turns',
-      '1'
+      params.model
     ] as string[]
 
     if (settingsPath) {
