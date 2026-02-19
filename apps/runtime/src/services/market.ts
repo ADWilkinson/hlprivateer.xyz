@@ -172,6 +172,28 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
             this.mids.set(coin, { px: mid, ts: Date.now() })
           }
         }
+
+        // Publish a MARKET_TICK for each tracked symbol using allMids as a heartbeat.
+        // BBO ticks take priority via the per-symbol 1s throttle — this only fires
+        // when no BBO has arrived recently, keeping low-volume symbols fresh.
+        const now = new Date().toISOString()
+        for (const symbol of this.symbols) {
+          const midEntry = this.mids.get(symbol)
+          if (!midEntry) continue
+          const parsed = NormalizedTickSchema.safeParse({
+            symbol,
+            px: midEntry.px,
+            bid: midEntry.px,
+            ask: midEntry.px,
+            bidSize: 0,
+            askSize: 0,
+            updatedAt: now,
+            source: 'ws'
+          })
+          if (parsed.success) {
+            void this.publishTickThrottled(parsed.data)
+          }
+        }
         return
       }
 
