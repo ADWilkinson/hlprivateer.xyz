@@ -16,8 +16,10 @@ import { createApiStore, type ApiPersistence } from './db/persistence'
 import { env } from './config'
 
 const PUBLIC_TAPE_HISTORY_LIMIT = 120
-const TRAJECTORY_MAX_POINTS = 480
+const TRAJECTORY_MAX_POINTS = 2880
 const TRAJECTORY_SAMPLE_MS = 8000
+const TRAJECTORY_PRUNE_INTERVAL_MS = 60 * 60 * 1000
+const TRAJECTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 type RateLimitLevel = 'warn' | 'error'
 
@@ -104,6 +106,7 @@ export class ApiStore {
   private auditTailHash = createHash('sha256').update('hlprivateer-audit-genesis').digest('hex')
   private trajectoryBuffer: TrajectoryPoint[] = []
   private lastTrajectorySampleAt = 0
+  private pruneTimer: ReturnType<typeof setInterval> | undefined
   private persistence: ApiPersistence = {
     enabled: false,
     ready: false,
@@ -124,7 +127,10 @@ export class ApiStore {
     saveEntitlement: async () => undefined,
     getTierCapabilities: async () => null,
     saveCommand: async () => undefined,
-    recordPaymentAttempt: async () => undefined
+    recordPaymentAttempt: async () => undefined,
+    saveTrajectoryPoint: async () => undefined,
+    getTrajectory: async () => [],
+    pruneTrajectory: async () => undefined
   }
   private initialization: Promise<void>
 
@@ -137,6 +143,13 @@ export class ApiStore {
       .catch((error) => {
         logPersistenceWriteError('initialize', error)
       })
+
+    this.pruneTimer = setInterval(() => {
+      const cutoff = new Date(Date.now() - TRAJECTORY_RETENTION_MS)
+      void this.persistence.pruneTrajectory(cutoff).catch((error) => {
+        logPersistenceWriteError('pruneTrajectory', error)
+      })
+    }, TRAJECTORY_PRUNE_INTERVAL_MS)
   }
 
   public async ready(): Promise<void> {
@@ -144,13 +157,14 @@ export class ApiStore {
   }
 
   private async hydrateFromPersistence(): Promise<void> {
-    const [systemState, persistedPositions, persistedOrders, audits, totalAudits, tierCapabilities] = await Promise.all([
+    const [systemState, persistedPositions, persistedOrders, audits, totalAudits, tierCapabilities, storedTrajectory] = await Promise.all([
       this.persistence.getSystemState(),
       this.persistence.getPositions(),
       this.persistence.getOrders(),
       this.persistence.listAudits(5000, 0),
       this.persistence.countAudits(),
-      this.persistence.getTierCapabilities()
+      this.persistence.getTierCapabilities(),
+      this.persistence.getTrajectory(TRAJECTORY_MAX_POINTS)
     ])
 
     if (systemState) {
@@ -167,6 +181,13 @@ export class ApiStore {
     }
     if (audits[0]?.hash) {
       this.auditTailHash = audits[0].hash
+    }
+    if (storedTrajectory.length > 0) {
+      this.trajectoryBuffer = storedTrajectory.slice(-TRAJECTORY_MAX_POINTS)
+      const last = this.trajectoryBuffer[this.trajectoryBuffer.length - 1]
+      if (last) {
+        this.lastTrajectorySampleAt = new Date(last.ts).getTime()
+      }
     }
   }
 
@@ -255,6 +276,9 @@ export class ApiStore {
     if (this.trajectoryBuffer.length > TRAJECTORY_MAX_POINTS) {
       this.trajectoryBuffer = this.trajectoryBuffer.slice(-TRAJECTORY_MAX_POINTS)
     }
+    void this.persistence.saveTrajectoryPoint(point).catch((error) => {
+      logPersistenceWriteError('saveTrajectoryPoint', error)
+    })
   }
 
   public getTrajectory(): TrajectoryPoint[] {
@@ -404,6 +428,9 @@ export class ApiStore {
   }
 
   public async close(): Promise<void> {
+    if (this.pruneTimer !== undefined) {
+      clearInterval(this.pruneTimer)
+    }
     await this.persistence.close()
   }
 }

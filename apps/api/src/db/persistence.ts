@@ -14,7 +14,7 @@ import {
   type OperatorPosition,
   type TradeState
 } from '@hl/privateer-contracts'
-import { audits, commands, entitlements, orders, payments, positions, systemState, tierCapabilities } from './schema'
+import { audits, commands, entitlements, orders, payments, positions, systemState, tierCapabilities, trajectoryPoints } from './schema'
 import * as schema from './schema'
 
 type AuditRow = typeof audits.$inferSelect
@@ -23,6 +23,9 @@ type OrderRow = typeof orders.$inferSelect
 type PositionRow = typeof positions.$inferSelect
 type SystemStateRow = typeof systemState.$inferSelect
 type TierCapabilitiesRow = typeof tierCapabilities.$inferSelect
+type TrajectoryPointRow = typeof trajectoryPoints.$inferSelect
+
+type StoredTrajectoryPoint = { ts: string; pnlPct: number; accountValueUsd?: number }
 
 type ApiDbStore = {
   db: NodePgDatabase<typeof schema>
@@ -62,6 +65,9 @@ export interface ApiPersistence {
     args: string[]
   }): Promise<void>
   recordPaymentAttempt(input: PaymentAttemptInput): Promise<void>
+  saveTrajectoryPoint(point: StoredTrajectoryPoint): Promise<void>
+  getTrajectory(limit: number): Promise<StoredTrajectoryPoint[]>
+  pruneTrajectory(beforeDate: Date): Promise<void>
 }
 
 const MAX_LIMIT = 5000
@@ -314,7 +320,10 @@ function createDisabledStore(reason: string): ApiPersistence {
     saveEntitlement: async () => undefined,
     getTierCapabilities: async () => null,
     saveCommand: async () => undefined,
-    recordPaymentAttempt: async () => undefined
+    recordPaymentAttempt: async () => undefined,
+    saveTrajectoryPoint: async () => undefined,
+    getTrajectory: async () => [],
+    pruneTrajectory: async () => undefined
   }
 }
 
@@ -328,6 +337,10 @@ function createDisabledStore(reason: string): ApiPersistence {
     await pool.end().catch(() => undefined)
     return createDisabledStore(String(error))
   }
+
+  await ensureTrajectoryTable(pool).catch((error) => {
+    console.warn('[api-store] failed to create trajectory_points table', error) // eslint-disable-line no-console
+  })
 
   const store: ApiDbStore = { db, pool }
 
@@ -586,8 +599,50 @@ function createDisabledStore(reason: string): ApiPersistence {
             }
           }
         })
+    },
+    saveTrajectoryPoint: async (point) => {
+      await store.db
+        .insert(trajectoryPoints)
+        .values({
+          ts: new Date(point.ts),
+          pnlPct: point.pnlPct,
+          accountValueUsd: point.accountValueUsd ?? null
+        })
+        .onConflictDoNothing()
+    },
+    getTrajectory: async (limit) => {
+      const rows = await store.db
+        .select()
+        .from(trajectoryPoints)
+        .orderBy(desc(trajectoryPoints.ts))
+        .limit(Math.min(limit, 10_000))
+      return rows
+        .reverse()
+        .map((row: TrajectoryPointRow) => ({
+          ts: normalizeTimestamp(row.ts),
+          pnlPct: row.pnlPct,
+          ...(row.accountValueUsd !== null ? { accountValueUsd: row.accountValueUsd } : {})
+        }))
+    },
+    pruneTrajectory: async (beforeDate) => {
+      await store.db
+        .delete(trajectoryPoints)
+        .where(lte(trajectoryPoints.ts, beforeDate))
     }
   }
+}
+
+async function ensureTrajectoryTable(pool: Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trajectory_points (
+      ts TIMESTAMPTZ PRIMARY KEY,
+      pnl_pct DOUBLE PRECISION NOT NULL,
+      account_value_usd DOUBLE PRECISION
+    )
+  `)
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_trajectory_points_ts ON trajectory_points (ts)
+  `)
 }
 
 export async function createApiStore(databaseUrl?: string): Promise<ApiPersistence> {

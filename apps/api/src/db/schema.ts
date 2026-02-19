@@ -1,4 +1,4 @@
-import { boolean, integer, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, doublePrecision, integer, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 export const systemState = pgTable('system_state', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -158,4 +158,16 @@ export const users = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   }
+)
+
+export const trajectoryPoints = pgTable(
+  'trajectory_points',
+  {
+    ts: timestamp('ts', { withTimezone: true }).primaryKey(),
+    pnlPct: doublePrecision('pnl_pct').notNull(),
+    accountValueUsd: doublePrecision('account_value_usd')
+  },
+  (table) => ({
+    tsIdx: index('idx_trajectory_points_ts').on(table.ts)
+  })
 )

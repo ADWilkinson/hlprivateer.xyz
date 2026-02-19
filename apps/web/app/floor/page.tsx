@@ -36,7 +36,7 @@ type SectionKey = 'status' | 'positions' | 'pnl' | 'crew' | 'intelligence' | 'ta
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
 const STANDBY_SUPPRESS_MS = 900_000
-const MAX_TRAJECTORY_POINTS = 240
+const MAX_TRAJECTORY_POINTS = 2880
 const TRAJECTORY_REFRESH_MS = 8000
 const INITIAL_FETCH_TIMEOUT_MS = 7000
 const RECONNECT_BASE_MS = 1500
@@ -44,36 +44,6 @@ const RECONNECT_MAX_MS = 15_000
 const LOG_PREFIX = '[DeckPage]'
 const DECK_PNL_FMT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3, minimumFractionDigits: 3 })
 const DECK_USD_FMT = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 2 })
-const PNL_SERIES_STORAGE_KEY = 'hlp-privateer:pnl-series-v1'
-const ACCOUNT_SERIES_STORAGE_KEY = 'hlp-privateer:account-series-v1'
-
-function readStoredSeries<T>(
-  storageKey: string,
-  pickPoint: (raw: unknown) => T | undefined,
-): Array<T> {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(storageKey)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .map((entry) => pickPoint(entry))
-      .filter((entry): entry is T => entry !== undefined)
-      .slice(-MAX_TRAJECTORY_POINTS)
-  } catch {
-    return []
-  }
-}
-
-function writeStoredSeries<T>(storageKey: string, items: T[]): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(items))
-  } catch {
-    return
-  }
-}
 
 function truncate(value: unknown, max = 180): string {
   let next: string
@@ -349,42 +319,9 @@ export default function DeckPage() {
   ])
   const [wsState, setWsState] = useState<WsState>('CONNECTING')
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
-  const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>(() =>
-    readStoredSeries<{ ts: string; pnlPct: number }>(PNL_SERIES_STORAGE_KEY, (raw) => {
-      if (
-        !raw ||
-        typeof raw !== 'object' ||
-        typeof (raw as { ts?: unknown }).ts !== 'string' ||
-        typeof (raw as { pnlPct?: unknown }).pnlPct !== 'number' ||
-        !Number.isFinite((raw as { pnlPct: number }).pnlPct) ||
-        (raw as { pnlPct: number }).pnlPct === 0
-      ) {
-        return undefined
-      }
-      return { ts: (raw as { ts: string }).ts, pnlPct: (raw as { pnlPct: number }).pnlPct }
-    }),
-  )
-  const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>(() =>
-    readStoredSeries<{ ts: string; accountValueUsd: number }>(
-      ACCOUNT_SERIES_STORAGE_KEY,
-      (raw) => {
-        if (
-          !raw ||
-          typeof raw !== 'object' ||
-          typeof (raw as { ts?: unknown }).ts !== 'string' ||
-          typeof (raw as { accountValueUsd?: unknown }).accountValueUsd !== 'number' ||
-          !Number.isFinite((raw as { accountValueUsd: number }).accountValueUsd) ||
-          (raw as { accountValueUsd: number }).accountValueUsd === 0
-        ) {
-          return undefined
-        }
-        return {
-          ts: (raw as { ts: string }).ts,
-          accountValueUsd: (raw as { accountValueUsd: number }).accountValueUsd,
-        }
-      },
-    ),
-  )
+  const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
+  const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>([])
+
   const [crewLast, setCrewLast] = useState<CrewLast>(() => ({
     scout: null,
     research: null,
@@ -426,14 +363,6 @@ export default function DeckPage() {
     const tick = setInterval(() => setNowTick(Date.now()), UI_TICK_MS)
     return () => clearInterval(tick)
   }, [])
-
-  useEffect(() => {
-    writeStoredSeries(PNL_SERIES_STORAGE_KEY, pnlSeries)
-  }, [pnlSeries])
-
-  useEffect(() => {
-    writeStoredSeries(ACCOUNT_SERIES_STORAGE_KEY, accountValueSeries)
-  }, [accountValueSeries])
 
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
