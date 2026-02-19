@@ -236,7 +236,7 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
       ask: typeof ask === 'number' ? ask : px,
       bidSize: typeof bidSize === 'number' ? bidSize : 0,
       askSize: typeof askSize === 'number' ? askSize : 0,
-      updatedAt: isoFromMillis(message.time) ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       source: 'ws'
     })
 
