@@ -20,7 +20,9 @@ import {
 import { AsciiDivider } from '../ui/AsciiDivider'
 import { CrewStationsPanel } from '../ui/CrewStationsPanel'
 import { FloorHeader } from '../ui/FloorHeader'
+import { IntelligencePanel } from '../ui/IntelligencePanel'
 import { PnlPanel } from '../ui/PnlPanel'
+import { PositionsTable } from '../ui/PositionsTable'
 import { StatusStrip } from '../ui/StatusStrip'
 import { TapeSection } from '../ui/TapeSection'
 import { pageShellClass } from '../ui/ascii-style'
@@ -29,7 +31,7 @@ import { X402AgentMaterialsPanel } from '../ui/X402AgentMaterialsPanel'
 type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
 type CrewLast = Record<CrewRole, TapeEntry | null>
-type SectionKey = 'status' | 'pnl' | 'crew' | 'tape' | 'x402'
+type SectionKey = 'status' | 'positions' | 'pnl' | 'crew' | 'intelligence' | 'tape' | 'x402'
 
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
@@ -140,6 +142,8 @@ type SnapshotPayload = {
   position_count?: unknown
   position_notional?: unknown
   positionNotional?: unknown
+  realizedPnlUsd?: unknown
+  realized_pnl_usd?: unknown
   data?: unknown
   [key: string]: unknown
 }
@@ -280,6 +284,7 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
         ? (nextOpenPositionNotionalUsd ?? fallback.openPositionNotionalUsd)
         : fallback.openPositionNotionalUsd,
     accountValueUsd: nextAccountValueUsd,
+    realizedPnlUsd: toFiniteNumber(payload.realizedPnlUsd ?? payload.realized_pnl_usd),
   }
 }
 
@@ -401,8 +406,10 @@ export default function DeckPage() {
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
     status: false,
+    positions: false,
     pnl: false,
     crew: false,
+    intelligence: false,
     tape: false,
     x402: false,
   })
@@ -902,6 +909,17 @@ export default function DeckPage() {
   const equityStr = isBootstrapping || snapshot.accountValueUsd === undefined ? '--' : DECK_USD_FMT.format(snapshot.accountValueUsd)
   const modeStr = isBootstrapping ? '--' : snapshot.mode
   const pnlColor = isBootstrapping || snapshot.pnlPct === 0 ? 'text-hlpMuted' : snapshot.pnlPct > 0 ? 'text-hlpPositive' : 'text-hlpNegative'
+  const realizedPnlUsd = snapshot.realizedPnlUsd
+  const realizedStr =
+    !isBootstrapping && realizedPnlUsd !== undefined && Number.isFinite(realizedPnlUsd)
+      ? (realizedPnlUsd >= 0 ? `+${DECK_USD_FMT.format(realizedPnlUsd)}` : `-${DECK_USD_FMT.format(Math.abs(realizedPnlUsd))}`)
+      : '--'
+  const realizedColor =
+    isBootstrapping || !realizedPnlUsd || realizedPnlUsd === 0
+      ? 'text-hlpMuted'
+      : realizedPnlUsd > 0
+        ? 'text-hlpPositive'
+        : 'text-hlpNegative'
   const toggleSection = (section: SectionKey) => {
     setCollapsedSections((current) => ({
       ...current,
@@ -930,6 +948,13 @@ export default function DeckPage() {
           </div>
           <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
           <div className='text-center'>
+            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>REALIZED</div>
+            <div className={`text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none ${realizedColor}`}>
+              {realizedStr}
+            </div>
+          </div>
+          <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
+          <div className='text-center'>
             <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MODE</div>
             <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
               {modeStr}
@@ -950,6 +975,16 @@ export default function DeckPage() {
           />
 
           <AsciiDivider variant='dots' />
+
+          <PositionsTable
+            positions={snapshot.openPositions ?? []}
+            isLoading={isBootstrapping}
+            isCollapsed={collapsedSections.positions}
+            onToggle={() => toggleSection('positions')}
+            sectionId='positions'
+          />
+
+          <AsciiDivider variant='compass' />
 
           <PnlPanel
             snapshot={snapshot}
@@ -972,6 +1007,17 @@ export default function DeckPage() {
             isCollapsed={collapsedSections.crew}
             onToggle={() => toggleSection('crew')}
             sectionId='crew'
+          />
+
+          <AsciiDivider variant='dots' />
+
+          <IntelligencePanel
+            crewLast={crewLast}
+            nowMs={crewNow}
+            isLoading={isBootstrapping}
+            isCollapsed={collapsedSections.intelligence}
+            onToggle={() => toggleSection('intelligence')}
+            sectionId='intelligence'
           />
 
           <AsciiDivider variant='dots' />

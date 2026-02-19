@@ -87,6 +87,7 @@ interface FloorSnapshot {
   pnlPct: number | null
   accountValueUsd: number | null
   leverage: number | null
+  realizedPnlUsd: number | null
   openPositions: OpenPosition[]
 }
 
@@ -116,6 +117,7 @@ export default function LandingPage() {
     pnlPct: null,
     accountValueUsd: null,
     leverage: null,
+    realizedPnlUsd: null,
     openPositions: [],
   })
   const [hasSnapshot, setHasSnapshot] = useState(false)
@@ -158,10 +160,11 @@ export default function LandingPage() {
 
         const rawOpenPositions = d.openPositions ?? d.open_positions ?? d.positions
         const openPositions = normalizeOpenPositions(rawOpenPositions)
+        const realizedPnl = toFiniteNumber(d.realizedPnlUsd ?? d.realized_pnl_usd)
 
         if (active) {
           setHasSnapshot(true)
-          setSnap({ pnlPct, accountValueUsd: acct, leverage: maxLev, openPositions })
+          setSnap({ pnlPct, accountValueUsd: acct, leverage: maxLev, realizedPnlUsd: realizedPnl, openPositions })
         }
         computeSharpe()
       } catch {
@@ -175,7 +178,52 @@ export default function LandingPage() {
         inFlight = false
       }
     }
+    const seedTrajectory = async () => {
+      if (!active) return
+      try {
+        const controller = new AbortController()
+        const timeoutId = window.setTimeout(() => controller.abort(), SNAPSHOT_TIMEOUT_MS)
+        const res = await fetch(apiUrl('/v1/public/trajectory'), {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        window.clearTimeout(timeoutId)
+        if (!res.ok || !active) return
+        const raw = (await res.json()) as { points?: unknown[] }
+        const serverPoints = Array.isArray(raw?.points) ? raw.points : []
+        const serverPnl = serverPoints
+          .filter(
+            (p): p is { ts: string; pnlPct: number } =>
+              typeof p === 'object' &&
+              p !== null &&
+              typeof (p as { ts?: unknown }).ts === 'string' &&
+              typeof (p as { pnlPct?: unknown }).pnlPct === 'number' &&
+              Number.isFinite((p as { pnlPct: number }).pnlPct) &&
+              (p as { pnlPct: number }).pnlPct !== 0,
+          )
+          .map((p) => ({ ts: p.ts, pnlPct: p.pnlPct }))
+        if (serverPnl.length === 0) return
+        const local = readPnlSeriesFromLocalStorage()
+        const merged = [...serverPnl, ...local].sort((a, b) => a.ts.localeCompare(b.ts))
+        const seen = new Set<string>()
+        const deduped = merged.filter((p) => {
+          if (seen.has(p.ts)) return false
+          seen.add(p.ts)
+          return true
+        })
+        try {
+          window.localStorage.setItem(PNL_SERIES_STORAGE_KEY, JSON.stringify(deduped))
+        } catch {
+          // localStorage full or unavailable — Sharpe stays from local data only
+        }
+        computeSharpe()
+      } catch {
+        // trajectory seed failed — non-critical
+      }
+    }
+
     void poll()
+    void seedTrajectory()
     const t = window.setInterval(poll, 12_000)
     return () => {
       active = false
@@ -190,6 +238,13 @@ export default function LandingPage() {
   const equity = snap.accountValueUsd !== null ? `$${snap.accountValueUsd.toFixed(2)}` : '--'
   const lev = snap.leverage !== null ? `${snap.leverage.toFixed(2)}x` : '--'
   const sharpe = sharpeRatio !== null ? sharpeRatio.toFixed(2) : '--'
+  const realizedStr = formatSignedUsd(snap.realizedPnlUsd)
+  const realizedColor =
+    snap.realizedPnlUsd === null || snap.realizedPnlUsd === 0
+      ? 'text-hlpMuted'
+      : snap.realizedPnlUsd > 0
+        ? 'text-hlpPositive'
+        : 'text-hlpNegative'
 
   const openPositionCount = hasSnapshot ? snap.openPositions.length : null
   const openPositionNotionalUsd = hasSnapshot
@@ -236,6 +291,10 @@ export default function LandingPage() {
         <span className='text-hlpBorder'>|</span>
         <span>
           EQUITY <span className='text-hlpFg'>{equity}</span>
+        </span>
+        <span className='text-hlpBorder'>|</span>
+        <span>
+          REALIZED <span className={realizedColor}>{realizedStr}</span>
         </span>
         <span className='text-hlpBorder'>|</span>
         <span>

@@ -114,6 +114,7 @@ export interface Snapshot {
   mode: string
   pnlPct: number
   accountValueUsd?: number
+  realizedPnlUsd?: number
   healthCode: string
   driftState: string
   lastUpdateAt: string
