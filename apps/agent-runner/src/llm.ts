@@ -485,7 +485,8 @@ export async function runClaudeStructured<T>(params: {
 
   const timeoutMs = params.timeoutMs ?? 120_000
   const useThinking = params.reasoningEffort === 'high' || params.reasoningEffort === 'xhigh'
-  try {
+
+  const buildArgs = (): string[] => {
     const args = [
       '-p',
       '--no-session-persistence',
@@ -498,36 +499,42 @@ export async function runClaudeStructured<T>(params: {
       '--model',
       params.model
     ] as string[]
-
-    if (useThinking) {
-      args.push('--betas', 'interleaved-thinking')
-    }
-
-    if (settingsPath) {
-      args.push('--settings', settingsPath)
-    }
-
+    if (useThinking) args.push('--betas', 'interleaved-thinking')
+    if (settingsPath) args.push('--settings', settingsPath)
     args.push(params.prompt)
+    return args
+  }
 
-    const { stdout, stderr } = await runCliCommand(command, args, timeoutMs, 'claude')
-    const parsed = parseJsonFromText(`${stdout}\n${stderr}`)
-    if (!parsed) {
-      throw new Error(
-        `claude did not return structured output (output=${safeTruncate(stdout)}${stderr ? ` | ${safeTruncate(stderr)}` : ''})`,
-      )
+  const MAX_ATTEMPTS = 2
+  const RETRY_DELAY_MS = 4_000
+  try {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const { stdout, stderr } = await runCliCommand(command, buildArgs(), timeoutMs, 'claude')
+        const parsed = parseJsonFromText(`${stdout}\n${stderr}`)
+        if (!parsed) {
+          throw new Error(
+            `claude did not return structured output (output=${safeTruncate(stdout)}${stderr ? ` | ${safeTruncate(stderr)}` : ''})`,
+          )
+        }
+        const failure = summarizeClaudeFailurePayload(parsed)
+        if (isRecord(parsed) && parsed.type === 'result' && parsed.is_error === true) {
+          throw new Error(failure)
+        }
+        const extracted = extractClaudePayload(parsed)
+        if (!extracted) {
+          throw new Error(failure)
+        }
+        return extracted as T
+      } catch (error) {
+        if (attempt < MAX_ATTEMPTS && !String(error).includes('timed out')) {
+          await new Promise<void>((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+          continue
+        }
+        throw error
+      }
     }
-
-    const failure = summarizeClaudeFailurePayload(parsed)
-    if (isRecord(parsed) && parsed.type === 'result' && parsed.is_error === true) {
-      throw new Error(failure)
-    }
-
-    const extracted = extractClaudePayload(parsed)
-    if (!extracted) {
-      throw new Error(failure)
-    }
-
-    return extracted as T
+    throw new Error('unreachable')
   } finally {
     await cleanupTempPath(settingsPath)
   }

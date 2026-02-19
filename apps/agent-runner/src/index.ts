@@ -3056,6 +3056,7 @@ async function generateResearchReport(params: {
       'Missing Twitter/social data is NOT regime uncertainty — it means supplementary context is unavailable. Classify regime from price, funding, OI, and correlation data.',
       'When historical context is provided, use it for trend continuity detection — if the same regime has persisted for multiple cycles, confidence should be HIGHER not lower.',
       'SCAN THE FULL UNIVERSE: do not limit analysis to BTC/ETH. Mid-cap assets (UNI, AAVE, LINK, PENDLE, TAO, SOL, etc.) often have higher-alpha directional setups.',
+      'Your recommendation MUST name only symbols from universeSymbols. Never recommend a symbol not listed there — it cannot be traded.',
       'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3297,6 +3298,7 @@ async function generateStrategistDirective(params: {
         'NO LOSS RECOVERY: do not oversize positions to recover session losses. state.pnlPct reflects historical realized P&L — treat each new trade on its own merit using targetNotionalUsd as the size baseline. Chasing losses is a risk amplifier, not a recovery strategy.',
         'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',
         'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
+        'ALL plan legs MUST use symbols from activeUniverse.symbols. Never propose a symbol not in that list — off-basket legs are dropped by the execution layer.',
         'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
         'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd or the runtime parser will drop it.',
         'riskBudget.maxGrossNotionalUsd, riskBudget.maxNetNotionalUsd, and riskBudget.maxLeverage must be null or positive numbers.',
@@ -4496,9 +4498,20 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       }
     }
 
+    let filteredPlan = raw.decision === 'OPEN' || raw.decision === 'REBALANCE' ? raw.plan : null
+    if (filteredPlan && activeBasket.symbols.length > 0) {
+      const allowed = new Set(activeBasket.symbols)
+      const validLegs = filteredPlan.legs.filter((leg) => allowed.has((leg as { symbol?: string }).symbol ?? ''))
+      if (validLegs.length !== filteredPlan.legs.length) {
+        const dropped = filteredPlan.legs.filter((leg) => !allowed.has((leg as { symbol?: string }).symbol ?? '')).map((l) => (l as { symbol?: string }).symbol)
+        await publishTape({ correlationId: ulid(), role: 'ops', level: 'WARN', line: `directive plan: dropped off-basket legs [${dropped.join(',')}]` })
+        filteredPlan = validLegs.length > 0 ? { ...filteredPlan, legs: validLegs } : null
+      }
+    }
+
     activeDirective = {
       decision: raw.decision,
-      plan: raw.decision === 'OPEN' || raw.decision === 'REBALANCE' ? raw.plan : null,
+      plan: filteredPlan,
       rationale: raw.rationale || 'directive',
       confidence: clamp(Number(raw.confidence), 0, 1),
       decidedAt: new Date().toISOString()
