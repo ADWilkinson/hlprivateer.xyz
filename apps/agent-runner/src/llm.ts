@@ -472,6 +472,7 @@ export async function runClaudeStructured<T>(params: {
   prompt: string
   jsonSchema: Record<string, unknown>
   model: string
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   timeoutMs?: number
 }): Promise<T> {
   const command = await resolveCommandPath('claude')
@@ -483,6 +484,7 @@ export async function runClaudeStructured<T>(params: {
   const settingsPath = await writeSafeClaudeSettings()
 
   const timeoutMs = params.timeoutMs ?? 120_000
+  const useThinking = params.reasoningEffort === 'high' || params.reasoningEffort === 'xhigh'
   try {
     const args = [
       '-p',
@@ -494,8 +496,14 @@ export async function runClaudeStructured<T>(params: {
       '--json-schema',
       JSON.stringify(params.jsonSchema),
       '--model',
-      params.model
+      params.model,
+      '--max-turns',
+      '1'
     ] as string[]
+
+    if (useThinking) {
+      args.push('--betas', 'interleaved-thinking')
+    }
 
     if (settingsPath) {
       args.push('--settings', settingsPath)

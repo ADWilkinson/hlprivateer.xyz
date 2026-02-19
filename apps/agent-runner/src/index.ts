@@ -2147,7 +2147,8 @@ async function generateBasketSelection(params: {
       ? await runClaudeStructured<{ basketSymbols: string[]; rationale: string }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
       : await runCodexStructured<{ basketSymbols: string[]; rationale: string }>({
         prompt,
@@ -2954,7 +2955,8 @@ async function generateAnalysis(params: {
       ? await runClaudeStructured<{ headline: string; thesis: string; risks: string[]; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
       : await runCodexStructured<{ headline: string; thesis: string; risks: string[]; confidence: number }>({
         prompt,
@@ -3038,7 +3040,8 @@ async function generateResearchReport(params: {
       ? await runClaudeStructured<ResearchReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
       : await runCodexStructured<ResearchReportResult>({
         prompt,
@@ -3155,7 +3158,8 @@ async function generateRiskReport(params: {
       ? await runClaudeStructured<RiskReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
       : await runCodexStructured<RiskReportResult>({
         prompt,
@@ -3275,7 +3279,8 @@ async function generateStrategistDirective(params: {
       ? await runClaudeStructured<{ decision: StrategistDirectiveDecision; plan?: DirectivePlan; rationale: string; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
-        model: params.model
+        model: params.model,
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
       })
       : await runCodexStructured<{ decision: StrategistDirectiveDecision; plan?: DirectivePlan; rationale: string; confidence: number }>({
         prompt,
