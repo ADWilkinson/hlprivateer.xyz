@@ -3364,6 +3364,7 @@ let lastRiskAt = 0
 let lastOpsAt = 0
 let lastDirectiveAt = 0
 let lastPipelineAt = 0
+let pipelineActive = false
 
 let lastProposal: StrategyProposal | null = null
 let lastProposalPublishedAt = 0
@@ -3894,11 +3895,8 @@ async function runOpsAgent(): Promise<void> {
 async function runStrategyPipeline(): Promise<void> {
   const now = Date.now()
 
-  if (now - lastPipelineAt < env.AGENT_PIPELINE_BASE_MS) return
-
-  lastPipelineAt = now
-
   const prevRecommendation = lastResearchReport?.recommendation ?? null
+  const researchAtBefore = lastResearchAt
   await runResearchAgent()
   const newRecommendation = lastResearchReport?.recommendation ?? null
   if (prevRecommendation !== null && newRecommendation !== null && prevRecommendation !== newRecommendation) {
@@ -3909,6 +3907,16 @@ async function runStrategyPipeline(): Promise<void> {
       level: 'INFO',
       line: `research recommendation shifted: [${prevRecommendation}] → [${newRecommendation}]; next pipeline cycle in 5min`
     })
+  }
+
+  if (lastResearchAt === researchAtBefore) {
+    await publishTape({
+      correlationId: ulid(),
+      role: 'ops',
+      level: 'WARN',
+      line: 'pipeline: research produced no output this cycle; skipping risk + strategist'
+    })
+    return
   }
 
   await runRiskAgent()
@@ -4190,6 +4198,7 @@ async function runRiskAgent(): Promise<void> {
 	    externalIntel: lastExternalIntel ? summarizeExternalIntel(lastExternalIntel) : null,
 	    lastRiskDecision,
 	    currentRiskPolicy,
+	    lastResearchReport,
 	    historicalContext: {
       recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(5), ['ts', 'headline', 'posture', 'risks', 'confidence']),
       recentIntel: formatHistoryForPrompt('recent intel availability', intelHistory.recent(5), [
@@ -5236,7 +5245,29 @@ const start = async (): Promise<void> => {
       try {
         await runOpsAgent()
         await emitIdleHeartbeats()
-        await runStrategyPipeline()
+        const nowTick = Date.now()
+        if (!pipelineActive && nowTick - lastPipelineAt >= env.AGENT_PIPELINE_BASE_MS) {
+          lastPipelineAt = nowTick
+          pipelineActive = true
+          void runStrategyPipeline().catch((error) => {
+            void publishAudit({
+              id: ulid(),
+              ts: new Date().toISOString(),
+              actorType: 'internal_agent',
+              actorId: roleActorId('ops'),
+              action: 'agent.error',
+              resource: 'agent.runner',
+              correlationId: ulid(),
+              details: { message: String(error) }
+            }).catch((publishError) => {
+              console.warn('agent-runner: publishAudit failed in pipeline error handler', {
+                error: String(publishError)
+              })
+            })
+          }).finally(() => {
+            pipelineActive = false
+          })
+        }
         consecutiveFailures = 0
       } catch (error) {
         consecutiveFailures += 1
