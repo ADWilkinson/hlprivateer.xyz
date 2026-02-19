@@ -3316,13 +3316,15 @@ async function generateStrategistDirective(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: 600_000
       })
       : await runCodexStructured<{ decision: StrategistDirectiveDecision; plan?: DirectivePlan; rationale: string; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: 600_000
       })
 
   const decision: StrategistDirectiveDecision =
