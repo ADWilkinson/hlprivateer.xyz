@@ -1032,6 +1032,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       if (!proposalCandidate) {
         const hasOpenExposure = hasAnyExposure()
         runtimeProposalCounter.inc({ status: hasOpenExposure ? 'no_action' : 'awaiting_agent_proposal' })
+        if (!hasOpenExposure && state.mode !== 'READY') {
+          await setMode('READY', 'flat (no proposal)')
+        }
         const message =
           !hasOpenExposure
             ? 'awaiting agent proposal (entry is agent-driven)'
