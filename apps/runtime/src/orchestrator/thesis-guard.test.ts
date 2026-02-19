@@ -26,16 +26,11 @@ function makeExitProposal(exitReason: StrategyProposal['exitReason'] = 'DISCRETI
 
 const activeThesis: ActiveThesisState = {
   thesisId: 'thesis_1',
-  horizonClass: 'SWING',
-  startedAtMs: Date.parse('2026-02-18T00:00:00.000Z'),
-  timeframeMin: 7 * 24 * 60,
-  stopLossPct: 3,
-  takeProfitPct: 6,
   symbols: ['BTC']
 }
 
 describe('thesis exit suppression guard', () => {
-  it('suppresses discretionary exits while thesis is still valid', () => {
+  it('does not suppress discretionary exits (TP/SL managed by exchange orders)', () => {
     const guard = shouldSuppressDiscretionaryExit({
       proposal: makeExitProposal('DISCRETIONARY'),
       activeThesis,
@@ -43,8 +38,7 @@ describe('thesis exit suppression guard', () => {
       nowMs: Date.parse('2026-02-18T06:00:00.000Z')
     })
 
-    expect(guard.suppress).toBe(true)
-    expect(guard.reason).toContain('thesis thesis_1/SWING still valid')
+    expect(guard.suppress).toBe(false)
   })
 
   it('does not suppress risk-off exits', () => {

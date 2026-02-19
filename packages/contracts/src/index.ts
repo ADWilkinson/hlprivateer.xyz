@@ -86,7 +86,10 @@ export const StrategyLegSchema = z
     symbol: z.string().min(1),
     side: ActionSideSchema,
     notionalUsd: z.number().positive(),
-    targetRatio: z.number().min(0).max(1).optional()
+    targetRatio: z.number().min(0).max(1).optional(),
+    stopLossPrice: z.number().positive().optional(),
+    takeProfitPrice: z.number().positive().optional(),
+    thesisNote: z.string().max(500).optional()
   })
   .strict()
 
@@ -115,10 +118,10 @@ export const StrategyHorizonClassSchema = z.enum(['DAY', 'SWING', 'CORE'])
 export const StrategyThesisSchema = z
   .object({
     thesisId: z.string().min(1),
-    horizonClass: StrategyHorizonClassSchema,
-    timeframeMin: z.number().int().positive(),
-    stopLossPct: z.number().positive(),
-    takeProfitPct: z.number().positive(),
+    horizonClass: StrategyHorizonClassSchema.optional(),
+    timeframeMin: z.number().int().positive().optional(),
+    stopLossPct: z.number().positive().optional(),
+    takeProfitPct: z.number().positive().optional(),
     invalidation: z.string().min(3).max(500).optional(),
     createdAt: z.string().datetime().optional()
   })

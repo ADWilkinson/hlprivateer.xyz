@@ -14,7 +14,6 @@ import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMa
 import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
 import { buildExternalIntelPack, summarizeExternalIntel, type ExternalIntelPack } from './intel'
 import { HistoryStore, formatHistoryForPrompt, type ResearchHistoryEntry, type RiskHistoryEntry, type DirectiveHistoryEntry, type IntelHistoryEntry } from './history-store'
-import { buildProposalThesis } from './strategy-thesis'
 
 type Tick = {
   symbol: string
@@ -1094,7 +1093,8 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- DEPENDENCY_FAILURE refers to runtime infrastructure (Redis, Postgres) NOT external data sources like Twitter.',
   '- Budget caps in floor context (max leverage/exposure/drawdown/slippage) are hard constraints enforced by the risk engine.',
   '- Read floor context memory every cycle: active directive, risk caps, recent posture tape, current exposure before sizing.',
-  '- Proposals must reference current positions summary (gross/net/mode), estimated leverage, and strategy thesis.',
+  '- Proposals must reference current positions summary (gross/net/mode), estimated leverage, and per-leg thesis.',
+  '- Each trade is independent with its own TP/SL orders on the exchange. Do not exit positions arbitrarily — only when the per-leg thesis is clearly invalidated.',
   '- Execution channels: /flatten and /risk-policy for safety interventions.'
 ]
 
@@ -1956,6 +1956,9 @@ type DiscretionaryLeg = {
   symbol: string
   side: 'LONG' | 'SHORT'
   notionalUsd: number
+  stopLossPrice?: number
+  takeProfitPrice?: number
+  thesisNote?: string
 }
 
 type UniverseSelection = {
@@ -2656,6 +2659,7 @@ function normalizeDirectivePlan(params: {
   const grossCap = Number(rawPlan.riskBudget?.maxGrossNotionalUsd)
 
   const bySymbol = new Map<string, number>()
+  const metaBySymbol = new Map<string, { stopLossPrice?: number; takeProfitPrice?: number; thesisNote?: string }>()
   for (const leg of rawPlan.legs) {
     const symbol = String(leg?.symbol ?? '').trim().toUpperCase()
     if (!symbol) {
@@ -2671,18 +2675,32 @@ function normalizeDirectivePlan(params: {
     }
     const signedNotionalUsd = side === 'LONG' ? notionalUsd : -notionalUsd
     bySymbol.set(symbol, (bySymbol.get(symbol) ?? 0) + signedNotionalUsd)
+    if (!metaBySymbol.has(symbol)) {
+      const rawLeg = leg as { stopLossPrice?: unknown; takeProfitPrice?: unknown; thesisNote?: unknown }
+      metaBySymbol.set(symbol, {
+        stopLossPrice: typeof rawLeg.stopLossPrice === 'number' && Number.isFinite(rawLeg.stopLossPrice) && rawLeg.stopLossPrice > 0 ? rawLeg.stopLossPrice : undefined,
+        takeProfitPrice: typeof rawLeg.takeProfitPrice === 'number' && Number.isFinite(rawLeg.takeProfitPrice) && rawLeg.takeProfitPrice > 0 ? rawLeg.takeProfitPrice : undefined,
+        thesisNote: typeof rawLeg.thesisNote === 'string' ? rawLeg.thesisNote.slice(0, 500) : undefined
+      })
+    }
   }
 
   if (bySymbol.size === 0) {
     return null
   }
 
-  let normalizedLegs = [...bySymbol.entries()]
-    .map(([symbol, signedNotionalUsd]) => ({
-      symbol,
-      side: signedNotionalUsd >= 0 ? ('LONG' as const) : ('SHORT' as const),
-      notionalUsd: Math.abs(signedNotionalUsd)
-    }))
+  let normalizedLegs: DiscretionaryLeg[] = [...bySymbol.entries()]
+    .map(([symbol, signedNotionalUsd]) => {
+      const meta = metaBySymbol.get(symbol)
+      return {
+        symbol,
+        side: signedNotionalUsd >= 0 ? ('LONG' as const) : ('SHORT' as const),
+        notionalUsd: Math.abs(signedNotionalUsd),
+        ...(meta?.stopLossPrice != null ? { stopLossPrice: meta.stopLossPrice } : {}),
+        ...(meta?.takeProfitPrice != null ? { takeProfitPrice: meta.takeProfitPrice } : {}),
+        ...(meta?.thesisNote ? { thesisNote: meta.thesisNote } : {})
+      }
+    })
     .filter((leg) => leg.notionalUsd >= minLegUsd)
 
   const grossUsd = normalizedLegs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
@@ -2794,7 +2812,22 @@ function buildDiscretionaryProposal(params: {
     return a.symbol.localeCompare(b.symbol)
   })
 
-  const legs = deltas.map(({ symbol, side, notionalUsd }) => ({ symbol, side, notionalUsd }))
+  const planLegBySymbol = new Map<string, DiscretionaryLeg>()
+  for (const leg of params.plan.legs) {
+    planLegBySymbol.set(String(leg.symbol).trim().toUpperCase(), leg)
+  }
+
+  const legs = deltas.map(({ symbol, side, notionalUsd }) => {
+    const planLeg = planLegBySymbol.get(symbol)
+    return {
+      symbol,
+      side,
+      notionalUsd,
+      ...(planLeg?.stopLossPrice != null ? { stopLossPrice: planLeg.stopLossPrice } : {}),
+      ...(planLeg?.takeProfitPrice != null ? { takeProfitPrice: planLeg.takeProfitPrice } : {}),
+      ...(planLeg?.thesisNote ? { thesisNote: planLeg.thesisNote } : {})
+    }
+  })
 
   const latestVolatility = [...params.signals].reverse().find((signal) => signal.signalType === 'volatility')
   const latestCorrelation = [...params.signals].reverse().find((signal) => signal.signalType === 'correlation')
@@ -2821,11 +2854,6 @@ function buildDiscretionaryProposal(params: {
     confidence,
     requestedMode: params.requestedMode,
     createdBy: params.createdBy,
-    thesis: buildProposalThesis({
-      rationale,
-      confidence,
-      pipelineBaseMs: env.AGENT_PIPELINE_BASE_MS
-    }),
     actions: [
       {
         type: actionType,
@@ -3201,9 +3229,12 @@ async function generateStrategistDirective(params: {
           properties: {
             symbol: { type: 'string' },
             side: { type: 'string', enum: ['LONG', 'SHORT'] },
-            notionalUsd: { type: 'number' }
+            notionalUsd: { type: 'number' },
+            stopLossPrice: { type: 'number' },
+            takeProfitPrice: { type: 'number' },
+            thesisNote: { type: 'string' }
           },
-          required: ['symbol', 'side', 'notionalUsd']
+          required: ['symbol', 'side', 'notionalUsd', 'stopLossPrice', 'takeProfitPrice', 'thesisNote']
         },
         minItems: 1,
         maxItems: 12
@@ -3254,11 +3285,14 @@ async function generateStrategistDirective(params: {
 	        'OPEN: establish a new discretionary position. If risk posture is GREEN and you are FLAT, you SHOULD be opening a position. Prefer 1-leg directional trades when one asset has the strongest thesis.',
 	        'REBALANCE: revise existing exposure using explicit plan legs.',
         'HOLD: keep current exposure. HOLD requires genuine absence of tradeable setups across ALL 28 assets in the universe — NOT as a safe default.',
-        'EXIT: flatten all exposure immediately (no plan needed).',
+        'EXIT: close ALL positions to flat immediately. Use this ONLY for portfolio-wide risk-off — NOT for routine trade management. To close a specific position, use REBALANCE with that symbol at notionalUsd=0.',
         'DIRECTIONAL IS DEFAULT: a single long or short in the asset with the best setup (momentum, funding edge, catalyst, aixbt signal) is preferred over a hedged pair unless a specific relative-value divergence justifies pairing.',
         'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), assume runtime risk recovery can force risk-off flattening; avoid discretionary churn around blocked states.',
-        'Use EXIT discretionarily only when thesis invalidation is clear (time stop, stop-loss/take-profit, or invalidation signal).',
+        'For each OPEN/REBALANCE leg, you MUST specify stopLossPrice and takeProfitPrice as absolute price levels based on technical analysis (support/resistance, ATR, key levels). These will be placed as reduce-only exchange orders immediately after entry.',
+        'thesisNote per leg should explain the specific setup and what would invalidate it (max 500 chars).',
+        'Each trade is INDEPENDENT. Existing positions with active TP/SL orders on the exchange are being managed automatically. Do NOT exit them arbitrarily. Only propose REBALANCE to close a specific symbol when the thesis is clearly invalidated.',
+        'When you put on a new trade, it does NOT mean you should exit other trades. Each trade has its own thesis and exit criteria.',
         'MINIMUM VIABLE TRADE: even a small directional position with a clear thesis beats perpetual HOLD. The risk engine caps downside — your job is to find upside.',
         'NO LOSS RECOVERY: do not oversize positions to recover session losses. state.pnlPct reflects historical realized P&L — treat each new trade on its own merit using targetNotionalUsd as the size baseline. Chasing losses is a risk amplifier, not a recovery strategy.',
         'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',

@@ -40,6 +40,21 @@ export interface PlacedOrder {
   source: 'SIM' | 'LIVE'
 }
 
+export interface TpslInput {
+  symbol: string
+  closingSide: 'BUY' | 'SELL'
+  size: string
+  stopLossPrice?: number
+  takeProfitPrice?: number
+  tick: NormalizedTick
+  correlationId: string
+}
+
+export interface TpslPlaced {
+  tpOrderId?: string
+  slOrderId?: string
+}
+
 export interface ExecutionAdapter {
   place(input: OrderInput): Promise<PlacedOrder>
   cancel(orderId: string, reason: string): Promise<void>
@@ -48,6 +63,7 @@ export interface ExecutionAdapter {
   snapshot(): Promise<{ orders: PlacedOrder[]; positions: OperatorPosition[]; realizedPnlUsd: number }>
   /** Close a position by exact size with a reduce-only IOC market order. Used for dust cleanup. */
   closeBySize?(input: { symbol: string; side: 'BUY' | 'SELL'; size: string; tick: NormalizedTick; idempotencyKey: string }): Promise<PlacedOrder>
+  placeTpsl?(input: TpslInput): Promise<TpslPlaced>
   // Live-only helpers used by runtime funding gates.
   getAccountValueUsd?: () => Promise<number>
   getWalletAddress?: () => string
@@ -282,7 +298,11 @@ export function createSimAdapter(slippageBps: SlippageBpsProvider = 5, latencyMs
     return order
   }
 
-  return { place, cancel, modify, reconcile, snapshot }
+  async function placeTpsl(_input: TpslInput): Promise<TpslPlaced> {
+    return {}
+  }
+
+  return { place, cancel, modify, reconcile, snapshot, placeTpsl }
 }
 
 interface InternalPosition {
@@ -769,7 +789,74 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     throw new Error(`closeBySize unexpected status shape: ${JSON.stringify(status)}`)
   }
 
-  return { place, cancel, modify, reconcile, snapshot, closeBySize, getAccountValueUsd, getWalletAddress }
+  async function placeTpsl(input: TpslInput): Promise<TpslPlaced> {
+    const converter = await ensureConverter()
+    const assetId = converter.getAssetId(input.symbol)
+    const szDecimals = converter.getSzDecimals(input.symbol)
+    if (typeof assetId !== 'number' || typeof szDecimals !== 'number') {
+      throw new Error(`unknown symbol for placeTpsl: ${input.symbol}`)
+    }
+
+    const isBuy = input.closingSide === 'BUY'
+    const size = formatSize(Number(input.size), szDecimals)
+    const result: TpslPlaced = {}
+
+    if (input.takeProfitPrice != null && Number.isFinite(input.takeProfitPrice) && input.takeProfitPrice > 0) {
+      const tpPx = formatPrice(input.takeProfitPrice, szDecimals, 'perp')
+      try {
+        const tpResult = await exchange.order({
+          orders: [{
+            a: assetId,
+            b: isBuy,
+            p: tpPx,
+            s: size,
+            r: true,
+            t: { trigger: { triggerPx: tpPx, isMarket: true, tpsl: 'tp' } } as any,
+            c: cloidFromIdempotencyKey(`tp:${input.correlationId}:${input.symbol}`)
+          }],
+          grouping: 'na'
+        })
+        const tpStatus = tpResult?.response?.data?.statuses?.[0]
+        if (tpStatus && typeof tpStatus !== 'string' && 'resting' in tpStatus) {
+          result.tpOrderId = String((tpStatus as any).resting.oid)
+        } else if (tpStatus && typeof tpStatus !== 'string' && 'filled' in tpStatus) {
+          result.tpOrderId = String((tpStatus as any).filled.oid)
+        }
+      } catch (error) {
+        console.warn(`oms: placeTpsl TP failed for ${input.symbol}`, error)
+      }
+    }
+
+    if (input.stopLossPrice != null && Number.isFinite(input.stopLossPrice) && input.stopLossPrice > 0) {
+      const slPx = formatPrice(input.stopLossPrice, szDecimals, 'perp')
+      try {
+        const slResult = await exchange.order({
+          orders: [{
+            a: assetId,
+            b: isBuy,
+            p: slPx,
+            s: size,
+            r: true,
+            t: { trigger: { triggerPx: slPx, isMarket: true, tpsl: 'sl' } } as any,
+            c: cloidFromIdempotencyKey(`sl:${input.correlationId}:${input.symbol}`)
+          }],
+          grouping: 'na'
+        })
+        const slStatus = slResult?.response?.data?.statuses?.[0]
+        if (slStatus && typeof slStatus !== 'string' && 'resting' in slStatus) {
+          result.slOrderId = String((slStatus as any).resting.oid)
+        } else if (slStatus && typeof slStatus !== 'string' && 'filled' in slStatus) {
+          result.slOrderId = String((slStatus as any).filled.oid)
+        }
+      } catch (error) {
+        console.warn(`oms: placeTpsl SL failed for ${input.symbol}`, error)
+      }
+    }
+
+    return result
+  }
+
+  return { place, cancel, modify, reconcile, snapshot, closeBySize, getAccountValueUsd, getWalletAddress, placeTpsl }
 }
 
 export function mapToOperatorOrder(order: PlacedOrder): OperatorOrder {

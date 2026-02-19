@@ -1370,19 +1370,68 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       }
     }
 
+    if (adapter.placeTpsl && (action.type === 'ENTER' || action.type === 'REBALANCE')) {
+      const legsWithTpsl = action.legs.filter(
+        (leg: any) => leg.stopLossPrice != null || leg.takeProfitPrice != null
+      )
+
+      if (legsWithTpsl.length > 0) {
+        const currentSnapshot = await adapter.snapshot().catch(() => null)
+
+        for (const leg of legsWithTpsl) {
+          const position = currentSnapshot?.positions.find((p) => p.symbol === leg.symbol)
+          if (!position || position.qty <= 0) continue
+
+          const closingSide: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
+          const tickEntry = ticks[leg.symbol]
+          const fallbackTick: NormalizedTick = {
+            symbol: leg.symbol,
+            px: position.markPx,
+            bid: position.markPx * 0.999,
+            ask: position.markPx * 1.001,
+            bidSize: 0,
+            askSize: 0,
+            updatedAt: new Date().toISOString(),
+            source: 'market'
+          }
+
+          try {
+            const tpsl = await adapter.placeTpsl({
+              symbol: leg.symbol,
+              closingSide,
+              size: String(position.qty),
+              stopLossPrice: (leg as any).stopLossPrice,
+              takeProfitPrice: (leg as any).takeProfitPrice,
+              tick: tickEntry ?? fallbackTick,
+              correlationId: proposal.proposalId
+            })
+
+            await addAudit('tpsl.placed', 'runtime', proposal.proposalId, {
+              symbol: leg.symbol,
+              closingSide,
+              stopLossPrice: (leg as any).stopLossPrice,
+              takeProfitPrice: (leg as any).takeProfitPrice,
+              tpOrderId: tpsl.tpOrderId,
+              slOrderId: tpsl.slOrderId,
+              qty: position.qty
+            })
+          } catch (error) {
+            await addAudit('tpsl.error', 'runtime', proposal.proposalId, {
+              symbol: leg.symbol,
+              error: String(error)
+            })
+          }
+        }
+      }
+    }
+
     if (action.type === 'EXIT') {
       if (!hasAnyExposure(state.positions)) {
         activeThesis = null
       }
-    } else if (proposal.thesis && hasAnyExposure(state.positions)) {
+    } else if (hasAnyExposure(state.positions)) {
       activeThesis = {
-        thesisId: proposal.thesis.thesisId,
-        horizonClass: proposal.thesis.horizonClass,
-        startedAtMs: Date.now(),
-        timeframeMin: Math.max(1, Math.round(proposal.thesis.timeframeMin)),
-        stopLossPct: Math.abs(proposal.thesis.stopLossPct),
-        takeProfitPct: Math.abs(proposal.thesis.takeProfitPct),
-        invalidation: proposal.thesis.invalidation,
+        thesisId: proposal.thesis?.thesisId ?? proposal.proposalId,
         symbols: [...new Set(action.legs.map((leg) => leg.symbol))]
       }
     }
