@@ -591,7 +591,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
 
   async function reconcile(): Promise<Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }>> {
     const now = Date.now()
-    const open = await info.openOrders({ user: wallet.address })
+    const open = await info.frontendOpenOrders({ user: wallet.address })
 
     return open.map((order) => {
       const origSz = Number(order.origSz)
@@ -602,7 +602,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
       const tooOld = Number.isFinite(ageMs) && ageMs > env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS
 
       const baseStatus: OrderState = filledQty > 0 ? 'PARTIALLY_FILLED' : 'WORKING'
-      if (tooOld) {
+      if (tooOld && !order.isTrigger) {
         warnStaleOrder(String(order.oid), ageMs, env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS)
       }
       return {
