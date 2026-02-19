@@ -949,21 +949,13 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       if (state.mode === 'SAFE_MODE') {
         if (hasAnyExposure()) {
           lastSafeModeNoExposureHoldNoticeAtMs = 0
-          const flattened = await attemptRiskAutoMitigation(
-            cycleCorrelationId,
-            'SAFE_MODE active with open exposure',
-            [{ code: 'SAFE_MODE', message: 'SAFE_MODE requires flatten before risk-aware proposals resume' }]
-          )
-
-          if (!flattened) {
-            runtimeProposalCounter.inc({ status: 'safe_mode_flatten_pending' })
-            if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
-              lastSafeModeHoldNoticeAtMs = nowMs
-              await publishStateUpdate(
-                cycleCorrelationId,
-                'safe mode recovery in progress: flatten request already emitted, awaiting completion'
-              )
-            }
+          runtimeProposalCounter.inc({ status: 'safe_mode_holding' })
+          if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
+            lastSafeModeHoldNoticeAtMs = nowMs
+            await publishStateUpdate(
+              cycleCorrelationId,
+              'safe mode: holding open positions — exchange TP/SL orders manage exit'
+            )
           }
           return
         }
@@ -1177,10 +1169,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
           await publishStateUpdate(proposal.proposalId, `risk denied (${reasonMessage})`)
         }
 
-        const autoMitigated = await attemptRiskAutoMitigation(proposal.proposalId, reasonMessage, risk.reasons)
-        if (autoMitigated) {
-          return
-        }
         runtimeProposalCounter.inc({ status: 'risk_denied' })
         if (risk.reasons.some((entry) => entry.code === 'DEPENDENCY_FAILURE')) {
           await setMode('SAFE_MODE', 'risk dependency failure')
@@ -1209,10 +1197,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         await setMode('REBALANCE', 'rebalance')
       } else if (!hasAnyExposure() && state.mode !== 'READY') {
         await setMode('READY', 'flat')
-      }
-
-      if (state.driftState === 'BREACH' && hasAnyExposure()) {
-        await setMode('SAFE_MODE', 'drift breach')
       }
 
       if (risk.decision === 'ALLOW_REDUCE_ONLY') {
