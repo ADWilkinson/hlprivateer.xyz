@@ -484,7 +484,6 @@ export async function runClaudeStructured<T>(params: {
   const settingsPath = await writeSafeClaudeSettings()
 
   const timeoutMs = params.timeoutMs ?? 120_000
-  const useThinking = params.reasoningEffort === 'high' || params.reasoningEffort === 'xhigh'
   try {
     const args = [
       '-p',
@@ -500,10 +499,6 @@ export async function runClaudeStructured<T>(params: {
       '--max-turns',
       '1'
     ] as string[]
-
-    if (useThinking) {
-      args.push('--betas', 'interleaved-thinking')
-    }
 
     if (settingsPath) {
       args.push('--settings', settingsPath)
