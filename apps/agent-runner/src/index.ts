@@ -3958,6 +3958,7 @@ async function runResearchAgent(): Promise<void> {
           twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
           twitterMaxQueries: env.AGENT_INTEL_TWITTER_MAX_QUERIES,
           twitterCacheTtlMs: env.AGENT_INTEL_TWITTER_CACHE_TTL_MS,
+          twitterMinLikes: env.AGENT_INTEL_TWITTER_MIN_LIKES,
           cachedTwitter: cachedTwitterIntel,
           twitterCooldownMs: env.AGENT_INTEL_TWITTER_COOLDOWN_MS,
           timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,

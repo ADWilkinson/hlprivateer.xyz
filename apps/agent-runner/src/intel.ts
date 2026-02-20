@@ -413,10 +413,16 @@ async function twitterSearchRecent(params: {
 
       summarized.sort((a, b) => (b.metrics.likeCount ?? 0) - (a.metrics.likeCount ?? 0))
 
+      // Post-filter: drop zero-engagement tweets unless they're from handle queries (from: prefix).
+      const isHandleQuery = query.includes('from:')
+      const filtered = isHandleQuery
+        ? summarized
+        : summarized.filter((t) => (t.metrics.likeCount ?? 0) + (t.metrics.retweetCount ?? 0) > 0)
+
       return {
         query,
         fetchedAt,
-        tweets: summarized.slice(0, maxResults)
+        tweets: filtered.slice(0, maxResults)
       }
     } catch (error) {
       lastError = sanitizeLine(String(error), 240)
@@ -438,6 +444,7 @@ export async function buildExternalIntelPack(params: {
   timeoutMs: number
   customQueries?: string[]
   cachedTwitter?: { data: ExternalIntelPack['twitter']; fetchedAtMs: number }
+  twitterMinLikes?: number
   twitterCooldownMs?: number
   aixbtApiKey?: string
   aixbtEnabled?: boolean
@@ -501,20 +508,39 @@ export async function buildExternalIntelPack(params: {
       pack.twitter.ok = false
       pack.twitter.cacheState = 'disabled'
     } else {
+      const minLikes = clampInt(params.twitterMinLikes ?? 3, 0, 100)
       const baseClauses = ['-is:retweet', 'lang:en']
+      const engagementClause = minLikes > 0 ? `min_faves:${minLikes}` : ''
+
+      // Handle-based queries: high-signal accounts for Hyperliquid ecosystem and perp trading.
+      // These catch official announcements, exploit disclosures, and parameter changes.
+      const HL_ECOSYSTEM_HANDLES = [
+        'HyperliquidX', 'chaaborsi',  // core team
+        'HyperliquidDex', 'HLGuardian', 'HyperFND',  // ecosystem
+      ]
+      const PERP_ALPHA_HANDLES = [
+        'CryptoCred', 'HsakaTrades', 'coaborsi', 'laurentMT',
+        'DegenSpartan', 'CryptoDonAlt', 'trader1sz',
+      ]
+
+      const handleQueries = [
+        `(${HL_ECOSYSTEM_HANDLES.map((h) => `from:${h}`).join(' OR ')}) ${baseClauses.join(' ')}`,
+        `(${PERP_ALPHA_HANDLES.map((h) => `from:${h}`).join(' OR ')}) (perp OR funding OR liquidation OR leverage OR OI) ${baseClauses.join(' ')}`,
+      ]
+
+      // Symbol queries: cashtag + perp-specific keywords with engagement floor to cut spam.
       const symbolQueries = symbols.map((symbol) => {
         const cashtag = `$${symbol}`
         const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
-        const focus = '(perp OR perpetual OR funding OR liquidation OR OI OR "open interest" OR leverage OR hyperliquid)'
-        return `${symbolClause} ${focus} ${baseClauses.join(' ')}`
+        const focus = '(funding OR liquidation OR OI OR "open interest" OR squeeze OR deleveraging)'
+        return `${symbolClause} ${focus} ${[...baseClauses, engagementClause].filter(Boolean).join(' ')}`
       })
 
       const globalQueries = [
-        `hyperliquid (funding OR liquidation OR outage OR bug OR exploit OR "risk") ${baseClauses.join(' ')}`,
-        `perp funding (rotation OR squeeze OR unwind OR deleveraging) ${baseClauses.join(' ')}`
+        `hyperliquid (funding OR liquidation OR outage OR exploit OR "risk" OR vault) ${baseClauses.join(' ')}`,
       ]
 
-      const defaultQueries = [...symbolQueries, ...globalQueries]
+      const defaultQueries = [...handleQueries, ...symbolQueries, ...globalQueries]
       const custom = (params.customQueries ?? []).filter(Boolean).slice(0, 4)
       const maxQueries = clampInt(params.twitterMaxQueries ?? 10, 1, 20)
       const seen = new Set<string>()
