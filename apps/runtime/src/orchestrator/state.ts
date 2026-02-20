@@ -1494,8 +1494,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       details: details as Record<string, unknown>
     }
 
-    void store.saveAudit(event).catch((error) => logRuntimePersistenceError('saveAudit', error, { eventId: event.id, action: event.action }))
-
+    // Audit persistence is handled by the API consumer of hlp.audit.events (single-writer).
     await bus.publish('hlp.audit.events', {
       type: 'RUNTIME_DECISION',
       stream: 'hlp.audit.events',

@@ -3129,11 +3129,11 @@ async function generateRiskReport(params: {
         type: ['object', 'null'],
         additionalProperties: false,
         properties: {
-          maxDrawdownPct: { type: 'number' },
-          maxLeverage: { type: 'number' },
-          maxExposureUsd: { type: 'number' },
-          maxSlippageBps: { type: 'number' },
-          notionalParityTolerance: { type: 'number' }
+          maxDrawdownPct: { type: 'number', minimum: 0.01, maximum: 100 },
+          maxLeverage: { type: 'number', minimum: 0.1, maximum: 5 },
+          maxExposureUsd: { type: 'number', minimum: 25, maximum: 50000 },
+          maxSlippageBps: { type: 'number', minimum: 0, maximum: 100 },
+          notionalParityTolerance: { type: 'number', minimum: 0, maximum: 1 }
         }
       }
     },
