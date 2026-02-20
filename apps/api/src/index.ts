@@ -284,17 +284,21 @@ if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
     }
   }
 
-  x402Facilitator = await createX402FacilitatorGate({
-    apiBaseUrl: env.API_BASE_URL,
-    facilitatorUrl: env.X402_FACILITATOR_URL,
-    routes,
-    onSettled: feedbackService
-      ? (route, paidAmountUsd) => feedbackService!.recordSettlement(route, paidAmountUsd)
-      : undefined,
-  })
+  try {
+    x402Facilitator = await createX402FacilitatorGate({
+      apiBaseUrl: env.API_BASE_URL,
+      facilitatorUrl: env.X402_FACILITATOR_URL,
+      routes,
+      onSettled: feedbackService
+        ? (route, paidAmountUsd) => feedbackService!.recordSettlement(route, paidAmountUsd)
+        : undefined,
+    })
 
-  app.addHook('preSerialization', x402Facilitator.preSerialization)
-  app.log.info(`x402 facilitator gate enabled network=${network} payTo=${payTo.slice(0, 10)}...`)
+    app.addHook('preSerialization', x402Facilitator.preSerialization)
+    app.log.info(`x402 facilitator gate enabled network=${network} payTo=${payTo.slice(0, 10)}...`)
+  } catch (error) {
+    app.log.warn(`x402 facilitator gate failed to initialize, agent payment routes degraded: ${String(error)}`)
+  }
 }
 
 const adminUsers = new Set(
