@@ -3130,7 +3130,7 @@ async function generateRiskReport(params: {
         additionalProperties: false,
         properties: {
           maxDrawdownPct: { type: 'number', minimum: 0.01, maximum: 100 },
-          maxLeverage: { type: 'number', minimum: 0.1, maximum: 5 },
+          maxLeverage: { type: 'number', minimum: 0.1, maximum: 20 },
           maxExposureUsd: { type: 'number', minimum: 25, maximum: 50000 },
           maxSlippageBps: { type: 'number', minimum: 0, maximum: 100 },
           notionalParityTolerance: { type: 'number', minimum: 0, maximum: 1 }
