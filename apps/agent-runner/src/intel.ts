@@ -512,32 +512,31 @@ export async function buildExternalIntelPack(params: {
       const baseClauses = ['-is:retweet', 'lang:en']
       const engagementClause = minLikes > 0 ? `min_faves:${minLikes}` : ''
 
-      // Handle-based queries: high-signal accounts for Hyperliquid ecosystem and perp trading.
-      // These catch official announcements, exploit disclosures, and parameter changes.
-      const HL_ECOSYSTEM_HANDLES = [
-        'HyperliquidX', 'chaaborsi',  // core team
-        'HyperliquidDex', 'HLGuardian', 'HyperFND',  // ecosystem
+      // Handle query: high-signal accounts for HL ecosystem + perp alpha in a single query.
+      const SIGNAL_HANDLES = [
+        'HyperliquidX', 'chaaborsi', 'HyperFND',            // HL core/ecosystem
+        'CryptoCred', 'HsakaTrades', 'DegenSpartan',        // perp alpha
+        'trader1sz', 'CryptoDonAlt',
       ]
-      const PERP_ALPHA_HANDLES = [
-        'CryptoCred', 'HsakaTrades', 'coaborsi', 'laurentMT',
-        'DegenSpartan', 'CryptoDonAlt', 'trader1sz',
-      ]
-
       const handleQueries = [
-        `(${HL_ECOSYSTEM_HANDLES.map((h) => `from:${h}`).join(' OR ')}) ${baseClauses.join(' ')}`,
-        `(${PERP_ALPHA_HANDLES.map((h) => `from:${h}`).join(' OR ')}) (perp OR funding OR liquidation OR leverage OR OI) ${baseClauses.join(' ')}`,
+        `(${SIGNAL_HANDLES.map((h) => `from:${h}`).join(' OR ')}) ${baseClauses.join(' ')}`,
       ]
 
-      // Symbol queries: cashtag + perp-specific keywords with engagement floor to cut spam.
-      const symbolQueries = symbols.map((symbol) => {
-        const cashtag = `$${symbol}`
-        const symbolClause = symbol.length <= 5 ? `(${symbol} OR ${cashtag})` : symbol
-        const focus = '(funding OR liquidation OR OI OR "open interest" OR squeeze OR deleveraging)'
-        return `${symbolClause} ${focus} ${[...baseClauses, engagementClause].filter(Boolean).join(' ')}`
+      // Symbol queries: batch symbols into chunks to minimize API calls.
+      // Each chunk ORs cashtags together with perp-specific keywords + engagement floor.
+      const SYMBOL_BATCH_SIZE = 6
+      const symbolBatches: string[][] = []
+      for (let i = 0; i < symbols.length; i += SYMBOL_BATCH_SIZE) {
+        symbolBatches.push(symbols.slice(i, i + SYMBOL_BATCH_SIZE))
+      }
+      const focus = '(funding OR liquidation OR OI OR squeeze OR deleveraging)'
+      const symbolQueries = symbolBatches.map((batch) => {
+        const clauses = batch.map((s) => (s.length <= 5 ? `$${s}` : s))
+        return `(${clauses.join(' OR ')}) ${focus} ${[...baseClauses, engagementClause].filter(Boolean).join(' ')}`
       })
 
       const globalQueries = [
-        `hyperliquid (funding OR liquidation OR outage OR exploit OR "risk" OR vault) ${baseClauses.join(' ')}`,
+        `hyperliquid (funding OR liquidation OR outage OR exploit OR vault) ${baseClauses.join(' ')}`,
       ]
 
       const defaultQueries = [...handleQueries, ...symbolQueries, ...globalQueries]
