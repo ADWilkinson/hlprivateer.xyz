@@ -288,6 +288,8 @@ if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
     x402Facilitator = await createX402FacilitatorGate({
       apiBaseUrl: env.API_BASE_URL,
       facilitatorUrl: env.X402_FACILITATOR_URL,
+      cdpApiKeyId: env.CDP_API_KEY_ID,
+      cdpApiKeySecret: env.CDP_API_KEY_SECRET,
       routes,
       onSettled: feedbackService
         ? (route, paidAmountUsd) => feedbackService!.recordSettlement(route, paidAmountUsd)

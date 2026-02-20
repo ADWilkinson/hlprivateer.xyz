@@ -71,6 +71,8 @@ const envSchema = z.object({
   X402_FACILITATOR_URL: z.string().url().default('https://x402.org/facilitator'),
   X402_NETWORK: z.string().default('eip155:84532'),
   X402_PAYTO: z.string().optional(),
+  CDP_API_KEY_ID: z.string().optional(),
+  CDP_API_KEY_SECRET: z.string().optional(),
   X402_PRICE_STREAM_SNAPSHOT: x402PriceSchema.default('$0.01'),
   X402_PRICE_ANALYSIS_LATEST: x402PriceSchema.default('$0.01'),
   X402_PRICE_ANALYSIS_HISTORY: z.string().default('$0.01'),
@@ -105,6 +107,8 @@ const parsed = envSchema.parse({
   JWT_SECRET: loadEnvValue('JWT_SECRET'),
   OPERATOR_LOGIN_SECRET: loadEnvValue('OPERATOR_LOGIN_SECRET'),
   X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET'),
+  CDP_API_KEY_ID: loadEnvValue('CDP_API_KEY_ID'),
+  CDP_API_KEY_SECRET: loadEnvValue('CDP_API_KEY_SECRET'),
   ERC8004_RPC_URL: loadEnvValue('ERC8004_RPC_URL'),
   ERC8004_FEEDBACK_PRIVATE_KEY: loadEnvValue('ERC8004_FEEDBACK_PRIVATE_KEY'),
 })

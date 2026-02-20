@@ -9,6 +9,7 @@ import {
 } from '@x402/core/server'
 import type { PaymentPayload, PaymentRequirements } from '@x402/core/types'
 import { registerExactEvmScheme } from '@x402/evm/exact/server'
+import { createFacilitatorConfig } from '@coinbase/x402'
 
 export type X402VerifiedContext = {
   paymentPayload: PaymentPayload
@@ -19,13 +20,18 @@ export type X402VerifiedContext = {
 export async function createX402FacilitatorGate(params: {
   apiBaseUrl: string
   facilitatorUrl: string
+  cdpApiKeyId?: string
+  cdpApiKeySecret?: string
   routes: Record<string, RouteConfig>
   onSettled?: (route: string, paidAmountUsd: number) => void
 }): Promise<{
   preHandler: (request: FastifyRequest, reply: FastifyReply) => Promise<void>
   preSerialization: (request: FastifyRequest, reply: FastifyReply, payload: unknown) => Promise<unknown>
 }> {
-  const facilitatorClient = new HTTPFacilitatorClient({ url: params.facilitatorUrl })
+  const facilitatorConfig = params.cdpApiKeyId && params.cdpApiKeySecret
+    ? createFacilitatorConfig(params.cdpApiKeyId, params.cdpApiKeySecret)
+    : { url: params.facilitatorUrl }
+  const facilitatorClient = new HTTPFacilitatorClient(facilitatorConfig)
   const resourceServer = new x402ResourceServer(facilitatorClient)
   registerExactEvmScheme(resourceServer)
 
