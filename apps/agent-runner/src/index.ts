@@ -4352,37 +4352,9 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
     return
   }
 
-  // Deterministic safety: SAFE_MODE should bias to risk-off without waiting for an LLM decision.
-  if (lastMode === 'SAFE_MODE' && params.positions.length > 0) {
-    if (activeDirective.decision === 'EXIT') {
-      return
-    }
-    lastDirectiveAt = nowMs
-    activeDirective = {
-      decision: 'EXIT',
-      plan: null,
-      rationale: 'SAFE_MODE: force exit to flat',
-      confidence: 1,
-      decidedAt: new Date().toISOString()
-    }
-    await publishTape({
-      correlationId: ulid(),
-      role: 'strategist',
-      level: 'WARN',
-      line: `directive: EXIT (safe mode)`
-    })
-    await publishAudit({
-      id: ulid(),
-      ts: new Date().toISOString(),
-      actorType: 'internal_agent',
-      actorId: roleActorId('strategist'),
-      action: 'strategist.directive',
-      resource: 'agent.strategist',
-      correlationId: ulid(),
-      details: activeDirective
-    })
-    return
-  }
+  // SAFE_MODE is informational for the strategist — exchange TP/SL orders manage exits.
+  // The LLM strategist already receives mode context and can decide to EXIT if appropriate.
+  // We do NOT force-exit here because transient infra issues should not override exchange-side risk management.
 
   directiveInFlight = true
   try {

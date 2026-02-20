@@ -318,6 +318,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastNoActionSignature = ''
   let lastDustSweepAtMs = 0
   const DUST_SWEEP_COOLDOWN_MS = 30_000
+  let consecutiveCycleErrors = 0
+  const SAFE_MODE_ERROR_THRESHOLD = 3
   const infraAutoFlattenMinOutageMs = env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS
   const infraAutoFlattenNoticeCooldownMs = env.RUNTIME_INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS
   const infraAutoFlattenMinGrossUsd = Math.max(0, env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD)
@@ -897,6 +899,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         activeThesis = null
       }
 
+      // Cycle reached mark-to-market without error — reset transient error counter.
+      consecutiveCycleErrors = 0
+
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)
 
@@ -1220,11 +1225,17 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
       await publishStateUpdate(proposal.proposalId, `${origin} proposal executed`)
     } catch (error) {
-      await setMode('SAFE_MODE', `runtime error: ${String(error)}`)
+      consecutiveCycleErrors += 1
       await addAudit('runtime_error', 'runtime', envelopeId(), {
-        message: String(error)
+        message: String(error),
+        consecutiveErrors: consecutiveCycleErrors
       })
       runtimeCycleErrorCounter.inc()
+      if (consecutiveCycleErrors >= SAFE_MODE_ERROR_THRESHOLD) {
+        await setMode('SAFE_MODE', `runtime error (${consecutiveCycleErrors} consecutive): ${String(error)}`)
+      } else {
+        console.warn(`[runtime-state] transient cycle error (${consecutiveCycleErrors}/${SAFE_MODE_ERROR_THRESHOLD}):`, String(error))
+      }
     } finally {
       state.cycle += 1
       endCycleTimer()
