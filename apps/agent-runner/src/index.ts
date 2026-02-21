@@ -3875,6 +3875,16 @@ async function runOpsAgent(): Promise<void> {
 async function runStrategyPipeline(): Promise<void> {
   const now = Date.now()
 
+  // Universe must be populated BEFORE research so the research agent has symbols to analyze.
+  const nowMs = Date.now()
+  const hasFreshUniverse =
+    activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
+  if (!hasFreshUniverse && lastMode !== 'HALT') {
+    const maxBudgetUsd = computeMaxBudgetUsd()
+    const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+    await maybeSelectBasket({ targetNotionalUsd: maxBudgetUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
+  }
+
   const prevRecommendation = lastResearchReport?.recommendation ?? null
   const researchAtBefore = lastResearchAt
   await runResearchAgent()
@@ -4603,19 +4613,16 @@ async function runStrategistCycle(): Promise<void> {
     return
   }
 
-	  // SAFE_MODE with no positions: runtime will auto-recover to READY when dependencies are healthy.
-	  // Allow strategist to run so it can prepare directives for when the mode transitions back.
-
-	  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-	  const maxBudgetUsd = computeMaxBudgetUsd()
-	  const tactics = computeExecutionTactics({ signals })
-	  const nowMs = Date.now()
-	  const hasFreshUniverse =
-	    activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
+  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+  const maxBudgetUsd = computeMaxBudgetUsd()
+  const tactics = computeExecutionTactics({ signals })
+  const nowMs = Date.now()
+  const hasFreshUniverse =
+    activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
 
   syncActiveBasketFromPositions(lastPositions)
 
-  // Ensure universe is populated even during HOLD so it's ready when directives change.
+  // Universe should already be fresh from pipeline start. Force-retry only if still empty.
   if (!hasFreshUniverse && lastMode !== 'HALT') {
     await maybeSelectBasket({ targetNotionalUsd: maxBudgetUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
   }
@@ -5339,6 +5346,17 @@ const start = async (): Promise<void> => {
         await sleep(delayMs)
       }
     }
+  }
+
+  // Eagerly populate universe on startup so the first pipeline cycle has symbols.
+  try {
+    const bootBudget = computeMaxBudgetUsd()
+    await maybeSelectBasket({ targetNotionalUsd: bootBudget, signals: [], positions: lastPositions, force: true })
+    if (activeBasket.symbols.length > 0) {
+      await publishTape({ correlationId: ulid(), role: 'ops', line: `boot universe: ${activeBasket.symbols.join(',')}` })
+    }
+  } catch (error) {
+    console.warn('agent-runner: eager universe selection failed at boot, will retry in pipeline', String(error))
   }
 
   void tickLoop()
