@@ -588,8 +588,12 @@ function isValidToken(token: string): boolean {
 }
 
 function send(ws: any, message: WsServerMessage) {
-  const parsed = WsServerMessageSchema.parse(message)
-  ws.send(JSON.stringify(parsed))
+  try {
+    const parsed = WsServerMessageSchema.parse(message)
+    ws.send(JSON.stringify(parsed))
+  } catch {
+    // never throw into ws event handlers — drop the message silently
+  }
 }
 
 wss.on('connection', (ws, request) => {
@@ -625,6 +629,11 @@ wss.on('connection', (ws, request) => {
   }
   clients.set(socketId, client)
   wsConnections.inc()
+
+  ws.on('error', (err: Error) => {
+    console.warn(`[ws-gateway] socket error socketId=${socketId}`, err.message)
+  })
+
   send(ws, { type: 'sub.ack', channel: 'public', accepted: true })
 
   ws.on('message', async (raw: Buffer | ArrayBuffer | string) => {
@@ -683,6 +692,10 @@ wss.on('connection', (ws, request) => {
     }
 
     if (parsed.type === 'sub.remove') {
+      if (parsed.channel === 'public') {
+        send(current.ws, { type: 'sub.ack', channel: parsed.channel, accepted: false })
+        return
+      }
       current.channels.delete(parsed.channel)
       send(current.ws, { type: 'sub.ack', channel: parsed.channel, accepted: true })
       return
@@ -898,6 +911,16 @@ setInterval(() => {
     })
   }
 }, 10_000)
+
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, window] of abuseWindows) {
+    if (now - window.windowStart >= ABUSE_BAN_WINDOW_MS) abuseWindows.delete(key)
+  }
+  for (const [key, expiresAt] of bannedActors) {
+    if (now > expiresAt) bannedActors.delete(key)
+  }
+}, 60_000)
 
 const shutdown = async () => {
   wsConnections.set(0)

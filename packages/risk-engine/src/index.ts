@@ -39,6 +39,7 @@ export interface RiskConfig {
   maxSlippageBps: number
   staleDataMs: number
   liquidityBufferPct: number
+  notionalParityTolerance: number
   failClosedOnDependencyError: boolean
 }
 
@@ -72,17 +73,23 @@ function staleMs(tick: TickSnapshot): number {
   return Date.now() - Date.parse(tick.updatedAt)
 }
 
-function checkInvariant(proposal: StrategyProposal): CheckResult {
-  const legs = proposal.actions.flatMap((action) => action.legs)
-  if (legs.length === 0) {
-    return { ok: false, reason: 'proposal is empty' }
+function checkNotionalParity(
+  positions: PositionSnapshot[],
+  proposal: StrategyProposal,
+  tolerance: number
+): CheckResult {
+  const exposure = computeExposure(positions, proposal)
+  const gross = Math.abs(exposure.grossExposureUsd)
+  if (gross === 0) {
+    return { ok: true }
   }
 
-  const hasBuy = legs.some((leg) => leg.side === 'BUY')
-  const hasSell = legs.some((leg) => leg.side === 'SELL')
-  if (!hasBuy || !hasSell) {
-    // Allow long-only and short-only strategies, but still enforce that a proposal is directional.
-    return { ok: true }
+  const imbalancePct = Math.abs(exposure.netExposureUsd) / gross
+  if (imbalancePct > tolerance) {
+    return {
+      ok: false,
+      reason: `notional imbalance ${(imbalancePct * 100).toFixed(2)}% exceeds tolerance ${(tolerance * 100).toFixed(2)}%`
+    }
   }
 
   return { ok: true }
@@ -150,7 +157,7 @@ function checkLeverage(
     return { ok: false, reason: 'invalid account value for leverage checks' }
   }
 
-  const gross = parsed.data.reduce((sum, action) => sum + action.notionalUsd, 0)
+  const gross = projectedGrossNotional(positions, proposal)
   const projected = gross / accountValueUsd
   if (projected > maxLeverage) {
     return { ok: false, reason: `projected leverage ${projected.toFixed(2)} exceeds max ${maxLeverage}` }
@@ -326,6 +333,11 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'DRAWDOWN', message: drawdown.reason ?? 'drawdown exceeded' })
   }
 
+  const parity = checkNotionalParity(context.openPositions, context.proposal, config.notionalParityTolerance)
+  if (!parity.ok) {
+    reasons.push({ code: 'NOTIONAL_PARITY', message: parity.reason ?? 'notional parity exceeded' })
+  }
+
   const exposure = checkExposure(context.openPositions, context.proposal, config.maxExposureUsd)
   if (!exposure.ok) {
     reasons.push({ code: 'EXPOSURE', message: exposure.reason ?? 'exposure exceeded' })
@@ -346,15 +358,19 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'STALE_DATA', message: freshness.reason ?? 'stale market data' })
   }
 
+  const exposureComputed = computeExposure(context.openPositions, context.proposal)
+  const absGross = Math.abs(exposureComputed.grossExposureUsd)
   const computed = {
-    ...computeExposure(context.openPositions, context.proposal),
-    projectedDrawdownPct: computeProjectedDrawdown(context.openPositions, context.proposal)
+    ...exposureComputed,
+    projectedDrawdownPct: computeProjectedDrawdown(context.openPositions, context.proposal),
+    notionalImbalancePct: absGross === 0 ? 0 : (Math.abs(exposureComputed.netExposureUsd) / absGross) * 100
   }
 
   const blockingReasonCodes = [
     'DEPENDENCY_FAILURE',
     'SYSTEM_GATED',
     'DRAWDOWN',
+    'NOTIONAL_PARITY',
     'EXPOSURE',
     'STALE_DATA',
     'LIQUIDITY',
@@ -364,7 +380,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   ]
 
   const hasBlockers = reasons.some((entry) => {
-    if (isReducingExit && entry.code === 'DRAWDOWN') {
+    if (isReducingExit && (entry.code === 'DRAWDOWN' || entry.code === 'NOTIONAL_PARITY')) {
       return false
     }
 

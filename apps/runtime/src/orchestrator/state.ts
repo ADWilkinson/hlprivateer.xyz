@@ -202,7 +202,10 @@ const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
   'stale-data-ms': 'staleDataMs',
   liquidityBufferPct: 'liquidityBufferPct',
   liquidity_buffer_pct: 'liquidityBufferPct',
-  'liquidity-buffer-pct': 'liquidityBufferPct'
+  'liquidity-buffer-pct': 'liquidityBufferPct',
+  notionalParityTolerance: 'notionalParityTolerance',
+  notional_parity_tolerance: 'notionalParityTolerance',
+  'notional-parity-tolerance': 'notionalParityTolerance'
 }
 
 void promClient.collectDefaultMetrics()
@@ -227,7 +230,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
     maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
     staleDataMs: env.RISK_STALE_DATA_MS,
-    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT
+    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
+    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
   }
 
   const readRuntimeRiskPolicy = (): RuntimeRiskPolicy => ({ ...runtimeRiskPolicy })
@@ -535,7 +539,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       maxExposureUsd: policy.maxExposureUsd,
       maxSlippageBps: policy.maxSlippageBps,
       staleDataMs: policy.staleDataMs,
-      liquidityBufferPct: policy.liquidityBufferPct
+      liquidityBufferPct: policy.liquidityBufferPct,
+      notionalParityTolerance: policy.notionalParityTolerance
     }
   }
 

@@ -492,7 +492,7 @@ export default function DeckPage() {
 
     const samplePnl = (payload: SnapshotPayload) => {
       const nextPnlPct = pickPnlPercent(payload)
-      if (nextPnlPct === undefined || nextPnlPct === 0) return
+      if (nextPnlPct === undefined) return
       const mode = typeof payload.mode === 'string' ? payload.mode : ''
       if (mode === 'INIT' || mode === 'WARMUP') return
       const ts = typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : new Date().toISOString()
@@ -854,8 +854,8 @@ export default function DeckPage() {
   const pnlColor = isBootstrapping || snapshot.pnlPct === 0 ? 'text-hlpMuted' : snapshot.pnlPct > 0 ? 'text-hlpPositive' : 'text-hlpNegative'
   const realizedPnlUsd = snapshot.realizedPnlUsd
   const realizedStr =
-    !isBootstrapping && realizedPnlUsd !== undefined && Number.isFinite(realizedPnlUsd)
-      ? (realizedPnlUsd >= 0 ? `+${DECK_USD_FMT.format(realizedPnlUsd)}` : `-${DECK_USD_FMT.format(Math.abs(realizedPnlUsd))}`)
+    !isBootstrapping && realizedPnlUsd !== undefined && Number.isFinite(realizedPnlUsd) && realizedPnlUsd !== 0
+      ? (realizedPnlUsd > 0 ? `+${DECK_USD_FMT.format(realizedPnlUsd)}` : `-${DECK_USD_FMT.format(Math.abs(realizedPnlUsd))}`)
       : '--'
   const realizedColor =
     isBootstrapping || !realizedPnlUsd || realizedPnlUsd === 0

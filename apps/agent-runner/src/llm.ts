@@ -80,7 +80,7 @@ async function runCliCommand(
 
   if (kind === 'claude') {
     try {
-      return runCommand(command, args, timeoutMs, commandEnv)
+      return await runCommand(command, args, timeoutMs, commandEnv)
     } catch (error) {
       if (isMissingCommandError(error, command)) {
         return runCommand('bun', [command, ...args], timeoutMs, commandEnv)

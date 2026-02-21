@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, asc, desc, eq, gte, inArray, lte, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, lte, type SQL } from 'drizzle-orm'
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import {
@@ -497,8 +497,8 @@ function createDisabledStore(reason: string): ApiPersistence {
       return rows.map(toAuditEvent)
     },
     countAudits: async () => {
-      const rows = await store.db.select().from(audits)
-      return rows.length
+      const result = await store.db.select({ value: count() }).from(audits)
+      return result[0]?.value ?? 0
     },
     getEntitlement: async (entitlementId) => {
       const rows = await store.db

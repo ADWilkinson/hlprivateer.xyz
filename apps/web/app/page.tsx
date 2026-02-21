@@ -235,7 +235,7 @@ export default function LandingPage() {
   }, [])
 
   const pnl = snap.pnlPct !== null ? `${snap.pnlPct >= 0 ? '+' : ''}${snap.pnlPct.toFixed(2)}%` : '--'
-  const equity = snap.accountValueUsd !== null ? `$${snap.accountValueUsd.toFixed(2)}` : '--'
+  const equity = snap.accountValueUsd !== null ? USD_2.format(snap.accountValueUsd) : '--'
   const lev = snap.leverage !== null ? `${snap.leverage.toFixed(2)}x` : '--'
   const sharpe = sharpeRatio !== null ? sharpeRatio.toFixed(2) : '--'
   const realizedStr = formatSignedUsd(snap.realizedPnlUsd)

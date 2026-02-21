@@ -1,7 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
-import { timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual, createHash } from 'node:crypto'
 import {
   AuditEvent,
   CommandResultSchema,
@@ -642,12 +642,8 @@ function errorMessages(errors: Array<{ message: string }>): string {
 }
 
 function secretsEqual(provided: string, expected: string): boolean {
-  const providedBuf = Buffer.from(provided, 'utf8')
-  const expectedBuf = Buffer.from(expected, 'utf8')
-  if (providedBuf.length !== expectedBuf.length) {
-    return false
-  }
-  return timingSafeEqual(providedBuf, expectedBuf)
+  const h = (s: string) => createHash('sha256').update(s).digest()
+  return timingSafeEqual(h(provided), h(expected))
 }
 
 const commandCounter = new promClient.Counter({

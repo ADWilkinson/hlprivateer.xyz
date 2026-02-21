@@ -1039,7 +1039,7 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
   '- Objective: create fully discretionary positions — any structure (directional, paired, hedged) — based on holistic data synthesis.',
   '- You choose the structure. Directional, pairs, multi-leg — whatever the data supports. No default preference.',
-  '- The universe is large (28 assets). Scan broadly — the best opportunity may be anywhere.',
+  `- The universe is large (${env.AGENT_UNIVERSE_SIZE} assets). Scan broadly — the best opportunity may be anywhere.`,
   '- Synthesize all available context holistically. Every signal gains or loses meaning in relation to other signals. Weight data sources dynamically based on current conditions.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
   '- Never invent symbols, metrics, or events not present in context.',
@@ -1071,9 +1071,9 @@ const AGENT_DATA_SOURCES_PRESET: string[] = [
   '2) aixbt signal intelligence.',
   `   - https://api.aixbt.tech/v2 (${env.AIXBT_ENABLED && env.AIXBT_API_KEY ? 'configured' : 'missing'})`,
   '   - Provides: momentum scores, cross-source signal detection, project-level intelligence.',
-  '3) Social/narrative intelligence via Twitter/X v2.',
-  '   - https://api.twitter.com/2/tweets/search/recent',
-  '   - https://docs.x.com/x-api',
+  '3) Social/narrative intelligence via Twitter/X (bird CLI with cookie auth).',
+  '   - Uses internal GraphQL search via bird CLI (not v2 REST API).',
+  '   - Cookie auth required (auth_token + ct0); no paid API keys consumed.',
   '4) CoinGecko Pro market/sector context.',
   `   - base URL: ${env.COINGECKO_BASE_URL}`,
   `   - auth: X-Cg-Pro-Api-Key via COINGECKO_API_KEY (${env.COINGECKO_API_KEY ? 'configured' : 'missing'})`,
@@ -1503,7 +1503,7 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
   const basketAgeMs = msSince(Date.parse(activeBasket.selectedAt), now)
 
   return {
-    objective: `Fully discretionary trading across a 28-asset universe — directional single-asset conviction is the default; pairs only when specific relative-value divergence exists — with bounded risk and explicit thesis.`,
+    objective: `Fully discretionary trading across a ${env.AGENT_UNIVERSE_SIZE}-asset universe — directional single-asset conviction is the default; pairs only when specific relative-value divergence exists — with bounded risk and explicit thesis.`,
     generatedAt: new Date(now).toISOString(),
     mode: lastMode,
     requestedMode: requestedModeFromEnv(),

@@ -1,5 +1,5 @@
 import { Entitlement, EntitlementSchema, PaymentChallenge, PaymentProof, PaymentProofSchema, EntitlementTier } from '@hl/privateer-contracts'
-import { createHash, createVerify } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 
 export type { EntitlementTier }
 
@@ -105,20 +105,15 @@ export interface KeyPair {
   privateKey: string
 }
 
-export function makeChallengeVerifier(algorithm: 'rsa-pss' | 'rsa' = 'rsa'): (payload: string, signature: string) => boolean {
-  return (_payload: string, signature: string) => {
-    if (algorithm === 'rsa' || algorithm === 'rsa-pss') {
-      return signature.length > 8
-    }
-    return false
+export function makeChallengeVerifier(_algorithm: 'rsa-pss' | 'rsa' = 'rsa'): (payload: string, signature: string, secret: string) => boolean {
+  return (payload: string, signature: string, secret: string) => {
+    const expected = createHmac('sha256', secret).update(payload).digest('hex')
+    return expected === signature && signature.length > 0
   }
 }
 
 export function signPayload(payload: string, secret: string): string {
-  const verifier = createVerify('sha256')
-  verifier.update(payload)
-  verifier.end()
-  return createHash('sha256').update(payload + secret).digest('hex')
+  return createHmac('sha256', secret).update(payload).digest('hex')
 }
 
 export { discoverAgent, type DiscoveredAgent } from './discovery'

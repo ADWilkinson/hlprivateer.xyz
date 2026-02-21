@@ -8,7 +8,7 @@ const baseConfig = {
   maxSlippageBps: 25,
   staleDataMs: 3000,
   liquidityBufferPct: 1,
-
+  notionalParityTolerance: 0.15,
   failClosedOnDependencyError: true
 }
 

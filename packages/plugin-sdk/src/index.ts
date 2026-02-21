@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { EventEnvelope } from '@hl/privateer-contracts'
+import type { EventEnvelope, StreamName } from '@hl/privateer-contracts'
 
 export const PluginManifestSchema = z
   .object({
@@ -18,7 +18,7 @@ export type PluginManifest = z.infer<typeof PluginManifestSchema>
 
 export interface PluginContext {
   pluginId: string
-  eventBusPublish: <T>(stream: string, event: Omit<EventEnvelope<T>, 'id' | 'ts'>) => Promise<string>
+  eventBusPublish: <T>(stream: StreamName, event: Omit<EventEnvelope<T>, 'id' | 'ts'>) => Promise<string>
   getConfig: (key: string) => string | undefined
   logger: (level: 'info' | 'warn' | 'error', message: string, details?: Record<string, unknown>) => void
 }

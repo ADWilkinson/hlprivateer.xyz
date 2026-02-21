@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { desc, asc, and, eq, gte, inArray, lte, type SQL } from 'drizzle-orm'
+import { desc, asc, and, count, eq, gte, inArray, lte, type SQL } from 'drizzle-orm'
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import {
@@ -423,8 +423,8 @@ async function createPostgresStore(databaseUrl: string): Promise<RuntimeStore> {
       return rows.map(toAuditEvent)
     },
     countAudits: async () => {
-      const rows = await store.db.select().from(audits)
-      return rows.length
+      const result = await store.db.select({ value: count() }).from(audits)
+      return result[0]?.value ?? 0
     }
   }
 }

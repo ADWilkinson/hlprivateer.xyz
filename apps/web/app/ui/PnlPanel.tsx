@@ -417,15 +417,13 @@ export function PnlPanel({
   onToggle,
   sectionId = 'pnl',
 }: PnlPanelProps) {
-  const pnlPoints = trajectory.map((point) => ({ ts: point.ts, value: point.pnlPct }))
-  const accountValuePoints = accountValueTrajectory.map((point) => ({ ts: point.ts, value: point.accountValueUsd }))
   const pnlStats = useMemo(
-    () => buildSparkline(pnlPoints, snapshot.pnlPct, toSigned),
-    [pnlPoints, snapshot.pnlPct],
+    () => buildSparkline(trajectory.map((point) => ({ ts: point.ts, value: point.pnlPct })), snapshot.pnlPct, toSigned),
+    [trajectory, snapshot.pnlPct],
   )
   const accountValueStats = useMemo(
-    () => buildSparkline(accountValuePoints, snapshot.accountValueUsd, toUsd),
-    [accountValuePoints, snapshot.accountValueUsd],
+    () => buildSparkline(accountValueTrajectory.map((point) => ({ ts: point.ts, value: point.accountValueUsd })), snapshot.accountValueUsd, toUsd),
+    [accountValueTrajectory, snapshot.accountValueUsd],
   )
 
   return (
