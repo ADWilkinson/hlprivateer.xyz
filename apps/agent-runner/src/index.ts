@@ -3988,6 +3988,31 @@ async function runResearchAgent(): Promise<void> {
           ? { data: lastExternalIntel.twitter, fetchedAtMs: now }
           : undefined
 
+        // Critical alert: cookie auth missing means we'll fall back to paid X API.
+        if (lastExternalIntel.twitter.cookieAuthMissing) {
+          const alertId = ulid()
+          void publishAudit({
+            id: alertId,
+            ts: new Date().toISOString(),
+            actorType: 'system',
+            actorId: roleActorId('research'),
+            action: 'agent.error',
+            resource: 'agent.intel.twitter',
+            correlationId: alertId,
+            details: {
+              severity: 'CRITICAL',
+              message: 'Twitter cookie auth (auth_token + ct0) is missing or expired. Update credentials at OPENCLAW_TWITTER_CREDS_PATH to avoid paid X API charges.',
+              credsPath: env.OPENCLAW_TWITTER_CREDS_PATH
+            }
+          }).catch(() => undefined)
+          void publishTape({
+            correlationId: alertId,
+            role: 'ops',
+            level: 'ERROR',
+            line: 'CRITICAL: Twitter cookie auth missing — update ct0/auth_token to avoid paid X API charges'
+          }).catch(() => undefined)
+        }
+
         intelSummary = summarizeExternalIntel(lastExternalIntel)
         await publishAudit({
           id: ulid(),

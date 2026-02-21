@@ -57,6 +57,7 @@ export type ExternalIntelPack = {
     cacheState: 'live' | 'cooldown' | 'query_cache' | 'disabled'
     queries: TwitterQueryResult[]
     handleHint?: string
+    cookieAuthMissing?: boolean
   }
   fearGreed: {
     ok: boolean
@@ -435,6 +436,10 @@ export async function buildExternalIntelPack(params: {
 
     if (creds.handleHint) {
       pack.twitter.handleHint = creds.handleHint
+    }
+
+    if (!hasCookieAuth && pack.twitter.enabled) {
+      pack.twitter.cookieAuthMissing = true
     }
 
     if (!pack.twitter.enabled || (!twitterBearer && !hasCookieAuth && !hasOAuth1)) {
