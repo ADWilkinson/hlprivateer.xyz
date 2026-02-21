@@ -1422,13 +1422,64 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
             source: 'market'
           }
 
+          // Validate TP/SL direction against mark price before placing
+          const markPx = position.markPx
+          let validatedSlPrice: number | undefined = (leg as any).stopLossPrice
+          let validatedTpPrice: number | undefined = (leg as any).takeProfitPrice
+
+          if (markPx > 0) {
+            if (position.side === 'LONG') {
+              if (validatedSlPrice != null && validatedSlPrice >= markPx) {
+                await addAudit('tpsl.rejected', 'runtime', proposal.proposalId, {
+                  symbol: leg.symbol,
+                  reason: `LONG SL $${validatedSlPrice} >= mark $${markPx} (inverted)`,
+                  side: position.side
+                })
+                validatedSlPrice = undefined
+              }
+              if (validatedTpPrice != null && validatedTpPrice <= markPx) {
+                await addAudit('tpsl.rejected', 'runtime', proposal.proposalId, {
+                  symbol: leg.symbol,
+                  reason: `LONG TP $${validatedTpPrice} <= mark $${markPx} (inverted)`,
+                  side: position.side
+                })
+                validatedTpPrice = undefined
+              }
+            } else {
+              if (validatedSlPrice != null && validatedSlPrice <= markPx) {
+                await addAudit('tpsl.rejected', 'runtime', proposal.proposalId, {
+                  symbol: leg.symbol,
+                  reason: `SHORT SL $${validatedSlPrice} <= mark $${markPx} (inverted)`,
+                  side: position.side
+                })
+                validatedSlPrice = undefined
+              }
+              if (validatedTpPrice != null && validatedTpPrice >= markPx) {
+                await addAudit('tpsl.rejected', 'runtime', proposal.proposalId, {
+                  symbol: leg.symbol,
+                  reason: `SHORT TP $${validatedTpPrice} >= mark $${markPx} (inverted)`,
+                  side: position.side
+                })
+                validatedTpPrice = undefined
+              }
+            }
+          }
+
+          if (validatedSlPrice == null && validatedTpPrice == null) {
+            await addAudit('tpsl.skipped', 'runtime', proposal.proposalId, {
+              symbol: leg.symbol,
+              reason: 'both TP and SL rejected or absent after validation'
+            })
+            continue
+          }
+
           try {
             const tpsl = await adapter.placeTpsl({
               symbol: leg.symbol,
               closingSide,
               size: String(position.qty),
-              stopLossPrice: (leg as any).stopLossPrice,
-              takeProfitPrice: (leg as any).takeProfitPrice,
+              stopLossPrice: validatedSlPrice,
+              takeProfitPrice: validatedTpPrice,
               tick: tickEntry ?? fallbackTick,
               correlationId: proposal.proposalId
             })
@@ -1436,8 +1487,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
             await addAudit('tpsl.placed', 'runtime', proposal.proposalId, {
               symbol: leg.symbol,
               closingSide,
-              stopLossPrice: (leg as any).stopLossPrice,
-              takeProfitPrice: (leg as any).takeProfitPrice,
+              stopLossPrice: validatedSlPrice,
+              takeProfitPrice: validatedTpPrice,
               tpOrderId: tpsl.tpOrderId,
               slOrderId: tpsl.slOrderId,
               qty: position.qty

@@ -2656,6 +2656,7 @@ function signedNotionalBySymbol(positions: OperatorPosition[]): Map<string, numb
 function normalizeDirectivePlan(params: {
   plan: DirectivePlan | null
   fallbackTargetNotionalUsd: number
+  markPrices?: Record<string, number>
 }): DirectivePlan | null {
   const rawPlan = params.plan
   if (!rawPlan || !Array.isArray(rawPlan.legs) || rawPlan.legs.length === 0) {
@@ -2686,9 +2687,36 @@ function normalizeDirectivePlan(params: {
     bySymbol.set(symbol, (bySymbol.get(symbol) ?? 0) + signedNotionalUsd)
     if (!metaBySymbol.has(symbol)) {
       const rawLeg = leg as { stopLossPrice?: unknown; takeProfitPrice?: unknown; thesisNote?: unknown }
+      let slPrice = typeof rawLeg.stopLossPrice === 'number' && Number.isFinite(rawLeg.stopLossPrice) && rawLeg.stopLossPrice > 0 ? rawLeg.stopLossPrice : undefined
+      let tpPrice = typeof rawLeg.takeProfitPrice === 'number' && Number.isFinite(rawLeg.takeProfitPrice) && rawLeg.takeProfitPrice > 0 ? rawLeg.takeProfitPrice : undefined
+
+      // Validate TP/SL direction against mark price — reject inverted levels
+      const markPx = params.markPrices?.[symbol]
+      if (markPx && markPx > 0) {
+        if (side === 'LONG') {
+          if (slPrice != null && slPrice >= markPx) {
+            console.warn(`[agent-runner] rejecting inverted SL for LONG ${symbol}: SL $${slPrice} >= mark $${markPx}`)
+            slPrice = undefined
+          }
+          if (tpPrice != null && tpPrice <= markPx) {
+            console.warn(`[agent-runner] rejecting inverted TP for LONG ${symbol}: TP $${tpPrice} <= mark $${markPx}`)
+            tpPrice = undefined
+          }
+        } else {
+          if (slPrice != null && slPrice <= markPx) {
+            console.warn(`[agent-runner] rejecting inverted SL for SHORT ${symbol}: SL $${slPrice} <= mark $${markPx}`)
+            slPrice = undefined
+          }
+          if (tpPrice != null && tpPrice >= markPx) {
+            console.warn(`[agent-runner] rejecting inverted TP for SHORT ${symbol}: TP $${tpPrice} >= mark $${markPx}`)
+            tpPrice = undefined
+          }
+        }
+      }
+
       metaBySymbol.set(symbol, {
-        stopLossPrice: typeof rawLeg.stopLossPrice === 'number' && Number.isFinite(rawLeg.stopLossPrice) && rawLeg.stopLossPrice > 0 ? rawLeg.stopLossPrice : undefined,
-        takeProfitPrice: typeof rawLeg.takeProfitPrice === 'number' && Number.isFinite(rawLeg.takeProfitPrice) && rawLeg.takeProfitPrice > 0 ? rawLeg.takeProfitPrice : undefined,
+        stopLossPrice: slPrice,
+        takeProfitPrice: tpPrice,
         thesisNote: typeof rawLeg.thesisNote === 'string' ? rawLeg.thesisNote.slice(0, 500) : undefined
       })
     }
@@ -3226,6 +3254,7 @@ async function generateStrategistDirective(params: {
   model: string
   reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
+  markPrices?: Record<string, number>
 }): Promise<{ decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }> {
   const planSchema = {
     type: 'object',
@@ -3299,7 +3328,7 @@ async function generateStrategistDirective(params: {
         'DIRECTIONAL IS DEFAULT: a single long or short in the asset with the best setup (momentum, funding edge, catalyst, aixbt signal) is preferred over a hedged pair unless a specific relative-value divergence justifies pairing.',
         'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), assume runtime risk recovery can force risk-off flattening; avoid discretionary churn around blocked states.',
-        'For each OPEN/REBALANCE leg, you MUST specify stopLossPrice and takeProfitPrice as absolute price levels based on technical analysis (support/resistance, ATR, key levels). These will be placed as reduce-only exchange orders immediately after entry.',
+        'For each OPEN/REBALANCE leg, you MUST specify stopLossPrice and takeProfitPrice as absolute price levels based on technical analysis (support/resistance, ATR, key levels). These will be placed as reduce-only exchange orders immediately after entry. CRITICAL: for LONG positions, stopLossPrice MUST be BELOW the current markPrice and takeProfitPrice MUST be ABOVE it. For SHORT positions, stopLossPrice MUST be ABOVE markPrice and takeProfitPrice MUST be BELOW it. Use the markPrices map in your input for reference. Inverted TP/SL levels will be rejected.',
         'thesisNote per leg should explain the specific setup and what would invalidate it (max 500 chars).',
         'Each trade is INDEPENDENT. Existing positions with active TP/SL orders on the exchange are being managed automatically. Do NOT exit them arbitrarily. Only include a REBALANCE leg for an existing symbol if the thesis is clearly invalidated or you are intentionally rotating.',
         'IMPORTANT: If you want to ADD a new position while KEEPING an existing one, include BOTH in the REBALANCE plan. Omitting an existing position from the plan legs will CLOSE it. Each trade has its own thesis and exit criteria.',
@@ -3345,7 +3374,8 @@ async function generateStrategistDirective(params: {
   if (raw.plan && (decision === 'OPEN' || decision === 'REBALANCE')) {
     plan = normalizeDirectivePlan({
       plan: raw.plan as DirectivePlan | null,
-      fallbackTargetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD
+      fallbackTargetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD,
+      markPrices: params.markPrices
     })
   }
   if ((decision === 'OPEN' || decision === 'REBALANCE') && plan === null) {
@@ -4398,8 +4428,15 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
         symbol: position.symbol,
         side: position.side,
         notionalBucket: bucketNotional(position.notionalUsd),
+        avgEntryPx: position.avgEntryPx,
+        markPx: position.markPx,
         updatedAt: position.updatedAt
       })),
+      markPrices: Object.fromEntries(
+        cachedUniverse.assets
+          .filter((a) => activeBasket.symbols.includes(a.symbol) && a.markPx > 0)
+          .map((a) => [a.symbol, a.markPx])
+      ),
 	      signals: {
 	        all: signalPack,
 	        latest: {
@@ -4426,16 +4463,21 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 	    }
 
     const stratConfig = llmConfigForRole('strategist', nowMs)
+    const stratMarkPrices = Object.fromEntries(
+      cachedUniverse.assets
+        .filter((a) => activeBasket.symbols.includes(a.symbol) && a.markPx > 0)
+        .map((a) => [a.symbol, a.markPx])
+    )
 
     let raw: { decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }
     try {
-      raw = await generateStrategistDirective({ llm: stratConfig.provider, model: stratConfig.model, reasoningEffort: stratConfig.reasoningEffort, input })
+      raw = await generateStrategistDirective({ llm: stratConfig.provider, model: stratConfig.model, reasoningEffort: stratConfig.reasoningEffort, input, markPrices: stratMarkPrices })
     } catch (primaryError) {
       if (stratConfig.provider === 'codex') {
         const canUseClaude = await isClaudeAvailable()
         if (canUseClaude) {
           try {
-            raw = await generateStrategistDirective({ llm: 'claude', model: stratConfig.claudeFallbackModel, input })
+            raw = await generateStrategistDirective({ llm: 'claude', model: stratConfig.claudeFallbackModel, input, markPrices: stratMarkPrices })
             const disabled = maybeDisableCodexFromError(primaryError, nowMs)
             const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
             await publishTape({
@@ -4466,7 +4508,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
         const canUseCodexLlm = await isCodexAvailable()
         if (canUseCodexLlm) {
           try {
-            raw = await generateStrategistDirective({ llm: 'codex', model: env.CODEX_MODEL, input })
+            raw = await generateStrategistDirective({ llm: 'codex', model: env.CODEX_MODEL, input, markPrices: stratMarkPrices })
             await publishTape({
               correlationId: ulid(),
               role: 'ops',
