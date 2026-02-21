@@ -999,31 +999,17 @@ function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
   }
 }
 
-function computeTargetNotional(baseTargetNotional: number, _signals: PluginSignal[]): number {
-  // The agent decides sizing through its notionalUsd per leg.
-  // We only enforce the minimum floor here — no programmatic scaling.
-  return Math.max(100, baseTargetNotional)
-}
-
-function leverageAwareBaseTargetNotionalUsd(fallbackBaseUsd: number): number {
-  const base = Math.max(100, Number(fallbackBaseUsd) || 0)
+function computeMaxBudgetUsd(): number {
+  // No prescribed target — the agent decides sizing. We only expose the hard
+  // ceiling from risk policy so the agent knows the envelope it can work within.
   const accountValueUsd = Number((lastStateUpdate as { accountValueUsd?: unknown } | null)?.accountValueUsd)
   if (!Number.isFinite(accountValueUsd) || accountValueUsd <= 0) {
-    return base
+    return 0
   }
-
   const policy = resolveRiskLimitsForContext()
-  const leverageCap = Math.max(0.1, policy.maxLeverage)
-  const rawTarget = Number.isFinite(policy.targetLeverage) && policy.targetLeverage > 0 ? policy.targetLeverage : leverageCap
-
-  // Thin headroom below the runtime LEVERAGE deny threshold to prevent reject churn
-  // from rounding and price drift between proposal and execution.
-  const effectiveLeverageCap = Math.max(0.1, leverageCap - 0.1)
-  const targetLeverage = clamp(rawTarget, 0.1, effectiveLeverageCap)
-
-  const leverageTarget = accountValueUsd * targetLeverage
-  const cappedByExposure = policy.maxExposureUsd > 0 ? Math.min(leverageTarget, policy.maxExposureUsd) : leverageTarget
-  return Number(Math.max(base, cappedByExposure).toFixed(2))
+  const leverageCap = Math.max(0.1, policy.maxLeverage - 0.1)
+  const leverageCeiling = accountValueUsd * leverageCap
+  return policy.maxExposureUsd > 0 ? Math.min(leverageCeiling, policy.maxExposureUsd) : leverageCeiling
 }
 
 function bucketNotional(notionalUsd: number): 'XS' | 'S' | 'M' | 'L' | 'XL' {
@@ -1605,8 +1591,9 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
     governance: {
       universeSize: env.AGENT_UNIVERSE_SIZE,
       featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
-      targetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD,
+      maxBudgetUsd: computeMaxBudgetUsd(),
       minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
+      accountValueUsd: Number((lastStateUpdate as { accountValueUsd?: unknown } | null)?.accountValueUsd) || 0,
       riskLimits: {
         ...resolveRiskLimitsForContext()
       },
@@ -3279,7 +3266,7 @@ async function generateStrategistDirective(params: {
 	        'REBALANCE: plan legs define the COMPLETE TARGET PORTFOLIO after execution. Any currently-held symbol NOT included in the legs will be CLOSED. To retain an existing position, include it in the plan legs. To add a position while keeping existing ones, include ALL in the legs.',
         'HOLD: keep current exposure. Valid when conviction is genuinely low across available data.',
         'EXIT: close ALL positions to flat immediately. Use for portfolio-wide risk-off, not routine trade management. To close a specific position, use REBALANCE with notionalUsd=0.',
-        'AMBER posture = reduce sizing proportionally, not stop trading.',
+        'AMBER posture = consider reducing sizing, not stopping trading.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), avoid discretionary churn — the runtime handles risk recovery.',
         'For each leg, you may optionally specify stopLossPrice and/or takeProfitPrice as absolute price levels. For LONG: SL below markPrice, TP above. For SHORT: SL above, TP below. Inverted levels are rejected. Omitting them is valid — the runtime has trailing stops and you can manage exits via REBALANCE.',
         'thesisNote per leg: explain the setup and what would invalidate it (max 500 chars).',
@@ -3288,7 +3275,7 @@ async function generateStrategistDirective(params: {
         'Scan the full universe. The best opportunity may be anywhere.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
         'All context (technicals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
-        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd.',
+        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd. You decide sizing — governance.maxBudgetUsd is the hard ceiling, governance.accountValueUsd is equity. Size based on conviction and risk.',
         'riskBudget values must be null or positive numbers.',
         'Do not propose both plan and decision HOLD.'
       ],
@@ -3323,7 +3310,7 @@ async function generateStrategistDirective(params: {
   if (raw.plan && (decision === 'OPEN' || decision === 'REBALANCE')) {
     plan = normalizeDirectivePlan({
       plan: raw.plan as DirectivePlan | null,
-      fallbackTargetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD,
+      fallbackTargetNotionalUsd: computeMaxBudgetUsd(),
       markPrices: params.markPrices
     })
   }
@@ -3937,7 +3924,7 @@ async function runStrategyPipeline(): Promise<void> {
 
   if (lastProposal !== null && lastResearchAt > lastAnalysisAt) {
     lastAnalysisAt = Date.now()
-    await runScribeAnalysis(lastProposal, { targetNotionalUsd: env.AGENT_TARGET_NOTIONAL_USD })
+    await runScribeAnalysis(lastProposal, { targetNotionalUsd: computeMaxBudgetUsd() })
   }
 }
 
@@ -4390,7 +4377,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       drift: summary.drift,
       postureHint: lastRiskReport?.posture ?? summary.posture,
       maxBudgetUsd: params.targetNotionalUsd,
-      minLegNotionalUsd: 100,
+      minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
       heldSymbols,
       activeUniverse: {
         symbols: activeBasket.symbols,
@@ -4619,8 +4606,7 @@ async function runStrategistCycle(): Promise<void> {
 	  // Allow strategist to run so it can prepare directives for when the mode transitions back.
 
 	  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-	  const leverageAwareBase = leverageAwareBaseTargetNotionalUsd(env.AGENT_TARGET_NOTIONAL_USD)
-	  const baseTargetNotionalUsd = computeTargetNotional(leverageAwareBase, signals)
+	  const maxBudgetUsd = computeMaxBudgetUsd()
 	  const tactics = computeExecutionTactics({ signals })
 	  const nowMs = Date.now()
 	  const hasFreshUniverse =
@@ -4630,10 +4616,10 @@ async function runStrategistCycle(): Promise<void> {
 
   // Ensure universe is populated even during HOLD so it's ready when directives change.
   if (!hasFreshUniverse && lastMode !== 'HALT') {
-    await maybeSelectBasket({ targetNotionalUsd: baseTargetNotionalUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
+    await maybeSelectBasket({ targetNotionalUsd: maxBudgetUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
   }
 
-  await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: baseTargetNotionalUsd, positions: lastPositions })
+  await maybeRefreshStrategistDirective({ signals, targetNotionalUsd: maxBudgetUsd, positions: lastPositions })
   const riskRecovery = shouldForceRiskRecovery(now, lastPositions)
   if (riskRecovery.active) {
     if (riskRecovery.signature !== lastRiskRecoverySignature) {
@@ -4669,9 +4655,7 @@ async function runStrategistCycle(): Promise<void> {
     lastRiskRecoverySignature = ''
   }
 
-  const scaledTargetNotionalUsd = Number(
-    Math.max(100, baseTargetNotionalUsd).toFixed(2)
-  )
+  const scaledTargetNotionalUsd = maxBudgetUsd
 
   let proposal: StrategyProposal | null = null
   if (activeDirective.decision !== 'EXIT') {

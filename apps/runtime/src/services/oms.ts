@@ -392,14 +392,15 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
       throw new Error(`unknown symbol for live OMS: ${input.symbol}`)
     }
 
-    const slippageBps = resolveSlippageBps(getSlippageBps)
-    const slip = Math.min(0.5, Math.max(0, slippageBps) / 10000)
+    // Market order: IOC with aggressive slippage to guarantee fill.
+    // Policy slippage is a soft cap for the agent; we use a hard 0.5% here
+    // to ensure the order crosses the spread and fills immediately.
+    const MARKET_SLIPPAGE_BPS = 50
+    const slip = MARKET_SLIPPAGE_BPS / 10000
 
     const pxRaw = input.side === 'BUY'
       ? input.tick.ask * (1 + slip)
       : input.tick.bid * (1 - slip)
-    // NOTE: Hyperliquid's `formatPrice` uses `szDecimals` to derive the allowed price decimals
-    // (max decimals = 6 - szDecimals for perps). This matches the upstream SDK contract.
     const px = formatPrice(pxRaw, szDecimals, 'perp')
     const pxNum = Number(px)
     if (!Number.isFinite(pxNum) || pxNum <= 0) {
@@ -409,11 +410,6 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     const sizeRaw = input.notionalUsd / pxNum
     const size = formatSize(sizeRaw, szDecimals)
 
-    // Use GTC so the order rests on the book if it doesn't fill immediately,
-    // then poll for fill up to GTC_FILL_TIMEOUT_MS before cancelling.
-    const GTC_FILL_TIMEOUT_MS = 8_000
-    const GTC_POLL_INTERVAL_MS = 500
-
     const result = await exchange.order({
       orders: [
         {
@@ -422,7 +418,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
           p: px,
           s: size,
           r: false,
-          t: { limit: { tif: 'Gtc' } },
+          t: { limit: { tif: 'Ioc' } },
           c: cloid
         }
       ],
@@ -471,55 +467,13 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     }
 
     if ('resting' in status) {
+      // IOC should never rest, but handle gracefully — cancel and report.
       const resting = (status as any).resting as { oid: number }
       const oid = String(resting.oid)
+      console.warn(`oms: IOC order ${oid} (${input.symbol}) unexpectedly resting, cancelling`)
+      await exchange.cancel({ cancels: [{ a: assetId, o: resting.oid }] }).catch(() => {})
       idempotencyMap.set(input.idempotencyKey, oid)
       idempotencySeenAt.set(input.idempotencyKey, Date.now())
-
-      // Poll for fill with timeout, then cancel if still resting.
-      const deadline = Date.now() + GTC_FILL_TIMEOUT_MS
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, GTC_POLL_INTERVAL_MS))
-        const check = await info.orderStatus({ user: wallet.address, oid: resting.oid }).catch(() => null)
-        if (!check || check.status !== 'order') continue
-        const hlStatus = check.order.status
-        if (hlStatus === 'filled') {
-          const origSz = Number(check.order.order.origSz)
-          const remainingSz = Number(check.order.order.sz)
-          const filledQty = Number.isFinite(origSz) && Number.isFinite(remainingSz) ? Math.max(0, origSz - remainingSz) : 0
-          const limitPx = Number(check.order.order.limitPx)
-          return {
-            orderId: oid,
-            symbol: input.symbol,
-            side: input.side,
-            status: 'FILLED' as OrderState,
-            notionalUsd: filledQty * (Number.isFinite(limitPx) ? limitPx : pxNum),
-            filledQty,
-            avgFillPx: Number.isFinite(limitPx) ? limitPx : pxNum,
-            createdAt: nowIso,
-            source: 'LIVE' as const
-          }
-        }
-        if (hlStatus === 'canceled' || hlStatus.endsWith('Canceled')) {
-          return {
-            orderId: oid,
-            symbol: input.symbol,
-            side: input.side,
-            status: 'CANCELLED' as OrderState,
-            notionalUsd: 0,
-            filledQty: 0,
-            avgFillPx: pxNum,
-            createdAt: nowIso,
-            source: 'LIVE' as const
-          }
-        }
-      }
-
-      // Timeout: cancel the resting order and return as cancelled.
-      console.warn(`oms: GTC order ${oid} (${input.symbol}) not filled after ${GTC_FILL_TIMEOUT_MS}ms, cancelling`)
-      await exchange.cancel({ cancels: [{ a: assetId, o: resting.oid }] }).catch((err) =>
-        console.warn(`oms: cancel after timeout failed for ${oid}:`, err)
-      )
       return {
         orderId: oid,
         symbol: input.symbol,
