@@ -38,6 +38,30 @@ export interface RedisEventBusConfig {
 
 const defaultStreamPrefix = 'hlp'
 
+/**
+ * Approximate MAXLEN caps per stream. Keeps Redis bounded without losing
+ * data that consumers actually need.  `0` means no trim (audit/compliance).
+ *
+ * market.normalized  ~5 msg/s → 72 000 ≈ 4 h
+ * ui.events          bursty   → 50 000 ≈ 30-60 min
+ * audit.events       replay   → 0 (never trim – operator compliance)
+ * execution.*        low vol  → 100 000 ≈ months
+ * everything else    low vol  → 10 000
+ */
+const streamMaxLen: Partial<Record<StreamName, number>> = {
+  'hlp.market.normalized': 72_000,
+  'hlp.market.watchlist': 10_000,
+  'hlp.strategy.proposals': 10_000,
+  'hlp.plugin.signals': 10_000,
+  'hlp.risk.decisions': 10_000,
+  'hlp.execution.commands': 100_000,
+  'hlp.execution.fills': 100_000,
+  'hlp.audit.events': 0,
+  'hlp.ui.events': 50_000,
+  'hlp.payments.events': 10_000,
+  'hlp.commands': 10_000,
+}
+
 function normalizeBound(value: string): string {
   if (/^\d{2,}-\d+$/.test(value)) {
     return value
@@ -82,6 +106,15 @@ function parseEnvelope(raw: string): EnvelopeRecord | null {
   }
 }
 
+export interface AuditArchiver {
+  (envelope: EventEnvelope<unknown>): Promise<void>
+}
+
+export interface AuditArchiveResult {
+  archived: number
+  trimmedUpTo: string | null
+}
+
 export class RedisEventBus implements EventBus {
   private redis: Redis
   private prefix: string
@@ -96,6 +129,49 @@ export class RedisEventBus implements EventBus {
   private stream(stream: StreamName): string {
     StreamNameSchema.parse(stream)
     return `${this.prefix}.${stream}`
+  }
+
+  /**
+   * Archive audit events older than `retainMs` from Redis into a persistent
+   * store (e.g. Postgres) via the provided callback function, then trim the
+   * archived entries from the stream.
+   *
+   * Designed to be called periodically (e.g. every 6 hours).
+   */
+  async archiveAuditStream(
+    archiver: AuditArchiver,
+    retainMs = 7 * 24 * 60 * 60 * 1000
+  ): Promise<AuditArchiveResult> {
+    const key = this.stream('hlp.audit.events')
+    const cutoffMs = Date.now() - retainMs
+    const cutoffId = `${cutoffMs}-0`
+    const batchSize = 500
+    let cursor = '-'
+    let archived = 0
+    let lastArchivedId: string | null = null
+
+    while (true) {
+      const entries = await this.redis.xrange(key, cursor, cutoffId, 'COUNT', String(batchSize))
+      if (entries.length === 0) break
+
+      for (const [id, fields] of entries) {
+        const raw = extractPayload(fields)
+        if (!raw) continue
+        const envelope = parseEnvelope(raw)
+        if (!envelope) continue
+        await archiver(envelope)
+        lastArchivedId = id
+        archived++
+      }
+
+      cursor = `(${entries[entries.length - 1][0]}`
+    }
+
+    if (lastArchivedId) {
+      await this.redis.xtrim(key, 'MINID', lastArchivedId)
+    }
+
+    return { archived, trimmedUpTo: lastArchivedId }
   }
 
   async publish<T>(stream: StreamName, event: EnvelopeInput<T>): Promise<string> {
@@ -116,7 +192,13 @@ export class RedisEventBus implements EventBus {
     }
 
     EventEnvelopeSchema.parse(envelope)
-    await this.redis.xadd(this.stream(stream), '*', 'payload', JSON.stringify(envelope))
+    const key = this.stream(stream)
+    const maxLen = streamMaxLen[stream] ?? 0
+    if (maxLen > 0) {
+      await this.redis.xadd(key, 'MAXLEN', '~', String(maxLen), '*', 'payload', JSON.stringify(envelope))
+    } else {
+      await this.redis.xadd(key, '*', 'payload', JSON.stringify(envelope))
+    }
     return envelope.id
   }
 
