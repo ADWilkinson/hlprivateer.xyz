@@ -1591,9 +1591,10 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
     governance: {
       universeSize: env.AGENT_UNIVERSE_SIZE,
       featureWindowMin: env.AGENT_FEATURE_WINDOW_MIN,
-      maxBudgetUsd: computeMaxBudgetUsd(),
-      minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
       accountValueUsd: Number((lastStateUpdate as { accountValueUsd?: unknown } | null)?.accountValueUsd) || 0,
+      maxLeverageAvailable: resolveRiskLimitsForContext().maxLeverage,
+      buyingPowerUsd: computeMaxBudgetUsd(),
+      minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
       riskLimits: {
         ...resolveRiskLimitsForContext()
       },
@@ -3275,7 +3276,7 @@ async function generateStrategistDirective(params: {
         'Scan the full universe. The best opportunity may be anywhere.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
         'All context (technicals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
-        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd. You decide sizing — governance.maxBudgetUsd is the hard ceiling, governance.accountValueUsd is equity. Size based on conviction and risk.',
+        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd. You decide sizing autonomously. governance.accountValueUsd is equity, governance.maxBudgetUsd is total buying power (equity * leverage). You can use the full maxBudgetUsd for gross notional exposure — that IS the point of leverage. Size proportionally to conviction. $100 legs on a $2k+ account with 20x leverage is absurdly conservative — size with conviction.',
         'riskBudget values must be null or positive numbers.',
         'Do not propose both plan and decision HOLD.'
       ],
@@ -4376,7 +4377,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       state: lastStateUpdate ?? null,
       drift: summary.drift,
       postureHint: lastRiskReport?.posture ?? summary.posture,
-      maxBudgetUsd: params.targetNotionalUsd,
+      buyingPowerUsd: params.targetNotionalUsd,
       minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
       heldSymbols,
       activeUniverse: {
@@ -4388,7 +4389,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       positions: params.positions.map((position) => ({
         symbol: position.symbol,
         side: position.side,
-        notionalBucket: bucketNotional(position.notionalUsd),
+        notionalUsd: Number(position.notionalUsd.toFixed(2)),
         avgEntryPx: position.avgEntryPx,
         markPx: position.markPx,
         updatedAt: position.updatedAt
