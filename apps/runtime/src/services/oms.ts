@@ -589,29 +589,44 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     }
   })()
 
+  const STALE_AUTO_CANCEL_AGE_MS = 5 * 60_000
+  const staleCancelledSet = new Set<string>()
+
   async function reconcile(): Promise<Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }>> {
     const now = Date.now()
     const open = await info.frontendOpenOrders({ user: wallet.address })
 
-    return open.map((order) => {
+    const results: Array<{ orderId: string; status: OrderState; filledQty: number; avgFillPx: number }> = []
+
+    for (const order of open) {
       const origSz = Number(order.origSz)
       const remainingSz = Number(order.sz)
       const filledQty = Number.isFinite(origSz) && Number.isFinite(remainingSz) ? Math.max(0, origSz - remainingSz) : 0
       const avgFillPx = Number(order.limitPx)
       const ageMs = now - Number(order.timestamp)
       const tooOld = Number.isFinite(ageMs) && ageMs > env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS
+      const oid = String(order.oid)
 
       const baseStatus: OrderState = filledQty > 0 ? 'PARTIALLY_FILLED' : 'WORKING'
-      if (tooOld && !order.isTrigger) {
-        warnStaleOrder(String(order.oid), ageMs, env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS)
+
+      // Auto-cancel stale non-trigger orders that have been open too long
+      if (!order.isTrigger && Number.isFinite(ageMs) && ageMs > STALE_AUTO_CANCEL_AGE_MS && !staleCancelledSet.has(oid)) {
+        staleCancelledSet.add(oid)
+        console.warn(`oms: auto-cancelling stale order ${oid} (age ${Math.round(ageMs / 1000)}s, coin=${order.coin})`)
+        cancel(oid).catch((err) => console.warn(`oms: auto-cancel failed for ${oid}:`, err))
+      } else if (tooOld && !order.isTrigger) {
+        warnStaleOrder(oid, ageMs, env.LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS)
       }
-      return {
-        orderId: String(order.oid),
+
+      results.push({
+        orderId: oid,
         status: baseStatus,
         filledQty,
         avgFillPx: Number.isFinite(avgFillPx) ? avgFillPx : 0
-      }
-    })
+      })
+    }
+
+    return results
   }
 
   async function snapshot(): Promise<{ orders: PlacedOrder[]; positions: OperatorPosition[]; realizedPnlUsd: number }> {
