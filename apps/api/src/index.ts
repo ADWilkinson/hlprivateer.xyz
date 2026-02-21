@@ -352,8 +352,7 @@ function getEffectiveRiskConfig() {
       : env.RISK_MAX_NOTIONAL_USD,
     maxSlippageBps: num(riskPolicy.maxSlippageBps, env.RISK_MAX_SLIPPAGE_BPS),
     staleDataMs: num(riskPolicy.staleDataMs, env.RISK_STALE_DATA_MS),
-    liquidityBufferPct: num(riskPolicy.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT),
-    notionalParityTolerance: num(riskPolicy.notionalParityTolerance, env.RISK_NOTIONAL_PARITY_TOLERANCE)
+    liquidityBufferPct: num(riskPolicy.liquidityBufferPct, env.RISK_LIQUIDITY_BUFFER_PCT)
   }
 }
 
@@ -998,7 +997,7 @@ app.patch('/v1/operator/config/risk', { ...routeRateLimit(30, 60_000), preHandle
     return
   }
 
-  store.setSnapshot({ driftState: 'IN_TOLERANCE', healthCode: 'GREEN' })
+  store.setSnapshot({ healthCode: 'GREEN' })
   addAudit(store, resolveOperatorClaims(request).sub, 'operator.config.risk', {
     ...body,
     reason
@@ -1648,7 +1647,6 @@ app.get('/v1/agent/data/overview', { ...routeRateLimit(180, 60_000), preHandler:
     mode: snapshot.mode,
     pnlPct: snapshot.pnlPct,
     healthCode: snapshot.healthCode,
-    driftState: snapshot.driftState,
     riskConfig,
     marketData: {
       openPositionCount: snapshot.openPositionCount ?? snapshot.openPositions.length,
@@ -1676,7 +1674,6 @@ app.get('/v1/agent/insights', { ...routeRateLimit(180, 60_000), preHandler: [x40
       mode: snapshot.mode,
       pnlPct: snapshot.pnlPct,
       healthCode: snapshot.healthCode,
-      driftState: snapshot.driftState,
       updatedAt: snapshot.lastUpdateAt
     },
     riskConfig,

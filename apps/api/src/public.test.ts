@@ -8,7 +8,6 @@ describe('public payload redaction', () => {
     store.setSnapshot({
       mode: 'READY',
       pnlPct: 1.234,
-      driftState: 'IN_TOLERANCE',
       healthCode: 'GREEN',
       lastUpdateAt: new Date().toISOString()
     })

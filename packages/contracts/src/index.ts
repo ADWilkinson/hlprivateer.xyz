@@ -184,8 +184,7 @@ export const RiskReasonSchema = z.object({
 export const RiskDecisionComputedSchema = z.object({
   grossExposureUsd: z.number(),
   netExposureUsd: z.number(),
-  projectedDrawdownPct: z.number(),
-  notionalImbalancePct: z.number()
+  projectedDrawdownPct: z.number()
 })
 export type RiskDecisionComputed = z.infer<typeof RiskDecisionComputedSchema>
 
@@ -237,7 +236,6 @@ export const PublicSnapshotSchema = z.object({
   mode: TradeStateSchema,
   pnlPct: z.number(),
   healthCode: z.enum(['GREEN', 'YELLOW', 'RED']),
-  driftState: z.enum(['IN_TOLERANCE', 'POTENTIAL_DRIFT', 'BREACH']),
   accountValueUsd: z.number().optional(),
   maxLeverage: z.number().optional(),
   openPositions: z.array(PublicOpenPositionSchema).optional().default([]),

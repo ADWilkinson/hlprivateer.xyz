@@ -1,9 +1,7 @@
 import { AsciiBadge } from './ascii-kit'
 import { cardClass, collapsibleHeaderClass, inverseControlClass, skeletonPulseClass, statusCellClass } from './ascii-style'
 import {
-  badgeVariantForDrift,
   badgeVariantForHealth,
-  driftStatusLabel,
   healthStatusLabel,
   type Snapshot,
   type WsState,
@@ -44,9 +42,7 @@ export function StatusStrip({
   sectionId = 'status',
 }: StatusStripProps) {
   const health = badgeVariantForHealth(snapshot.healthCode)
-  const drift = badgeVariantForDrift(snapshot.driftState)
   const healthLabel = healthStatusLabel(snapshot.healthCode)
-  const driftLabel = driftStatusLabel(snapshot.driftState)
   const isFeedStale = snapshotAgeMs > 12_000
 
   return (
@@ -73,10 +69,10 @@ export function StatusStrip({
       <div id={`section-${sectionId}`} hidden={isCollapsed}>
         {!isCollapsed && (
           <>
-          <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-6'>
+          <div className='grid min-h-0 grid-cols-2 border-b border-hlpBorder bg-hlpSurface gap-px sm:grid-cols-3 lg:grid-cols-5'>
             {isLoading ? (
               <>
-                {['MODE', 'WS', 'HEALTH', 'DRIFT', 'FEED AGE', 'HEARTBEAT'].map((label) => (
+                {['MODE', 'WS', 'HEALTH', 'FEED AGE', 'HEARTBEAT'].map((label) => (
                   <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`} key={label}>
                     <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>{label}</span>
                     <span className={`h-3 w-16 ${skeletonPulseClass}`} />
@@ -106,13 +102,6 @@ export function StatusStrip({
                       <span className={`block h-1.5 w-1.5 ${LED_CLASS_BY_STATE[health]}`} />
                     </span>
                     <span className={`text-[11px] font-bold ${LED_TEXT_BY_STATE[health]}`}>{healthLabel}</span>
-                  </span>
-                </div>
-                <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>
-                  <span className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>DRIFT</span>
-                  <span className='flex items-center gap-2'>
-                    <span className={`h-1.5 w-1.5 ${LED_CLASS_BY_STATE[drift]}`} />
-                    <span className='text-[11px] font-bold'>{driftLabel}</span>
                   </span>
                 </div>
                 <div className={`${statusCellClass} min-w-[110px] flex-shrink-0 sm:min-w-0 sm:flex-shrink`}>

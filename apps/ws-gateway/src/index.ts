@@ -497,7 +497,6 @@ function sanitizeForPublic(type: string, rawPayload: unknown): Record<string, un
       // Keep public payload shape compatible with the web UI client which expects `type`.
       type: 'STATE_UPDATE',
       mode: payload.mode,
-      driftState: payload.driftState,
       healthCode: payload.healthCode,
       pnlPct: payload.pnlPct,
       lastUpdateAt: payload.lastUpdateAt,

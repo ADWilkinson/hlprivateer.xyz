@@ -116,7 +116,6 @@ export interface Snapshot {
   accountValueUsd?: number
   realizedPnlUsd?: number
   healthCode: string
-  driftState: string
   lastUpdateAt: string
   message?: string
   openPositions?: OpenPosition[]
@@ -188,20 +187,6 @@ export function healthStatusLabel(code: string): string {
   if (status === 'GREEN' || status === 'HEALTHY' || status === 'OK' || status === 'GOOD') return 'HEALTHY'
   if (status === 'YELLOW' || status === 'WARNING' || status === 'WARN') return 'CAUTION'
   return 'DEGRADED'
-}
-
-export function badgeVariantForDrift(state: string): 'ok' | 'warn' | 'danger' {
-  const next = state.toUpperCase().trim()
-  if (next === 'IN_TOLERANCE') return 'ok'
-  if (next === 'POTENTIAL_DRIFT') return 'warn'
-  return 'danger'
-}
-
-export function driftStatusLabel(state: string): string {
-  const drift = state.toUpperCase().trim()
-  if (drift === 'IN_TOLERANCE') return 'STABLE'
-  if (drift === 'POTENTIAL_DRIFT') return 'DRIFTING'
-  return 'ALERT'
 }
 
 export function crewLabel(role: CrewRole): string {

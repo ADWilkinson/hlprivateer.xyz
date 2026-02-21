@@ -56,8 +56,6 @@ export const runtimeEnv = z
     RISK_MAX_NOTIONAL_USD: z.coerce.number().default(50000),
     RISK_STALE_DATA_MS: z.coerce.number().default(3000),
     RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().default(1.1),
-    RISK_NOTIONAL_PARITY_TOLERANCE: z.coerce.number().default(1.0),
-    RISK_DRIFT_BREACH_PCT: z.coerce.number().min(0).max(1).default(1.0),
     RUNTIME_FLAT_DUST_NOTIONAL_USD: z.coerce
       .number()
       .nonnegative()

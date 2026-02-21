@@ -68,7 +68,6 @@ export interface ApiRuntimeSnapshot {
   pnlPct: number
   lastUpdateAt: string
   healthCode: 'GREEN' | 'YELLOW' | 'RED'
-  driftState?: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
   accountValueUsd?: number
   message?: string
   riskPolicy?: {
@@ -78,7 +77,6 @@ export interface ApiRuntimeSnapshot {
     maxSlippageBps?: number
     staleDataMs?: number
     liquidityBufferPct?: number
-    notionalParityTolerance?: number
   }
 }
 
@@ -92,7 +90,6 @@ export class ApiStore {
     mode: 'INIT',
     pnlPct: 0,
     healthCode: 'GREEN',
-    driftState: 'IN_TOLERANCE',
     recentTape: [],
     openPositions: [],
     lastUpdateAt: new Date().toISOString()

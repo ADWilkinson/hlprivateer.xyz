@@ -98,7 +98,6 @@ export interface RuntimeState {
   mode: TradeState
   pnlPct: number
   realizedPnlUsd: number
-  driftState: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
   lastUpdateAt: string
   cycle: number
   positions: OperatorPosition[]
@@ -180,8 +179,6 @@ const RISK_POLICY_MIN_EXPOSURE_USD = 25
 const RISK_POLICY_MIN_SLIPPAGE_BPS = 0
 const RISK_POLICY_MIN_STALE_DATA_MS = 300
 const RISK_POLICY_MIN_LIQUIDITY_BUFFER = 1
-const RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE = 0
-const RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE = 1
 const MIN_MEANINGFUL_POSITION_USD = 1
 
 const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
@@ -205,39 +202,10 @@ const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
   'stale-data-ms': 'staleDataMs',
   liquidityBufferPct: 'liquidityBufferPct',
   liquidity_buffer_pct: 'liquidityBufferPct',
-  'liquidity-buffer-pct': 'liquidityBufferPct',
-  notionalParityTolerance: 'notionalParityTolerance',
-  notional_parity_tolerance: 'notionalParityTolerance',
-  'notional-parity-tolerance': 'notionalParityTolerance'
+  'liquidity-buffer-pct': 'liquidityBufferPct'
 }
 
 void promClient.collectDefaultMetrics()
-
-function driftFrom(state: RuntimeState, breachThreshold = 1.0): 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH' {
-  if (state.positions.length === 0) {
-    return 'IN_TOLERANCE'
-  }
-
-  const longs = state.positions
-    .filter((position) => position.side === 'LONG')
-    .reduce((acc, position) => acc + Math.max(0, Math.abs(position.notionalUsd)), 0)
-  const shorts = state.positions
-    .filter((position) => position.side === 'SHORT')
-    .reduce((acc, position) => acc + Math.max(0, Math.abs(position.notionalUsd)), 0)
-  const gross = longs + shorts
-  const mismatch = Math.abs(longs - shorts)
-  const pct = gross === 0 ? 0 : mismatch / gross
-
-  if (pct > breachThreshold) {
-    return 'BREACH'
-  }
-
-  if (pct > breachThreshold * 0.25) {
-    return 'POTENTIAL_DRIFT'
-  }
-
-  return 'IN_TOLERANCE'
-}
 
 function setModeGauge(mode: TradeState): void {
   runtimeCycleMode.reset()
@@ -259,8 +227,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
     maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
     staleDataMs: env.RISK_STALE_DATA_MS,
-    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT
   }
 
   const readRuntimeRiskPolicy = (): RuntimeRiskPolicy => ({ ...runtimeRiskPolicy })
@@ -282,7 +249,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     mode: persistedState?.state ?? 'INIT',
     pnlPct: 0,
     realizedPnlUsd: 0,
-    driftState: 'IN_TOLERANCE',
     lastUpdateAt: new Date().toISOString(),
     cycle: 0,
     positions: persistedPositions,
@@ -290,7 +256,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   }
 
   state.lastUpdateAt = persistedState?.updatedAt ?? state.lastUpdateAt
-  state.driftState = driftFrom(state, env.RISK_DRIFT_BREACH_PCT)
 
   setModeGauge(state.mode)
 
@@ -425,13 +390,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         normalized.liquidityBufferPct = numericValue
       }
 
-      if (key === 'notionalParityTolerance') {
-        if (numericValue < RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE || numericValue > RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE) {
-          fields.push(`${key}: range ${RISK_POLICY_MIN_NOTIONAL_PARITY_TOLERANCE}..${RISK_POLICY_MAX_NOTIONAL_PARITY_TOLERANCE}`)
-          continue
-        }
-        normalized.notionalParityTolerance = numericValue
-      }
     }
 
     if (fields.length > 0) {
@@ -516,8 +474,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     meaningfulPositions(positions).length > 0
   const hasAnyExposure = (positions: readonly OperatorPosition[] = state.positions): boolean =>
     hasMeaningfulExposure(positions)
-  const driftFromMeaningful = (positions: readonly OperatorPosition[] = state.positions): ReturnType<typeof driftFrom> =>
-    driftFrom({ ...state, positions: meaningfulPositions(positions) }, env.RISK_DRIFT_BREACH_PCT)
 
   const refreshLiveAccountValue = async (nowMs: number): Promise<void> => {
     if (!env.ENABLE_LIVE_OMS) {
@@ -579,8 +535,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       maxExposureUsd: policy.maxExposureUsd,
       maxSlippageBps: policy.maxSlippageBps,
       staleDataMs: policy.staleDataMs,
-      liquidityBufferPct: policy.liquidityBufferPct,
-      notionalParityTolerance: policy.notionalParityTolerance
+      liquidityBufferPct: policy.liquidityBufferPct
     }
   }
 
@@ -595,7 +550,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       mode: state.mode,
       pnlPct: state.pnlPct,
       realizedPnlUsd: state.realizedPnlUsd,
-      driftState: state.driftState,
       healthCode: 'GREEN',
       lastUpdateAt: state.lastUpdateAt,
       riskPolicy: runtimeRiskPolicyContext(),
@@ -617,7 +571,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     const previousMode = state.mode
     state.mode = mode
     state.lastUpdateAt = new Date().toISOString()
-    state.driftState = driftFromMeaningful()
     setModeGauge(mode)
     await store.saveSystemState(mode, reason).catch(() => {
       void bus.publish('hlp.audit.events', {
@@ -657,7 +610,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         reason,
         pnlPct: state.pnlPct,
         realizedPnlUsd: state.realizedPnlUsd,
-        driftState: state.driftState,
         healthCode: mode === 'SAFE_MODE' || mode === 'HALT' ? 'RED' : 'GREEN',
         lastUpdateAt: state.lastUpdateAt,
         riskPolicy: runtimeRiskPolicyContext()
@@ -787,7 +739,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         openPositions: state.positions,
         openPositionCount: state.positions.length,
         openPositionNotionalUsd,
-        driftState: state.driftState,
         healthCode: state.mode === 'SAFE_MODE' || state.mode === 'HALT' ? 'RED' : 'GREEN',
         lastUpdateAt: state.lastUpdateAt,
         riskPolicy: runtimeRiskPolicyContext(),
@@ -906,7 +857,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       const totalPnlUsd = state.realizedPnlUsd + mark.unrealizedPnlUsd
       const pnlDenominatorUsd = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsd > 0 ? Number(((totalPnlUsd / pnlDenominatorUsd) * 100).toFixed(3)) : 0
-      state.driftState = driftFromMeaningful()
       if (!hasAnyExposure(state.positions)) {
         activeThesis = null
       }
@@ -1202,8 +1152,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
             computed: {
               grossExposureUsd: 0,
               netExposureUsd: 0,
-              projectedDrawdownPct: 0,
-              notionalImbalancePct: 100
+              projectedDrawdownPct: 0
             }
           },
           'PARSE_ERROR',
@@ -1330,7 +1279,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       const totalAfterUsd = state.realizedPnlUsd + postMark.unrealizedPnlUsd
       const pnlDenominatorUsdAfter = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsdAfter > 0 ? Number(((totalAfterUsd / pnlDenominatorUsdAfter) * 100).toFixed(3)) : 0
-      state.driftState = driftFromMeaningful()
       await publishPositionsUpdate(proposal.proposalId)
 
       if (previousMode === 'READY' && hasAnyExposure()) {
@@ -1694,7 +1642,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     })
   }
 
-  const publishRiskDecision = async (risk: { decision: RiskDecision; reasons: Array<{ code: string; message: string; details?: Record<string, unknown> }> ; correlationId: string; decisionId: string; computedAt: string; computed: { grossExposureUsd: number; netExposureUsd: number; projectedDrawdownPct: number; notionalImbalancePct: number } }, source: string, correlationId: string) => {
+  const publishRiskDecision = async (risk: { decision: RiskDecision; reasons: Array<{ code: string; message: string; details?: Record<string, unknown> }> ; correlationId: string; decisionId: string; computedAt: string; computed: { grossExposureUsd: number; netExposureUsd: number; projectedDrawdownPct: number } }, source: string, correlationId: string) => {
     await bus.publish('hlp.risk.decisions', {
       type: 'risk.decision',
       stream: 'hlp.risk.decisions',
@@ -1737,7 +1685,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       'LEVERAGE',
       'SAFE_MODE',
       'DEPENDENCY_FAILURE',
-      'NOTIONAL_PARITY',
       'STALE_DATA',
       'LIQUIDITY',
       'SLIPPAGE_BREACH',
@@ -1753,7 +1700,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       .filter((entry) => entry.length > 0)
     )]
     const infraOnlyCodes = new Set(['SAFE_MODE', 'DEPENDENCY_FAILURE', 'STALE_DATA', 'SYSTEM_GATED'])
-    const hardRiskCodes = new Set(['DRAWDOWN', 'EXPOSURE', 'LEVERAGE', 'LIQUIDITY', 'SLIPPAGE_BREACH', 'NOTIONAL_PARITY'])
+    const hardRiskCodes = new Set(['DRAWDOWN', 'EXPOSURE', 'LEVERAGE', 'LIQUIDITY', 'SLIPPAGE_BREACH'])
     const isInfraOnlyMitigation = reasonCodes.length > 0 && reasonCodes.every((code) => infraOnlyCodes.has(code))
     const hasHardRiskSignal = reasonCodes.some((code) => hardRiskCodes.has(code))
 
@@ -2143,7 +2090,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       runtimeCommandCounter.inc({ command, result: 'executed' })
       return {
         ok: true,
-        message: `state=${state.mode},drift=${state.driftState},cycle=${state.cycle},positions=${state.positions.length},orders=${state.orders.length}`
+        message: `state=${state.mode},cycle=${state.cycle},positions=${state.positions.length},orders=${state.orders.length}`
       }
     }
 

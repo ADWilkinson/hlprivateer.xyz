@@ -84,7 +84,6 @@ export const env = z
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().positive().default(20),
     RISK_STALE_DATA_MS: z.coerce.number().positive().default(3000),
     RISK_LIQUIDITY_BUFFER_PCT: z.coerce.number().positive().default(1.1),
-    RISK_NOTIONAL_PARITY_TOLERANCE: z.number().min(0).max(1).default(1.0),
     // Keep "flat" semantics consistent with runtime (dust positions should not trap recovery loops).
     RUNTIME_FLAT_DUST_NOTIONAL_USD: z.coerce
       .number()

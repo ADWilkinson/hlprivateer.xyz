@@ -71,8 +71,7 @@ describe('contracts', () => {
       computed: {
         grossExposureUsd: 0,
         netExposureUsd: 0,
-        projectedDrawdownPct: 0,
-        notionalImbalancePct: 0
+        projectedDrawdownPct: 0
       }
     })
 

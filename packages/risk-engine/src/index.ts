@@ -39,7 +39,6 @@ export interface RiskConfig {
   maxSlippageBps: number
   staleDataMs: number
   liquidityBufferPct: number
-  notionalParityTolerance: number
   failClosedOnDependencyError: boolean
 }
 
@@ -71,73 +70,6 @@ const ActionWithLegsSchema = z.object({
 
 function staleMs(tick: TickSnapshot): number {
   return Date.now() - Date.parse(tick.updatedAt)
-}
-
-function computeProjectedLongShort(positions: PositionSnapshot[], proposal: StrategyProposal): { longUsd: number; shortUsd: number; grossUsd: number } {
-  const bySymbol = new Map<string, number>()
-
-  for (const position of positions) {
-    const sign = position.side === 'LONG' ? 1 : -1
-    bySymbol.set(position.symbol, (bySymbol.get(position.symbol) ?? 0) + sign * Math.abs(position.notionalUsd))
-  }
-
-  for (const action of proposal.actions) {
-    for (const leg of action.legs) {
-      const sign = leg.side === 'BUY' ? 1 : -1
-      bySymbol.set(leg.symbol, (bySymbol.get(leg.symbol) ?? 0) + sign * leg.notionalUsd)
-    }
-  }
-
-  const values = [...bySymbol.values()]
-  const longUsd = values.filter((v) => v > 0).reduce((sum, v) => sum + v, 0)
-  const shortUsd = values.filter((v) => v < 0).reduce((sum, v) => sum + Math.abs(v), 0)
-  return { longUsd, shortUsd, grossUsd: longUsd + shortUsd }
-}
-
-function computeCurrentLongShort(positions: PositionSnapshot[]): { longUsd: number; shortUsd: number; grossUsd: number } {
-  let longUsd = 0
-  let shortUsd = 0
-  for (const position of positions) {
-    if (position.side === 'LONG') longUsd += Math.abs(position.notionalUsd)
-    else shortUsd += Math.abs(position.notionalUsd)
-  }
-  return { longUsd, shortUsd, grossUsd: longUsd + shortUsd }
-}
-
-function checkNotionalExposurePolicy(positions: PositionSnapshot[], proposal: StrategyProposal, tolerance: number): CheckResult {
-  const projected = computeProjectedLongShort(positions, proposal)
-  if (projected.grossUsd === 0) {
-    // Flat is acceptable (e.g. explicit exit/flatten proposals).
-    return { ok: true }
-  }
-
-  if (projected.longUsd === 0 || projected.shortUsd === 0) {
-    return { ok: true }
-  }
-
-  const denominator = projected.grossUsd / 2
-  const drift = Math.abs(projected.longUsd - projected.shortUsd) / denominator
-  if (drift > tolerance) {
-    // Allow if the proposal is improving parity. When the current state is
-    // all-one-sided, any introduction of the opposite side moves toward balance
-    // and must not be blocked. Also allow if drift is strictly decreasing.
-    const current = computeCurrentLongShort(positions)
-    // Only apply improving-parity logic when the book has actual exposure and
-    // is all-one-sided. Flat → imbalanced transitions still require parity.
-    if (current.grossUsd > 0 && (current.longUsd === 0 || current.shortUsd === 0)) {
-      return { ok: true }
-    }
-    const currentDrift = Math.abs(current.longUsd - current.shortUsd) / (current.grossUsd / 2)
-    if (drift <= currentDrift) {
-      return { ok: true }
-    }
-    return {
-      ok: false,
-      reason: `projected notional imbalance ${(drift * 100).toFixed(2)}% exceeds ${(tolerance * 100).toFixed(2)}%`
-    }
-  }
-
-  return { ok: true }
 }
 
 function checkInvariant(proposal: StrategyProposal): CheckResult {
@@ -317,19 +249,6 @@ function checkDrawdown(positions: PositionSnapshot[], proposal: StrategyProposal
   return { ok: true }
 }
 
-function computeImbalance(positions: PositionSnapshot[], proposal: StrategyProposal): number {
-  const projected = computeProjectedLongShort(positions, proposal)
-  if (projected.grossUsd === 0) {
-    return 0
-  }
-
-  if (projected.longUsd === 0 || projected.shortUsd === 0) {
-    return Number.POSITIVE_INFINITY
-  }
-
-  return Math.abs(projected.longUsd - projected.shortUsd) / (projected.grossUsd / 2)
-}
-
 function computeExposure(positions: PositionSnapshot[], proposal: StrategyProposal): { grossExposureUsd: number; netExposureUsd: number } {
   const bySymbol = new Map<string, number>()
 
@@ -386,11 +305,6 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push({ code: 'INVALID_PROPOSAL', message: 'proposal has no actionable legs' })
   }
 
-  const parityResult = checkNotionalExposurePolicy(context.openPositions, context.proposal, config.notionalParityTolerance)
-  if (!parityResult.ok && !isReducingExit) {
-    reasons.push({ code: 'NOTIONAL_PARITY', message: parityResult.reason ?? 'invalid notional parity' })
-  }
-
   const slippageLimit = Math.max(
     ...context.proposal.actions.map((action) => action.expectedSlippageBps),
     ...context.proposal.actions.map((action) => action.maxSlippageBps ?? 0)
@@ -434,14 +348,12 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
 
   const computed = {
     ...computeExposure(context.openPositions, context.proposal),
-    projectedDrawdownPct: computeProjectedDrawdown(context.openPositions, context.proposal),
-    notionalImbalancePct: Number((computeImbalance(context.openPositions, context.proposal) * 100).toFixed(2))
+    projectedDrawdownPct: computeProjectedDrawdown(context.openPositions, context.proposal)
   }
 
   const blockingReasonCodes = [
     'DEPENDENCY_FAILURE',
     'SYSTEM_GATED',
-    'NOTIONAL_PARITY',
     'DRAWDOWN',
     'EXPOSURE',
     'STALE_DATA',
@@ -452,7 +364,7 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
   ]
 
   const hasBlockers = reasons.some((entry) => {
-    if (isReducingExit && (entry.code === 'DRAWDOWN' || entry.code === 'NOTIONAL_PARITY')) {
+    if (isReducingExit && entry.code === 'DRAWDOWN') {
       return false
     }
 
@@ -491,8 +403,7 @@ export function failClosedError(reason: string): RiskDecisionResult {
     computed: {
       grossExposureUsd: 0,
       netExposureUsd: 0,
-      projectedDrawdownPct: 100,
-      notionalImbalancePct: 100
+      projectedDrawdownPct: 100
     }
   }
 }

@@ -8,7 +8,7 @@ const baseConfig = {
   maxSlippageBps: 25,
   staleDataMs: 3000,
   liquidityBufferPct: 1,
-  notionalParityTolerance: 0.015,
+
   failClosedOnDependencyError: true
 }
 
@@ -117,59 +117,6 @@ describe('risk-engine', () => {
 
     expect(decision.decision).toBe('DENY')
     expect(decision.reasons.some((reason) => reason.code === 'STALE_DATA')).toBe(true)
-  })
-
-  it('denies notional imbalance', () => {
-    const decision = evaluateRisk(baseConfig, {
-      state: 'READY',
-      actorType: 'internal_agent',
-      accountValueUsd: 10000,
-      dependenciesHealthy: true,
-      openPositions: [],
-      ticks: {
-        HYPE: {
-          symbol: 'HYPE',
-          px: 100,
-          bid: 100,
-          ask: 100,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        ETH: {
-          symbol: 'ETH',
-          px: 2000,
-          bid: 2000,
-          ask: 2000,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        }
-      },
-      proposal: {
-        proposalId: 'p3',
-        cycleId: 'c1',
-        summary: 'pair trade',
-        confidence: 0.8,
-        requestedMode: 'SIM',
-        createdBy: 'agent',
-        actions: [
-          {
-            type: 'ENTER',
-            rationale: 'test',
-            notionalUsd: 2000,
-            expectedSlippageBps: 2,
-            legs: [
-              { symbol: 'HYPE', side: 'BUY', notionalUsd: 1100 },
-              { symbol: 'ETH', side: 'SELL', notionalUsd: 1000 }
-            ]
-          }
-        ]
-      }
-    })
-
-    expect(decision.decision).toBe('DENY')
-    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(true)
   })
 
   it('denies SAFE_MODE proposals that increase gross notional', () => {
@@ -306,105 +253,7 @@ describe('risk-engine', () => {
     expect(decision.reasons.every((reason) => reason.code !== 'SAFE_MODE')).toBe(true)
   })
 
-  it('allows SAFE_MODE EXIT proposals even when parity drift exists', () => {
-    const decision = evaluateRisk(baseConfig, {
-      state: 'SAFE_MODE',
-      actorType: 'internal_agent',
-      accountValueUsd: 10000,
-      dependenciesHealthy: true,
-      openPositions: [
-        {
-          symbol: 'BTC',
-          side: 'SHORT',
-          qty: 0.00448,
-          notionalUsd: 311.06208
-        },
-        {
-          symbol: 'ETH',
-          side: 'SHORT',
-          qty: 0.1506,
-          notionalUsd: 311.46339
-        },
-        {
-          symbol: 'SOL',
-          side: 'SHORT',
-          qty: 3.66,
-          notionalUsd: 312.59145
-        },
-        {
-          symbol: 'HYPE',
-          side: 'LONG',
-          qty: 29.15,
-          notionalUsd: 929.637225
-        }
-      ],
-      ticks: {
-        HYPE: {
-          symbol: 'HYPE',
-          px: 31.89,
-          bid: 31.88,
-          ask: 31.9,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        ETH: {
-          symbol: 'ETH',
-          px: 2068,
-          bid: 2067,
-          ask: 2068.15,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        SOL: {
-          symbol: 'SOL',
-          px: 85.41,
-          bid: 85.40,
-          ask: 85.41,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        BTC: {
-          symbol: 'BTC',
-          px: 69500,
-          bid: 69499,
-          ask: 69500,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        }
-      },
-      proposal: {
-        proposalId: 'p7',
-        cycleId: 'c1',
-        summary: 'safe exit',
-        confidence: 1,
-        requestedMode: 'SIM',
-        createdBy: 'agent',
-        actions: [
-          {
-            type: 'EXIT',
-            rationale: 'exit to flat',
-            notionalUsd: 1164.69,
-            expectedSlippageBps: 2,
-            legs: [
-              { symbol: 'BTC', side: 'BUY', notionalUsd: 311.06 },
-              { symbol: 'ETH', side: 'BUY', notionalUsd: 311.28 },
-              { symbol: 'SOL', side: 'BUY', notionalUsd: 312.61 },
-              { symbol: 'HYPE', side: 'SELL', notionalUsd: 929.75 }
-            ]
-          }
-        ]
-      }
-    })
-
-    expect(decision.decision).toBe('ALLOW_REDUCE_ONLY')
-    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
-  })
-
-  it('allows EXIT proposals in REBALANCE state even with parity drift and drawdown', () => {
+  it('allows EXIT proposals in REBALANCE state even with drawdown', () => {
     const decision = evaluateRisk(baseConfig, {
       state: 'REBALANCE',
       actorType: 'internal_agent',
@@ -447,7 +296,6 @@ describe('risk-engine', () => {
     })
 
     expect(decision.decision).toBe('ALLOW')
-    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
     expect(decision.reasons.some((reason) => reason.code === 'DRAWDOWN')).toBe(false)
   })
 
@@ -546,96 +394,4 @@ describe('risk-engine', () => {
     expect(decision.reasons.some((reason) => reason.code === 'ACTOR_NOT_ALLOWED')).toBe(true)
   })
 
-  it('allows rebalance that introduces a short into an all-long book (parity improving)', () => {
-    // Regression test: all-long portfolio (~$2476) + proposal to add small short ($146)
-    // was incorrectly triggering NOTIONAL_PARITY auto-mitigation and auto-flatten.
-    // The projected drift (177%) is lower than the conceptual current drift (all-long = infinite),
-    // so the move is parity-improving and must be allowed.
-    const decision = evaluateRisk(
-      { ...baseConfig, notionalParityTolerance: 1.0, maxDrawdownPct: 100, maxExposureUsd: 50000 },
-      {
-        state: 'REBALANCE',
-        actorType: 'internal_agent',
-        accountValueUsd: 10000,
-        dependenciesHealthy: true,
-        openPositions: [
-          { symbol: 'AAVE', side: 'LONG', qty: 10, notionalUsd: 1493 },
-          { symbol: 'ETH', side: 'LONG', qty: 0.1, notionalUsd: 197 },
-          { symbol: 'ENS', side: 'LONG', qty: 4, notionalUsd: 151 },
-          { symbol: 'TAO', side: 'LONG', qty: 1, notionalUsd: 487 },
-          { symbol: 'HYPE', side: 'LONG', qty: 5, notionalUsd: 148 }
-        ],
-        ticks: {
-          HYPE: { symbol: 'HYPE', px: 30, bid: 29.9, ask: 30.1, bidSize: 10000, askSize: 10000, updatedAt: new Date().toISOString() },
-          PYTH: { symbol: 'PYTH', px: 0.3, bid: 0.299, ask: 0.301, bidSize: 1000000, askSize: 1000000, updatedAt: new Date().toISOString() }
-        },
-        proposal: {
-          proposalId: 'p-rebalance-parity',
-          cycleId: 'c1',
-          summary: 'rebalance: close HYPE long, add HYPE short + PYTH long',
-          confidence: 0.8,
-          requestedMode: 'LIVE',
-          createdBy: 'privateer-floor:strategist',
-          actions: [
-            {
-              type: 'REBALANCE',
-              rationale: 'reduce HYPE exposure, add PYTH',
-              notionalUsd: 294,
-              expectedSlippageBps: 5,
-              legs: [
-                { symbol: 'HYPE', side: 'SELL', notionalUsd: 294 },
-                { symbol: 'PYTH', side: 'BUY', notionalUsd: 146 }
-              ]
-            }
-          ]
-        }
-      }
-    )
-
-    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(false)
-    expect(decision.decision).not.toBe('DENY')
-  })
-
-  it('still denies when a rebalance would increase parity imbalance from an already-mixed book', () => {
-    const decision = evaluateRisk(
-      { ...baseConfig, notionalParityTolerance: 0.5 },
-      {
-        state: 'REBALANCE',
-        actorType: 'internal_agent',
-        accountValueUsd: 10000,
-        dependenciesHealthy: true,
-        openPositions: [
-          { symbol: 'HYPE', side: 'LONG', qty: 10, notionalUsd: 1000 },
-          { symbol: 'ETH', side: 'SHORT', qty: 0.2, notionalUsd: 400 }
-        ],
-        ticks: {
-          HYPE: { symbol: 'HYPE', px: 100, bid: 99, ask: 101, bidSize: 10000, askSize: 10000, updatedAt: new Date().toISOString() },
-          BTC: { symbol: 'BTC', px: 67000, bid: 66999, ask: 67001, bidSize: 10, askSize: 10, updatedAt: new Date().toISOString() }
-        },
-        proposal: {
-          proposalId: 'p-worsen-parity',
-          cycleId: 'c1',
-          summary: 'add more longs, worsening imbalance',
-          confidence: 0.8,
-          requestedMode: 'LIVE',
-          createdBy: 'privateer-floor:strategist',
-          actions: [
-            {
-              type: 'ENTER',
-              rationale: 'add exposure',
-              notionalUsd: 1000,
-              expectedSlippageBps: 5,
-              legs: [
-                { symbol: 'HYPE', side: 'BUY', notionalUsd: 500 },
-                { symbol: 'BTC', side: 'BUY', notionalUsd: 500 }
-              ]
-            }
-          ]
-        }
-      }
-    )
-
-    expect(decision.reasons.some((reason) => reason.code === 'NOTIONAL_PARITY')).toBe(true)
-    expect(decision.decision).toBe('DENY')
-  })
 })

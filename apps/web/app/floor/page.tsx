@@ -85,7 +85,6 @@ type SnapshotPayload = {
   ts?: unknown
   mode?: unknown
   healthCode?: unknown
-  driftState?: unknown
   lastUpdateAt?: unknown
   message?: unknown
   pnlPct?: unknown
@@ -237,7 +236,6 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
     ...fallback,
     mode: typeof payload.mode === 'string' ? payload.mode : fallback.mode,
     healthCode: typeof payload.healthCode === 'string' ? payload.healthCode : fallback.healthCode,
-    driftState: typeof payload.driftState === 'string' ? payload.driftState : fallback.driftState,
     lastUpdateAt:
       typeof payload.lastUpdateAt === 'string' && payload.lastUpdateAt
         ? payload.lastUpdateAt
@@ -314,7 +312,6 @@ export default function DeckPage() {
     mode: 'INIT',
     pnlPct: 0,
     healthCode: 'GREEN',
-    driftState: 'IN_TOLERANCE',
     lastUpdateAt: new Date().toISOString(),
     openPositions: [],
   }))
@@ -764,7 +761,7 @@ export default function DeckPage() {
 
             if (typeof payload === 'object' && payload !== null) {
               const candidate = payload as SnapshotPayload
-              if ('healthCode' in candidate || 'driftState' in candidate || 'accountValueUsd' in candidate) {
+              if ('healthCode' in candidate || 'accountValueUsd' in candidate) {
                 setSnapshot((current) => normalizeSnapshot(candidate, current))
                 setDeckHeartbeatMs(Date.now())
                 samplePnl(candidate)

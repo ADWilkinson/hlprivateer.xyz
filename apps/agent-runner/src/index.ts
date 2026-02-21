@@ -1132,7 +1132,6 @@ const RISK_RECOVERY_FORCE_EXIT_CODES = new Set([
   'LEVERAGE',
   'SAFE_MODE',
   'DEPENDENCY_FAILURE',
-  'NOTIONAL_PARITY',
   'SYSTEM_GATED',
   'STALE_DATA',
   'LIQUIDITY',
@@ -1186,7 +1185,6 @@ type RuntimeRiskDecision = {
     grossExposureUsd: number
     netExposureUsd: number
     projectedDrawdownPct: number
-    notionalImbalancePct: number
   }
   decisionId?: string
   proposalCorrelation?: string
@@ -1434,7 +1432,6 @@ function resolveRiskLimitsForContext(): {
   maxSlippageBps: number
   staleDataMs: number
   liquidityBufferPct: number
-  notionalParityTolerance: number
 } {
   const policy = lastStateUpdate?.riskPolicy
   return {
@@ -1450,10 +1447,7 @@ function resolveRiskLimitsForContext(): {
     staleDataMs: Number.isFinite(policy?.staleDataMs as number | undefined) ? (policy?.staleDataMs as number) : env.RISK_STALE_DATA_MS,
     liquidityBufferPct: Number.isFinite(policy?.liquidityBufferPct as number | undefined)
       ? (policy?.liquidityBufferPct as number)
-      : env.RISK_LIQUIDITY_BUFFER_PCT,
-    notionalParityTolerance: Number.isFinite(policy?.notionalParityTolerance as number | undefined)
-      ? (policy?.notionalParityTolerance as number)
-      : env.RISK_NOTIONAL_PARITY_TOLERANCE
+      : env.RISK_LIQUIDITY_BUFFER_PCT
   }
 }
 
@@ -1652,7 +1646,6 @@ function parseRiskStateMessageReasonCodes(message: string): string[] {
     'STALE_DATA',
     'LIQUIDITY',
     'SYSTEM_GATED',
-    'NOTIONAL_PARITY',
     'SLIPPAGE_BREACH',
     'ACTOR_NOT_ALLOWED',
     'FAIL_CLOSED',
@@ -1810,10 +1803,6 @@ function buildRiskPolicyArgsFromRecommendations(
   if (typeof recommendations.maxSlippageBps === 'number') {
     args.push(`maxSlippageBps=${Math.round(recommendations.maxSlippageBps)}`)
   }
-  if (typeof recommendations.notionalParityTolerance === 'number') {
-    args.push(`notionalParityTolerance=${recommendations.notionalParityTolerance.toFixed(4)}`)
-  }
-
   if (args.length === 0) {
     return null
   }
@@ -3111,7 +3100,6 @@ type RiskPolicyRecommendation = {
   maxLeverage?: number
   maxExposureUsd?: number
   maxSlippageBps?: number
-  notionalParityTolerance?: number
 }
 
 type RiskReportResult = {
@@ -3143,8 +3131,7 @@ async function generateRiskReport(params: {
           maxDrawdownPct: { type: 'number', minimum: 0.01, maximum: 100 },
           maxLeverage: { type: 'number', minimum: 0.1, maximum: 20 },
           maxExposureUsd: { type: 'number', minimum: 25, maximum: 50000 },
-          maxSlippageBps: { type: 'number', minimum: 0, maximum: 100 },
-          notionalParityTolerance: { type: 'number', minimum: 0, maximum: 1 }
+          maxSlippageBps: { type: 'number', minimum: 0, maximum: 100 }
         }
       }
     },
@@ -3387,7 +3374,6 @@ let lastStateUpdate:
 	    pnlPct?: number
 	    realizedPnlUsd?: number
 	    accountValueUsd?: number
-	    driftState?: string
 	    lastUpdateAt?: string
 	    message?: string
 	    riskPolicy?: {
@@ -3398,7 +3384,6 @@ let lastStateUpdate:
 	      maxSlippageBps?: number
 	      staleDataMs?: number
 	      liquidityBufferPct?: number
-	      notionalParityTolerance?: number
 	    }
 	  }
 	  | null = {
@@ -3409,8 +3394,7 @@ let lastStateUpdate:
 	      maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
 	      maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
 	      staleDataMs: env.RISK_STALE_DATA_MS,
-	      liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-	      notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+	      liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT
 	    }
 	  }
 let lastResearchReport: (ResearchReportResult & { computedAt: string }) | null = null
@@ -3565,37 +3549,7 @@ function requestedModeFromEnv(): 'SIM' | 'LIVE' {
   return 'SIM'
 }
 
-function summarizePositionsForAgents(positions: OperatorPosition[]): { drift: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'; posture: 'GREEN' | 'AMBER' | 'RED' } {
-  if (positions.length === 0) {
-    return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
-  }
-
-  const tolerance = env.RISK_NOTIONAL_PARITY_TOLERANCE
-  if (tolerance >= 1.0) {
-    return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
-  }
-
-  const longs = positions
-    .filter((position) => position.side === 'LONG')
-    .reduce((sum, position) => sum + Math.max(0, Math.abs(position.notionalUsd)), 0)
-  const shorts = positions
-    .filter((position) => position.side === 'SHORT')
-    .reduce((sum, position) => sum + Math.max(0, Math.abs(position.notionalUsd)), 0)
-
-  const gross = longs + shorts
-  if (gross <= 0) {
-    return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
-  }
-
-  const mismatch = Math.abs(longs - shorts) / (gross / 2)
-  const breachThreshold = Math.max(0.2, tolerance * 2)
-  const driftThreshold = Math.max(0.05, tolerance)
-  if (mismatch > breachThreshold) {
-    return { drift: 'BREACH', posture: 'RED' }
-  }
-  if (mismatch > driftThreshold) {
-    return { drift: 'POTENTIAL_DRIFT', posture: 'AMBER' }
-  }
+function summarizePositionsForAgents(_positions: OperatorPosition[]): { drift: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'; posture: 'GREEN' | 'AMBER' | 'RED' } {
   return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
 }
 
@@ -5188,7 +5142,6 @@ const start = async (): Promise<void> => {
         pnlPct: finiteNumber(payload.pnlPct),
         realizedPnlUsd: finiteNumber(payload.realizedPnlUsd),
         accountValueUsd: finiteNumber(payload.accountValueUsd),
-        driftState: typeof payload.driftState === 'string' ? payload.driftState : undefined,
         lastUpdateAt: typeof payload.lastUpdateAt === 'string' ? payload.lastUpdateAt : undefined,
         message: typeof payload.message === 'string' ? payload.message : undefined,
         riskPolicy: riskPolicyPayload
@@ -5199,8 +5152,7 @@ const start = async (): Promise<void> => {
               maxExposureUsd: finiteNumber(riskPolicyPayload.maxExposureUsd),
               maxSlippageBps: finiteNumber(riskPolicyPayload.maxSlippageBps),
               staleDataMs: finiteNumber(riskPolicyPayload.staleDataMs),
-              liquidityBufferPct: finiteNumber(riskPolicyPayload.liquidityBufferPct),
-              notionalParityTolerance: finiteNumber(riskPolicyPayload.notionalParityTolerance)
+              liquidityBufferPct: finiteNumber(riskPolicyPayload.liquidityBufferPct)
             }
           : undefined
       }
@@ -5294,8 +5246,7 @@ const start = async (): Promise<void> => {
         computed: isRecord(payload.computed) ? {
           grossExposureUsd: finiteNumber(payload.computed.grossExposureUsd) ?? 0,
           netExposureUsd: finiteNumber(payload.computed.netExposureUsd) ?? 0,
-          projectedDrawdownPct: finiteNumber(payload.computed.projectedDrawdownPct) ?? 0,
-          notionalImbalancePct: finiteNumber(payload.computed.notionalImbalancePct) ?? 0
+          projectedDrawdownPct: finiteNumber(payload.computed.projectedDrawdownPct) ?? 0
         } : undefined
       }
       lastRiskDecision = nextRiskDecision
