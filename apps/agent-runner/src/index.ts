@@ -999,29 +999,10 @@ function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
   }
 }
 
-function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
-  const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
-  const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
-
-  let scale = 1
-
-  // Vol-scaled sizing: gentle continuous curve, not rigid regime gates.
-  // Crypto is volatile by nature — avoid suppressing trades in normal conditions.
-  // 1.0x at ~15% vol (typical crypto), scales smoothly down to 0.7x floor at extreme vol.
-  if (latestVolatility) {
-    const vol = Math.abs(latestVolatility.value)
-    // Smooth sigmoid-ish curve: 1.1x at very low vol, ~1.0x at 15%, ~0.7x at 50%+
-    scale *= Math.max(0.7, 1.1 - vol * 0.008)
-  }
-
-  // Win-rate adjustment from trade journal: modest boost/reduction based on track record
-  const journal = tradeJournal.summarize()
-  if (journal.totalTrades >= 8) {
-    const winRateEdge = journal.winRate - 0.5
-    scale *= 1 + clamp(winRateEdge * 0.15, -0.08, 0.1)
-  }
-
-  return Number(Math.max(100, baseTargetNotional * clamp(scale, 0.5, 1.2)).toFixed(2))
+function computeTargetNotional(baseTargetNotional: number, _signals: PluginSignal[]): number {
+  // The agent decides sizing through its notionalUsd per leg.
+  // We only enforce the minimum floor here — no programmatic scaling.
+  return Math.max(100, baseTargetNotional)
 }
 
 function leverageAwareBaseTargetNotionalUsd(fallbackBaseUsd: number): number {
@@ -1062,78 +1043,63 @@ function renderLegSummary(legs: Array<{ symbol: string; side: 'BUY' | 'SELL'; no
     .join(' | ')
 }
 
-function computeExecutionTactics(params: { signals: PluginSignal[] }): { expectedSlippageBps: number; maxSlippageBps: number } {
-  const latestVolatility = [...params.signals].reverse().find((signal) => signal.signalType === 'volatility')
-  const volPct = latestVolatility ? Math.abs(latestVolatility.value) : 0
-
-  // Heuristic: scale expected slippage with volatility; cap at 12 bps expected.
-  const expected = clamp(Math.round(2 + volPct * 0.25), 2, 12)
+function computeExecutionTactics(_params: { signals: PluginSignal[] }): { expectedSlippageBps: number; maxSlippageBps: number } {
   const policy = resolveRiskLimitsForContext()
   const policyCap = Math.max(1, Math.round(policy.maxSlippageBps))
 
-  // Keep max within policy.
-  const max = clamp(Math.round(expected * 2), expected, policyCap)
-
-  return { expectedSlippageBps: expected, maxSlippageBps: max }
+  // Use policy slippage cap directly — no programmatic formula.
+  return { expectedSlippageBps: Math.min(5, policyCap), maxSlippageBps: policyCap }
 }
 
 const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
-  '- Objective: create fully discretionary positions — directional (single-asset long or short) OR paired structures — based on data-driven conviction.',
-  '- DIRECTIONAL TRADES ARE THE DEFAULT. A single-asset long or short with a clear thesis is the simplest, highest-conviction structure.',
-  '- Pair trades are valid when a specific relative-value divergence exists (e.g., sector rotation, funding spread, correlation break). Pairs should have a clear thesis, not just diversification for its own sake.',
-  '- The universe is large (28 assets). Scan the ENTIRE universe for the best opportunity — do not limit yourself to BTC/ETH.',
-  '- Use all available signals (price action, funding, OI, aixbt, narrative, technicals) holistically — no single indicator is sufficient. The best setups emerge from confluence across multiple independent data points.',
-  '- Do not assume any fixed alpha symbol or fixed directional bias.',
+  '- Objective: create fully discretionary positions — any structure (directional, paired, hedged) — based on holistic data synthesis.',
+  '- You choose the structure. Directional, pairs, multi-leg — whatever the data supports. No default preference.',
+  '- The universe is large (28 assets). Scan broadly — the best opportunity may be anywhere.',
+  '- Synthesize all available context holistically. Every signal gains or loses meaning in relation to other signals. Weight data sources dynamically based on current conditions.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
   '- Never invent symbols, metrics, or events not present in context.',
   '- Return strictly structured JSON only, no commentary.',
-  'DATA SOURCE CLASSIFICATION:',
-  '- EXECUTION-CRITICAL (must be present to trade): price feeds, orderbook, funding rates, open interest, account state.',
-  '- ANALYSIS-CORE (default every cycle): Hyperliquid market/account data, aixbt signals + momentum, Twitter/X narrative flow, CoinGecko Pro market + sector context.',
-  '- OPTIONAL ENRICHMENT (only if needed): Fear & Greed, web search, DeFiLlama, Binance/public API context.',
-  '- If ANALYSIS-CORE is partially degraded, continue from EXECUTION-CRITICAL data and reflect reduced certainty explicitly.',
-  'BIAS TO ACTION:',
-  '- When data confluence presents a tradeable setup, act on it. Hesitation is a cost.',
-  '- A single directional position with a clear thesis beats a hedged pair with a vague one.',
-  '- HOLD is only appropriate when there is genuinely no setup across the ENTIRE 28-asset universe — it is NOT a safe default.',
-  '- The deterministic risk engine independently validates every proposal with hard caps. Your job is to find setups, not to second-guess risk gates.',
+  'DATA SOURCES:',
+  '- All sources are context. Their relevance varies by regime. Price, funding, OI, aixbt, social, macro — weight them based on what matters NOW, not a fixed hierarchy.',
+  '- If some sources are degraded or unavailable, reflect that as reduced certainty — not as a reason to stop trading.',
+  'DECISION PHILOSOPHY:',
+  '- The risk engine provides hard backstops. Your job is to find the best risk-adjusted opportunity and express it clearly.',
+  '- Every decision (OPEN, HOLD, EXIT, REBALANCE) is valid when the data supports it. No decision is a "default."',
+  '- Hesitation has a cost. So does forcing low-conviction trades. Find the right balance for current conditions.',
   'RISK RECOVERY:',
   '- When a recent risk DENY cites DRAWDOWN/EXPOSURE/LEVERAGE, require immediate risk-reduction first.',
   '- SAFE_MODE with open positions: request only flat/close actions until state is cleared.',
-  '- DEPENDENCY_FAILURE refers to runtime infrastructure (Redis, Postgres) NOT external data sources like Twitter.',
-  '- Budget caps in floor context (max leverage/exposure/drawdown/slippage) are hard constraints enforced by the risk engine.',
+  '- DEPENDENCY_FAILURE refers to runtime infrastructure (Redis, Postgres) NOT external data sources.',
+  '- Budget caps in floor context are hard constraints enforced by the risk engine.',
   '- Read floor context memory every cycle: active directive, risk caps, recent posture tape, current exposure before sizing.',
-  '- Proposals must reference current positions summary (gross/net/mode), estimated leverage, and per-leg thesis.',
-  '- Each trade is independent with its own TP/SL orders on the exchange. Do not exit positions arbitrarily — only when the per-leg thesis is clearly invalidated.',
+  '- Each trade is independent with its own TP/SL orders on the exchange.',
   '- Execution channels: /flatten and /risk-policy for safety interventions.'
 ]
 
 const AGENT_DATA_SOURCES_PRESET: string[] = [
-  'Mandatory analysis stack (priority ordered):',
-  '1) Hyperliquid market + account microstructure (core).',
+  'Available data sources (use what is relevant to current conditions):',
+  '1) Hyperliquid market + account microstructure.',
   '   - https://api.hyperliquid.xyz/info',
   '   - https://api.hyperliquid.xyz/exchange',
   '   - https://api.hyperliquid.xyz/ws',
   '   - Runtime normalized feeds + risk outputs from /apps/runtime',
-  '2) aixbt signal intelligence (core).',
+  '2) aixbt signal intelligence.',
   `   - https://api.aixbt.tech/v2 (${env.AIXBT_ENABLED && env.AIXBT_API_KEY ? 'configured' : 'missing'})`,
   '   - Provides: momentum scores, cross-source signal detection, project-level intelligence.',
-  '   - Use aixbt signals to identify catalysts, narrative shifts, and momentum divergences across the universe.',
-  '   - Interpret aixbt signals in context of price, funding, and volume — not in isolation.',
-  '3) Social/narrative intelligence via Twitter/X v2 (core).',
+  '3) Social/narrative intelligence via Twitter/X v2.',
   '   - https://api.twitter.com/2/tweets/search/recent',
   '   - https://docs.x.com/x-api',
-  '4) CoinGecko Pro market/sector context (core).',
+  '4) CoinGecko Pro market/sector context.',
   `   - base URL: ${env.COINGECKO_BASE_URL}`,
   `   - auth: X-Cg-Pro-Api-Key via COINGECKO_API_KEY (${env.COINGECKO_API_KEY ? 'configured' : 'missing'})`,
   '   - preferred endpoints: /coins/markets, /coins/categories, /global',
-  '5) Optional enrichment sources (only when they improve confidence materially).',
+  '5) Enrichment sources.',
   `   - Brave Search API: ${env.BRAVE_API_URL}`,
   `   - DefiLlama: https://api.llama.fi, https://coins.llama.fi, https://stablecoins.llama.fi (${env.DEFI_LLAMA_ENABLED ? 'enabled' : 'disabled'})`,
   '   - https://api.alternative.me/fng/',
   '   - https://data-api.binance.com',
-  'Default behavior: decide from Hyperliquid + aixbt + Twitter/X + CoinGecko Pro first; use enrichment sources only when needed.'
+  'Weight all sources dynamically based on current regime and relevance. No fixed priority ordering.'
 ]
 
 function buildAgentSourceAppendix(): string[] {
@@ -3094,16 +3060,15 @@ async function generateResearchReport(params: {
   const prompt = [
     buildAgentPrompt({
       role: 'research-agent',
-      mission: 'Classify current market regime, identify the strongest directional opportunity across the full 28-asset universe, and return one actionable recommendation.',
+      mission: 'Classify current market regime, identify the best opportunity across the universe, and return one actionable recommendation.',
       rules: [
       'Use only context and observed signals; do not speculate on external events.',
-      'Output one actionable recommendation — not a portfolio plan, not a vague "monitor" statement. Name the specific asset(s) with the best setup.',
+      'Output one actionable recommendation — name the specific asset(s) and direction. Not a portfolio plan, not a vague "monitor" statement.',
       'If data indicates regime shift, indicate it explicitly in regime.',
-      'Synthesize all available signals (price, funding, OI, aixbt, narrative, technicals) holistically. No single indicator drives the decision — look for confluence.',
-      'CONFIDENCE reflects signal QUALITY not QUANTITY: strong price+funding alignment with clear directional setup should yield >= 0.6 even without social/supplementary data.',
-      'Missing Twitter/social data is NOT regime uncertainty — it means supplementary context is unavailable. Classify regime from price, funding, OI, and correlation data.',
-      'When historical context is provided, use it for trend continuity detection — if the same regime has persisted for multiple cycles, confidence should be HIGHER not lower.',
-      'SCAN THE FULL UNIVERSE: do not limit analysis to BTC/ETH. Mid-cap assets (UNI, AAVE, LINK, PENDLE, TAO, SOL, etc.) often have higher-alpha directional setups.',
+      'Synthesize all available context holistically. Confidence reflects the overall quality and coherence of the thesis, not how many data sources agree.',
+      'Degraded or missing data sources reduce certainty but do not change regime classification. Classify from what you have.',
+      'When historical context shows regime persistence across cycles, factor that into your assessment.',
+      'Scan the full universe — the best opportunity may be in any asset, not just the largest.',
       'Your recommendation MUST name only symbols from universeSymbols. Never recommend a symbol not listed there — it cannot be traded.',
       'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
@@ -3205,25 +3170,18 @@ async function generateRiskReport(params: {
       rules: [
         'Only return posture GREEN/AMBER/RED.',
         'POSTURE DEFINITIONS:',
-        '  GREEN = default tradeable state. Normal market conditions. System should actively seek trades.',
-        '  AMBER = elevated but tradeable. Reduce position SIZE (not frequency). Still open new trades at smaller notional.',
+        '  GREEN = normal tradeable state.',
+        '  AMBER = elevated but tradeable. Reduce sizing, not frequency.',
         '  RED = extreme risk only. Active liquidation cascades, exchange outages, or price feed failures. Very rare.',
-        'Prioritize stale CRITICAL data (price feeds, orderbook), volatility regime, and drift imbalance.',
-        'Tie each risk item to specific observable context.',
-        'Twitter/social data offline MUST NOT elevate posture. These are SUPPLEMENTARY sources. Only CRITICAL data source failures (price feeds, orderbook, account state) affect posture.',
+        'Tie each risk item to specific observable context. Posture should reflect CURRENT conditions, not residual concern from resolved issues.',
         'Do not output execution mechanics.',
         'POLICY MANAGEMENT: You control the live risk policy parameters. The current policy is included in context under "currentRiskPolicy".',
         'Set policyRecommendations to an object with any parameters you want to change, or null to keep current policy.',
-        'LEVERAGE PHILOSOPHY: Run high leverage for capital efficiency, but keep explicit headroom below the hard max to avoid reject churn.',
-        'Target effective leverage around ~90-95% of max in normal conditions (never pin exactly to the hard limit).',
-        'Only REDUCE leverage further when there is a concrete, observable threat (extreme volatility spike, liquidity crisis, correlation breakdown, drawdown acceleration).',
-        'When the threat passes, restore leverage toward high-but-not-max levels instead of exact hard max.',
-        'You may TIGHTEN other parameters (reduce exposure, tighten slippage) in volatile/uncertain markets while keeping leverage elevated.',
-        'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). Do NOT recommend changes to maxDrawdownPct. The operator accepts full drawdown risk.',
-        'Focus risk management on position sizing, exposure limits, and leverage — not drawdown caps.',
-        'SESSION PNL: pnlPct in context is cumulative session realized P&L, not current position risk. When positions are flat, pnlPct is historical context only — do not use it to elevate posture or tighten policy. Only observable market conditions (volatility, price feeds, liquidity) affect posture.',
-        'Only recommend changes with clear justification tied to observable market conditions. Do not change params arbitrarily.',
-        'TICK FEED RECOVERY: if current tick intervals across the universe are consistently below 55 000ms, the feed is healthy now. Do NOT stay elevated on posture from a prior outage if the feed has recovered. Recovery does not itself warrant AMBER — only concurrent market risks do.'
+        'LEVERAGE: Keep some headroom below the hard max to avoid reject churn from rounding and price moves. How much headroom depends on current volatility and conditions — use your judgment.',
+        'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). The operator accepts full drawdown risk — do not change maxDrawdownPct.',
+        'SESSION PNL: pnlPct is cumulative session realized P&L, not current position risk. When flat, it is historical context only.',
+        'Only recommend policy changes with clear justification tied to observable market conditions.',
+        'Assess all data sources based on their current relevance. The importance of any source depends on the regime.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -3329,33 +3287,24 @@ async function generateStrategistDirective(params: {
   const prompt = [
 	    buildAgentPrompt({
 	      role: 'strategist-directive agent',
-	      mission: 'Choose the best execution directive and provide an explicit plan. DIRECTIONAL single-asset trades are the default when one asset has a clear edge. Pairs are valid only when a specific relative-value divergence exists.',
+	      mission: 'Synthesize all available context and choose the best execution directive. Any structure (directional, paired, multi-leg) is valid when the thesis supports it.',
 	      rules: [
 	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
-	        'OPEN: establish a new discretionary position. If risk posture is GREEN and you are FLAT, look actively for setups — but only trade when the thesis is clear. Prefer 1-leg directional trades when one asset has the strongest thesis.',
-	        'REBALANCE: plan legs define the COMPLETE TARGET PORTFOLIO after execution. Any currently-held symbol NOT included in the legs will be CLOSED. To retain an existing position, you MUST include it in the plan legs with your desired notionalUsd. To add a new position while keeping an existing one, include BOTH in the legs.',
-        'HOLD: keep current exposure. HOLD requires genuine absence of tradeable setups across ALL 28 assets in the universe — NOT as a safe default.',
-        'EXIT: close ALL positions to flat immediately. Use this ONLY for portfolio-wide risk-off — NOT for routine trade management. To close a specific position, use REBALANCE with that symbol at notionalUsd=0.',
-        'DIRECTIONAL IS DEFAULT: a single long or short with a clear thesis is the simplest structure. Pairs require their own thesis — not just diversification.',
-        'AMBER posture = smaller positions, NOT automatic HOLD. Reduce notional per leg but still trade if setup exists.',
-        'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), assume runtime risk recovery can force risk-off flattening; avoid discretionary churn around blocked states.',
-        'For each OPEN/REBALANCE leg, you MUST specify stopLossPrice and takeProfitPrice as absolute price levels. These will be placed as reduce-only exchange orders immediately after entry. CRITICAL: for LONG positions, stopLossPrice MUST be BELOW the current markPrice and takeProfitPrice MUST be ABOVE it. For SHORT positions, stopLossPrice MUST be ABOVE markPrice and takeProfitPrice MUST be BELOW it. Use the markPrices map in your input for reference. Inverted TP/SL levels will be rejected.',
-        'thesisNote per leg should explain the specific setup and what would invalidate it (max 500 chars).',
-        'Each trade is INDEPENDENT. Existing positions with active TP/SL orders on the exchange are being managed automatically. Do NOT exit them arbitrarily. Only include a REBALANCE leg for an existing symbol if the thesis is clearly invalidated or you are intentionally rotating.',
-        'IMPORTANT: If you want to ADD a new position while KEEPING an existing one, include BOTH in the REBALANCE plan. Omitting an existing position from the plan legs will CLOSE it. Each trade has its own thesis and exit criteria.',
-        'MINIMUM VIABLE TRADE: even a small directional position with a clear thesis beats perpetual HOLD. The risk engine caps downside — your job is to find upside.',
-        'NO LOSS RECOVERY: do not oversize positions to recover session losses. state.pnlPct reflects historical realized P&L — treat each new trade on its own merit using targetNotionalUsd as the size baseline. Chasing losses is a risk amplifier, not a recovery strategy.',
-        'USE AIXBT: aixbt signals are one input among many. Weigh them alongside price, funding, OI, volume, and narrative — not independently.',
-        'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
-        'ALL plan legs MUST use symbols from activeUniverse.symbols. Never propose a symbol not in that list — off-basket legs are dropped by the execution layer.',
-        'TECHNICAL SIGNALS: technicalSignals (RSI, trend, ATR%, volumeRatio) are contextual inputs. Interpret them holistically alongside price, funding, OI, and narrative — never in isolation. The same signal can mean different things in different regimes.',
-        'TRADE HISTORY: tradeHistory shows your past performance. Learn from it — if recent trades in a symbol lost money, require stronger conviction before re-entering. If win rate is high, maintain your approach.',
-        'CONVICTION BOARD: convictionBoard persists across cycles. Higher conviction and triggerDistance indicate stronger cross-cycle thesis — weigh these alongside fresh setups, not instead of them.',
-        'PORTFOLIO CORRELATION: portfolioCorrelation shows your portfolio beta to BTC. This is informational context — crypto assets are inherently correlated. Concentrated directional exposure is fine when the thesis supports it.',
-        'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
-        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd or the runtime parser will drop it.',
-        'riskBudget.maxGrossNotionalUsd, riskBudget.maxNetNotionalUsd, and riskBudget.maxLeverage must be null or positive numbers.',
-        'Risk budgets and timeHorizonHours should match current volatility regime, not be artificially conservative.',
+	        'OPEN: establish a new position. Any structure — the data decides.',
+	        'REBALANCE: plan legs define the COMPLETE TARGET PORTFOLIO after execution. Any currently-held symbol NOT included in the legs will be CLOSED. To retain an existing position, include it in the plan legs. To add a position while keeping existing ones, include ALL in the legs.',
+        'HOLD: keep current exposure. Valid when conviction is genuinely low across available data.',
+        'EXIT: close ALL positions to flat immediately. Use for portfolio-wide risk-off, not routine trade management. To close a specific position, use REBALANCE with notionalUsd=0.',
+        'AMBER posture = reduce sizing proportionally, not stop trading.',
+        'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), avoid discretionary churn — the runtime handles risk recovery.',
+        'For each OPEN/REBALANCE leg, specify stopLossPrice and takeProfitPrice as absolute price levels. For LONG: SL below markPrice, TP above. For SHORT: SL above markPrice, TP below. Inverted levels are rejected.',
+        'thesisNote per leg: explain the setup and what would invalidate it (max 500 chars).',
+        'Existing positions have active TP/SL on the exchange. Only include a REBALANCE leg for an existing symbol if the thesis is invalidated or you are rotating.',
+        'Do not oversize to recover losses. pnlPct is historical — each trade stands on its own merit.',
+        'Scan the full universe. The best opportunity may be anywhere.',
+        'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
+        'All context (technicals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
+        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd.',
+        'riskBudget values must be null or positive numbers.',
         'Do not propose both plan and decision HOLD.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
