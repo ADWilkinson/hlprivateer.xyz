@@ -106,6 +106,11 @@ const wsConnections = new promClient.Gauge({
   name: 'hlp_ws_connections',
   help: 'Active websocket connections'
 })
+const wsDropCounter = new promClient.Counter({
+  name: 'hlp_ws_drops_total',
+  help: 'Total websocket messages dropped due to backpressure',
+  labelNames: ['reason']
+})
 const wsSecurityCounter = new promClient.Counter({
   name: 'hlp_ws_security_events_total',
   help: 'Total websocket security events',
@@ -411,10 +416,12 @@ function trackCommand(actorType: WsActorType, actorId: string): boolean {
 
 function sendSafe(ws: any, message: WsServerMessage) {
   if (!ws || ws.readyState !== 1) {
+    wsDropCounter.inc({ reason: 'not_open' })
     return
   }
 
   if (ws.bufferedAmount > MAX_WS_BUFFER_BYTES) {
+    wsDropCounter.inc({ reason: 'backpressure' })
     return
   }
 

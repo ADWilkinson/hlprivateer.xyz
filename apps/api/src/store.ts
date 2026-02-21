@@ -156,6 +156,10 @@ export class ApiStore {
     await this.initialization
   }
 
+  public async health(): Promise<boolean> {
+    return this.persistence.health()
+  }
+
   private async hydrateFromPersistence(): Promise<void> {
     const [systemState, persistedPositions, persistedOrders, audits, totalAudits, tierCapabilities, storedTrajectory] = await Promise.all([
       this.persistence.getSystemState(),

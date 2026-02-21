@@ -623,7 +623,15 @@ app.addHook('onSend', async (_request, reply, payload) => {
   return payload
 })
 
-app.get('/healthz', routeRateLimit(60, 60_000), async () => ({ status: 'ok' }))
+app.get('/healthz', routeRateLimit(60, 60_000), async (_request, reply) => {
+  const [busHealth, dbHealth] = await Promise.all([
+    bus.health().catch(() => ({ ok: false })),
+    store.health().catch(() => false)
+  ])
+  const healthy = busHealth.ok && dbHealth
+  reply.status(healthy ? 200 : 503)
+  return { status: healthy ? 'ok' : 'degraded', redis: busHealth.ok, db: dbHealth }
+})
 
 function getCapabilitiesForTier(tier: string | undefined): string[] {
   const normalizedTier = tier === 'tier0' || tier === 'tier1' || tier === 'tier2' || tier === 'tier3' ? tier : 'tier0'
@@ -739,7 +747,15 @@ if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null) {
   reputationRefreshTimer = setInterval(() => void refreshReputation(), 300_000)
 }
 
-app.get('/health', routeRateLimit(180, 60_000), async () => ({ status: 'ok', service: 'api' }))
+app.get('/health', routeRateLimit(180, 60_000), async (_request, reply) => {
+  const [busHealth, dbHealth] = await Promise.all([
+    bus.health().catch(() => ({ ok: false })),
+    store.health().catch(() => false)
+  ])
+  const healthy = busHealth.ok && dbHealth
+  reply.status(healthy ? 200 : 503)
+  return { status: healthy ? 'ok' : 'degraded', service: 'api', redis: busHealth.ok, db: dbHealth }
+})
 
 app.get('/v1/public/pnl', routeRateLimit(180, 60_000), async () => {
   return PublicPnlResponseSchema.parse(store.getPublicPnl())
