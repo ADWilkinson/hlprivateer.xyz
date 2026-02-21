@@ -1005,31 +1005,20 @@ function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal
 
   let scale = 1
 
-  // Vol-scaled sizing: inverse relationship between volatility and position size
-  // Low vol (< 10%): scale up to 1.15x — calm markets allow larger positions
-  // Normal vol (10-20%): scale 0.8-1.0x — standard sizing
-  // High vol (> 20%): scale down to 0.5x — reduce exposure in choppy markets
+  // Vol-scaled sizing: gentle continuous curve, not rigid regime gates.
+  // Crypto is volatile by nature — avoid suppressing trades in normal conditions.
+  // 1.0x at ~15% vol (typical crypto), scales smoothly down to 0.7x floor at extreme vol.
   if (latestVolatility) {
     const vol = Math.abs(latestVolatility.value)
-    if (vol < 10) {
-      scale *= 1 + (10 - vol) * 0.015 // up to 1.15x in very calm markets
-    } else if (vol < 20) {
-      scale *= 1 - (vol - 10) * 0.02 // 1.0x at 10%, 0.8x at 20%
-    } else {
-      scale *= Math.max(0.5, 0.8 - (vol - 20) * 0.015) // floor at 0.5x
-    }
+    // Smooth sigmoid-ish curve: 1.1x at very low vol, ~1.0x at 15%, ~0.7x at 50%+
+    scale *= Math.max(0.7, 1.1 - vol * 0.008)
   }
 
-  // Funding-based edge: slight bias toward positions where funding pays you
-  if (latestFunding) {
-    scale *= latestFunding.value > 0 ? 0.95 : 1.05
-  }
-
-  // Win-rate adjustment from trade journal: boost sizing if recent trades profitable
+  // Win-rate adjustment from trade journal: modest boost/reduction based on track record
   const journal = tradeJournal.summarize()
-  if (journal.totalTrades >= 5) {
-    const winRateEdge = journal.winRate - 0.5 // positive if winning more than 50%
-    scale *= 1 + clamp(winRateEdge * 0.2, -0.1, 0.15) // -10% to +15% based on track record
+  if (journal.totalTrades >= 8) {
+    const winRateEdge = journal.winRate - 0.5
+    scale *= 1 + clamp(winRateEdge * 0.15, -0.08, 0.1)
   }
 
   return Number(Math.max(100, baseTargetNotional * clamp(scale, 0.5, 1.2)).toFixed(2))
@@ -1092,7 +1081,7 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'Core floor rules:',
   '- Objective: create fully discretionary positions — directional (single-asset long or short) OR paired structures — based on data-driven conviction.',
   '- DIRECTIONAL TRADES ARE THE DEFAULT. A single-asset long or short with a clear thesis is the simplest, highest-conviction structure. Use it when one asset has momentum, funding edge, or catalyst.',
-  '- Pair trades are valid when a specific relative-value divergence exists (e.g., sector rotation, funding spread, correlation break). Do NOT default to pairs just because multiple assets exist in the universe.',
+  '- Pair trades are valid when a specific relative-value divergence exists (e.g., sector rotation, funding spread, correlation break). Pairs should have a clear thesis, not just diversification for its own sake.',
   '- The universe is large (28 assets). Scan the ENTIRE universe for the best opportunity — do not limit yourself to BTC/ETH.',
   '- Use aixbt signals and momentum scores to identify which assets have active catalysts, narrative momentum, or signal confluence. High aixbt momentum + confirming price/funding = strong directional setup.',
   '- Do not assume any fixed alpha symbol or fixed directional bias.',
@@ -3343,7 +3332,7 @@ async function generateStrategistDirective(params: {
 	      mission: 'Choose the best execution directive and provide an explicit plan. DIRECTIONAL single-asset trades are the default when one asset has a clear edge. Pairs are valid only when a specific relative-value divergence exists.',
 	      rules: [
 	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
-	        'OPEN: establish a new discretionary position. If risk posture is GREEN and you are FLAT, you SHOULD be opening a position. Prefer 1-leg directional trades when one asset has the strongest thesis.',
+	        'OPEN: establish a new discretionary position. If risk posture is GREEN and you are FLAT, look actively for setups — but only trade when the thesis is clear. Prefer 1-leg directional trades when one asset has the strongest thesis.',
 	        'REBALANCE: plan legs define the COMPLETE TARGET PORTFOLIO after execution. Any currently-held symbol NOT included in the legs will be CLOSED. To retain an existing position, you MUST include it in the plan legs with your desired notionalUsd. To add a new position while keeping an existing one, include BOTH in the legs.',
         'HOLD: keep current exposure. HOLD requires genuine absence of tradeable setups across ALL 28 assets in the universe — NOT as a safe default.',
         'EXIT: close ALL positions to flat immediately. Use this ONLY for portfolio-wide risk-off — NOT for routine trade management. To close a specific position, use REBALANCE with that symbol at notionalUsd=0.',
@@ -3359,10 +3348,10 @@ async function generateStrategistDirective(params: {
         'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',
         'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols. Never propose a symbol not in that list — off-basket legs are dropped by the execution layer.',
-        'TECHNICAL SIGNALS: Use technicalSignals (RSI, trend1h/4h/1d, ATR%, volumeRatio) to confirm or reject setups. RSI >70 = overbought caution for new longs, RSI <30 = oversold opportunity. Trend alignment across timeframes increases conviction.',
+        'TECHNICAL SIGNALS: Use technicalSignals (RSI, trend1h/4h/1d, ATR%, volumeRatio) as context, not rigid gates. RSI extremes can signal both exhaustion AND momentum strength depending on regime — interpret in context of trend and volume. Multi-timeframe trend alignment increases conviction.',
         'TRADE HISTORY: tradeHistory shows your past performance. Learn from it — if recent trades in a symbol lost money, require stronger conviction before re-entering. If win rate is high, maintain your approach.',
-        'CONVICTION BOARD: convictionBoard persists across cycles. Symbols with high conviction scores and triggerDistance >0.7 are primed for action — prioritize these over cold symbols.',
-        'PORTFOLIO CORRELATION: portfolioCorrelation shows your portfolio beta to BTC. If beta >1.5 you are running concentrated directional risk — consider adding uncorrelated or short positions to diversify.',
+        'CONVICTION BOARD: convictionBoard persists across cycles. Higher conviction and triggerDistance indicate stronger cross-cycle thesis — weigh these alongside fresh setups, not instead of them.',
+        'PORTFOLIO CORRELATION: portfolioCorrelation shows your portfolio beta to BTC. This is informational context — crypto assets are inherently correlated. Concentrated directional exposure is fine when the thesis supports it.',
         'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
         'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd or the runtime parser will drop it.',
         'riskBudget.maxGrossNotionalUsd, riskBudget.maxNetNotionalUsd, and riskBudget.maxLeverage must be null or positive numbers.',
@@ -3689,7 +3678,7 @@ function computePortfolioBtcBeta(positions: OperatorPosition[]): Record<string, 
 
   return {
     portfolioBetaToBtc: Number(portfolioBeta.toFixed(3)),
-    warning: Math.abs(portfolioBeta) > 1.5 ? `HIGH DIRECTIONAL RISK: portfolio beta ${portfolioBeta.toFixed(2)} to BTC. Consider hedging or reducing correlated positions.` : null,
+    warning: null,
     perSymbol
   }
 }

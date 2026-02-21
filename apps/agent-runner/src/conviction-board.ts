@@ -87,7 +87,7 @@ export class ConvictionBoard {
   updateFromDirective(decision: string, legSymbols: string[]): void {
     for (const symbol of legSymbols) {
       const boost = decision === 'OPEN' || decision === 'REBALANCE' ? 15 : -10
-      this.update(symbol, { scoreDelta: boost, triggerDistance: 0.9 })
+      this.update(symbol, { scoreDelta: boost, triggerDistance: boost > 0 ? 0.8 : undefined })
     }
   }
 
@@ -101,7 +101,7 @@ export class ConvictionBoard {
   /** Get symbols closest to trigger */
   nearTrigger(n: number): ConvictionEntry[] {
     return [...this.board.values()]
-      .filter((e) => e.triggerDistance > 0.5)
+      .filter((e) => e.triggerDistance > 0.2)
       .sort((a, b) => b.triggerDistance - a.triggerDistance)
       .slice(0, n)
   }

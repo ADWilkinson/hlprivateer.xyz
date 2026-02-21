@@ -67,8 +67,8 @@ function computeTrend(closes: number[]): 'UP' | 'DOWN' | 'FLAT' {
   if (shortEma == null || longEma == null) return 'FLAT'
 
   const diff = (shortEma - longEma) / longEma
-  if (diff > 0.002) return 'UP'
-  if (diff < -0.002) return 'DOWN'
+  if (diff > 0.005) return 'UP'
+  if (diff < -0.005) return 'DOWN'
   return 'FLAT'
 }
 
