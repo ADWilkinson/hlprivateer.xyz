@@ -163,38 +163,50 @@ export class RedisEventBus implements EventBus {
       }
     }
 
+    let consecutiveErrors = 0
+    const MAX_BACKOFF_MS = 10_000
+
     const loop = async () => {
       while (running) {
-        const result = (await reader.xread(
-          'COUNT',
-          50,
-          'BLOCK',
-          2000,
-          'STREAMS',
-          streamName,
-          normalizeBound(cursor)
-        )) as RedisReadResult | null
+        try {
+          const result = (await reader.xread(
+            'COUNT',
+            50,
+            'BLOCK',
+            2000,
+            'STREAMS',
+            streamName,
+            normalizeBound(cursor)
+          )) as RedisReadResult | null
 
-        if (!result) {
-          continue
-        }
+          consecutiveErrors = 0
 
-        const [, rows] = result[0]
-        for (const row of rows) {
-          const [id, fields] = row
-          cursor = id
-          const payload = extractPayload(fields)
-          if (!payload) {
-            console.warn('event-bus: skipping malformed stream entry', id)
+          if (!result) {
             continue
           }
 
-          const envelope = parseEnvelope(payload)
-          if (!envelope) {
-            continue
-          }
+          const [, rows] = result[0]
+          for (const row of rows) {
+            const [id, fields] = row
+            cursor = id
+            const payload = extractPayload(fields)
+            if (!payload) {
+              console.warn('event-bus: skipping malformed stream entry', id)
+              continue
+            }
 
-          await onMessage(envelope)
+            const envelope = parseEnvelope(payload)
+            if (!envelope) {
+              continue
+            }
+
+            await onMessage(envelope)
+          }
+        } catch (error) {
+          consecutiveErrors += 1
+          const backoffMs = Math.min(MAX_BACKOFF_MS, 500 * (2 ** (consecutiveErrors - 1)))
+          console.warn(`event-bus: consumer error on ${String(streamName)} (attempt ${consecutiveErrors}, retry in ${backoffMs}ms)`, error instanceof Error ? error.message : String(error))
+          await new Promise((resolve) => setTimeout(resolve, backoffMs))
         }
       }
     }

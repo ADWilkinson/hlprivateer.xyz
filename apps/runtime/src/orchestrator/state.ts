@@ -1004,17 +1004,26 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
       // Live funding gate: don't open new exposure until the Hyperliquid account has enough value
       // to support the configured target notional under the leverage cap.
+      // Use a 2-minute freshness window (not 30s) to avoid blocking on transient API hiccups.
+      // If we've ever successfully fetched, use the cached value after the window expires
+      // rather than assuming $0 — the account doesn't evaporate.
       if (env.ENABLE_LIVE_OMS && !hasAnyExposure()) {
         const minAccountValueUsd = minLiveAccountValueUsd()
-        const hasFreshValue = lastLiveAccountValueOkAtMs > 0 && nowMs - lastLiveAccountValueOkAtMs <= 30_000
-        const effectiveAccountValueUsd = hasFreshValue ? cachedLiveAccountValueUsd : 0
+        const hasFreshValue = lastLiveAccountValueOkAtMs > 0 && nowMs - lastLiveAccountValueOkAtMs <= 120_000
+        const hasEverFetched = lastLiveAccountValueOkAtMs > 0
+        const effectiveAccountValueUsd = hasFreshValue
+          ? cachedLiveAccountValueUsd
+          : hasEverFetched
+            ? cachedLiveAccountValueUsd
+            : 0
 
         if (effectiveAccountValueUsd < minAccountValueUsd) {
           runtimeProposalCounter.inc({ status: 'awaiting_funding' })
           const walletHint = cachedLiveWalletAddress ? `${cachedLiveWalletAddress.slice(0, 10)}...` : 'unknown'
+          const staleNote = hasEverFetched && !hasFreshValue ? ' (stale value, API may be down)' : ''
           await publishStateUpdate(
             cycleCorrelationId,
-            `awaiting Hyperliquid funding (accountValueUsd=${effectiveAccountValueUsd.toFixed(2)} < min=${minAccountValueUsd.toFixed(2)} wallet=${walletHint})`
+            `awaiting Hyperliquid funding (accountValueUsd=${effectiveAccountValueUsd.toFixed(2)} < min=${minAccountValueUsd.toFixed(2)} wallet=${walletHint}${staleNote})`
           )
           return
         }
@@ -1130,11 +1139,21 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         return
       }
 
-      const dependencyHealth = await bus.health()
+      let dependencyHealth = await bus.health()
       // In DRY_RUN mode we allow running without Postgres persistence to reduce operational complexity.
       // In live mode, persistence health remains a hard dependency (fail-closed).
-      const databaseHealth = env.DRY_RUN ? true : await store.health()
-      const dependenciesHealthy = dependencyHealth.ok && databaseHealth
+      let databaseHealth = env.DRY_RUN ? true : await store.health()
+      let dependenciesHealthy = dependencyHealth.ok && databaseHealth
+
+      // Retry once after a short delay if dependencies look unhealthy — transient Redis/Postgres
+      // hiccups should not immediately trigger DEPENDENCY_FAILURE denials and auto-flatten.
+      if (!dependenciesHealthy) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        dependencyHealth = await bus.health()
+        databaseHealth = env.DRY_RUN ? true : await store.health()
+        dependenciesHealthy = dependencyHealth.ok && databaseHealth
+      }
+
       if (dependenciesHealthy) {
         markInfraRecovered()
       }

@@ -2059,7 +2059,10 @@ let activeDirective: StrategistDirective = {
   decidedAt: new Date(0).toISOString()
 }
 let basketSelectInFlight = false
+let basketSelectInFlightSinceMs = 0
 let directiveInFlight = false
+let directiveInFlightSinceMs = 0
+const IN_FLIGHT_LOCK_TIMEOUT_MS = 5 * 60_000
 let lastExitProposalSignature: string | null = null
 let cachedUniverse: { assets: HyperliquidUniverseAsset[]; fetchedAtMs: number } = { assets: [], fetchedAtMs: 0 }
 let basketPivot: { basketSymbols: string[]; startedAtMs: number; expiresAtMs: number } | null = null
@@ -2199,7 +2202,12 @@ async function maybeSelectBasket(params: {
 }): Promise<void> {
   const nowMs = Date.now()
   if (basketSelectInFlight) {
-    return
+    if (basketSelectInFlightSinceMs > 0 && nowMs - basketSelectInFlightSinceMs > IN_FLIGHT_LOCK_TIMEOUT_MS) {
+      console.warn('[agent-runner] basketSelectInFlight lock expired after timeout, resetting')
+      basketSelectInFlight = false
+    } else {
+      return
+    }
   }
 
   const needsRefresh =
@@ -2211,6 +2219,7 @@ async function maybeSelectBasket(params: {
   }
 
   basketSelectInFlight = true
+  basketSelectInFlightSinceMs = nowMs
   try {
     const fixedBasketCsv = env.BASKET_SYMBOLS.trim()
     const fixedBasketSymbols = fixedBasketCsv
@@ -3916,9 +3925,8 @@ async function runStrategyPipeline(): Promise<void> {
       correlationId: ulid(),
       role: 'ops',
       level: 'WARN',
-      line: 'pipeline: research produced no output this cycle; skipping risk + strategist'
+      line: 'pipeline: research produced no output this cycle; running risk + strategist with previous context'
     })
-    return
   }
 
   await runRiskAgent()
@@ -4350,7 +4358,12 @@ async function runRiskAgent(): Promise<void> {
 async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]; targetNotionalUsd: number; positions: OperatorPosition[] }): Promise<void> {
   const nowMs = Date.now()
   if (directiveInFlight) {
-    return
+    if (directiveInFlightSinceMs > 0 && nowMs - directiveInFlightSinceMs > IN_FLIGHT_LOCK_TIMEOUT_MS) {
+      console.warn('[agent-runner] directiveInFlight lock expired after timeout, resetting')
+      directiveInFlight = false
+    } else {
+      return
+    }
   }
 
   // SAFE_MODE is informational for the strategist — exchange TP/SL orders manage exits.
@@ -4358,6 +4371,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
   // We do NOT force-exit here because transient infra issues should not override exchange-side risk management.
 
   directiveInFlight = true
+  directiveInFlightSinceMs = nowMs
   try {
     const summary = summarizePositionsForAgents(params.positions)
     const heldSymbols = basketFromPositions(params.positions)
@@ -4548,9 +4562,8 @@ async function runStrategistCycle(): Promise<void> {
     return
   }
 
-	  if (lastMode === 'SAFE_MODE' && lastPositions.length === 0) {
-	    return
-	  }
+	  // SAFE_MODE with no positions: runtime will auto-recover to READY when dependencies are healthy.
+	  // Allow strategist to run so it can prepare directives for when the mode transitions back.
 
 	  const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
 	  const leverageAwareBase = leverageAwareBaseTargetNotionalUsd(env.AGENT_TARGET_NOTIONAL_USD)
