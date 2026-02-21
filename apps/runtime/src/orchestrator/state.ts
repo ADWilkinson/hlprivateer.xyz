@@ -319,7 +319,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastDustSweepAtMs = 0
   const DUST_SWEEP_COOLDOWN_MS = 30_000
   let consecutiveCycleErrors = 0
-  const SAFE_MODE_ERROR_THRESHOLD = 3
+  const SAFE_MODE_ERROR_THRESHOLD = 5
   const infraAutoFlattenMinOutageMs = env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS
   const infraAutoFlattenNoticeCooldownMs = env.RUNTIME_INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS
   const infraAutoFlattenMinGrossUsd = Math.max(0, env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD)
@@ -952,26 +952,36 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       }
 
       if (state.mode === 'SAFE_MODE') {
+        const dependencyHealth = await bus.health()
+        const databaseHealth = env.DRY_RUN ? true : await store.health()
+        const canExitSafeMode = dependencyHealth.ok && databaseHealth
+
         if (hasAnyExposure()) {
           lastSafeModeNoExposureHoldNoticeAtMs = 0
+          if (canExitSafeMode) {
+            lastSafeModeHoldNoticeAtMs = 0
+            markInfraRecovered()
+            consecutiveCycleErrors = 0
+            const recoveryMode = hasAnyExposure() ? 'IN_TRADE' : 'READY'
+            await setMode(recoveryMode, 'safe mode auto-resolve: dependencies recovered')
+            return
+          }
           runtimeProposalCounter.inc({ status: 'safe_mode_holding' })
           if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
             lastSafeModeHoldNoticeAtMs = nowMs
             await publishStateUpdate(
               cycleCorrelationId,
-              'safe mode: holding open positions — exchange TP/SL orders manage exit'
+              `safe mode: holding open positions — dependencies healthy=${dependencyHealth.ok ? 'YES' : 'NO'}, db=${databaseHealth ? 'YES' : 'NO'}`
             )
           }
           return
         }
 
-        const dependencyHealth = await bus.health()
-        const databaseHealth = env.DRY_RUN ? true : await store.health()
-        const canExitSafeMode = dependencyHealth.ok && databaseHealth
         if (canExitSafeMode) {
           lastSafeModeHoldNoticeAtMs = 0
           lastSafeModeNoExposureHoldNoticeAtMs = 0
           markInfraRecovered()
+          consecutiveCycleErrors = 0
           await setMode('READY', 'safe mode auto-resolve: no open exposure')
           return
         } else if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {

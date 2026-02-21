@@ -13,7 +13,7 @@ const transitions: Record<TradeState, TradeState[]> = {
   IN_TRADE: ['REBALANCE', 'HALT', 'SAFE_MODE'],
   REBALANCE: ['READY', 'HALT', 'SAFE_MODE'],
   HALT: ['READY'],
-  SAFE_MODE: ['READY', 'HALT']
+  SAFE_MODE: ['READY', 'IN_TRADE', 'HALT']
 }
 
 export const initialState = (): RuntimeState => ({
