@@ -271,6 +271,17 @@ function buildTwitterHeaders(params: {
   }
 }
 
+interface BirdTweet {
+  id?: string
+  text?: string
+  createdAt?: string
+  likeCount?: number
+  retweetCount?: number
+  replyCount?: number
+  author?: { username?: string; name?: string }
+  authorId?: string
+}
+
 async function twitterSearchRecent(params: {
   bearerToken: string
   authToken?: string | null
@@ -285,155 +296,74 @@ async function twitterSearchRecent(params: {
 }): Promise<TwitterQueryResult> {
   const fetchedAt = new Date().toISOString()
   const maxResults = clampInt(params.maxResults, 10, 100)
-
   const query = sanitizeLine(params.query, 280)
-  const baseUrl = 'https://api.twitter.com/2/tweets/search/recent'
-  const queryParams: Record<string, string> = {
-    query,
-    max_results: String(maxResults),
-    'tweet.fields': 'created_at,public_metrics,author_id',
-    expansions: 'author_id',
-    'user.fields': 'username,name,verified'
-  }
-  const url = new URL(baseUrl)
-  for (const [k, v] of Object.entries(queryParams)) {
-    url.searchParams.set(k, v)
+
+  if (!params.authToken || !params.ct0) {
+    return { query, fetchedAt, tweets: [], error: 'no cookie credentials (auth_token + ct0) for bird search' }
   }
 
-  const hasOAuth1 = Boolean(params.consumerKey && params.consumerSecret && params.accessToken && params.accessTokenSecret)
-  const hasBearerCreds = Boolean(params.bearerToken)
-  const hasCookieCreds = Boolean(params.authToken && params.ct0)
+  // Use `bird search` CLI which handles GraphQL queryId rotation and cookie auth.
+  // The v2 API (api.twitter.com/2/tweets/search/recent) rejects cookie auth entirely.
+  try {
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const execFileAsync = promisify(execFile)
 
-  type AuthStrategy = 'oauth1' | 'bearer' | 'cookie'
-  const strategies: AuthStrategy[] = []
-  // Cookie auth (web bearer + session) has the widest search access on free tier.
-  // OAuth1 and app bearer tokens require paid API tiers for search/recent — do NOT
-  // use them as fallbacks since they incur billing charges.
-  if (hasCookieCreds) strategies.push('cookie')
-  if (!hasCookieCreds && hasOAuth1) strategies.push('oauth1')
-  if (!hasCookieCreds && !hasOAuth1 && hasBearerCreds) strategies.push('bearer')
+    const { stdout } = await execFileAsync('bird', ['search', query, '--json', '--plain'], {
+      timeout: Math.min(params.timeoutMs + 5000, 20000),
+      maxBuffer: 5 * 1024 * 1024,
+      env: { ...process.env, AUTH_TOKEN: params.authToken, CT0: params.ct0 }
+    })
 
-  if (strategies.length === 0) {
-    return { query, fetchedAt, tweets: [], error: 'no twitter credentials available' }
-  }
-
-  let lastError = ''
-  for (const strategy of strategies) {
-    let headers: Record<string, string>
-    if (strategy === 'oauth1') {
-      headers = {
-        Authorization: buildOAuth1Header({
-          method: 'GET',
-          url: baseUrl,
-          queryParams,
-          consumerKey: params.consumerKey!,
-          consumerSecret: params.consumerSecret!,
-          accessToken: params.accessToken!,
-          accessTokenSecret: params.accessTokenSecret!
-        }),
-        'Content-Type': 'application/json'
-      }
-    } else {
-      headers = buildTwitterHeaders({ ...params, useCookie: strategy === 'cookie' })
+    if (!stdout.trim()) {
+      return { query, fetchedAt, tweets: [] }
     }
-    try {
-      const response = await fetchWithTimeout(
-        url.toString(),
-        { method: 'GET', headers },
-        params.timeoutMs
-      )
 
-      const payloadRaw = await safeJson(response)
-      if (!response.ok) {
-        lastError = `twitter ${strategy} status=${response.status} body=${sanitizeLine(
-          typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
-          240
-        )}`
-        if (response.status === 401 || response.status === 403 || response.status === 429) {
-          continue
-        }
-        return { query, fetchedAt, tweets: [], error: lastError }
-      }
+    const raw = JSON.parse(stdout) as BirdTweet[]
+    if (!Array.isArray(raw)) {
+      return { query, fetchedAt, tweets: [], error: 'bird search returned non-array' }
+    }
 
-      if (typeof payloadRaw !== 'object' || payloadRaw === null) {
+    const safeMetric = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+
+    const summarized = raw
+      .map((tweet): TwitterTweetSummary | null => {
+        const id = typeof tweet?.id === 'string' ? tweet.id : ''
+        if (!id) return null
         return {
-          query,
-          fetchedAt,
-          tweets: [],
-          error: `twitter invalid JSON body: ${sanitizeLine(
-            typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
-            240
-          )}`
-        }
-      }
-
-      const payload = payloadRaw as TwitterApiResponse
-
-      const users = payload.includes?.users ?? []
-      const userById = new Map<string, { id: string; username: string | null; name: string | null; verified: boolean | null }>()
-      for (const user of users) {
-        const id = typeof user?.id === 'string' ? user.id : ''
-        if (!id) continue
-        userById.set(id, {
           id,
-          username: typeof user.username === 'string' ? sanitizeLine(user.username, 32) : null,
-          name: typeof user.name === 'string' ? sanitizeLine(user.name, 42) : null,
-          verified: typeof user.verified === 'boolean' ? user.verified : null
-        })
-      }
+          url: `https://x.com/i/web/status/${id}`,
+          createdAt: typeof tweet.createdAt === 'string' ? tweet.createdAt : null,
+          author: {
+            id: typeof tweet.authorId === 'string' ? tweet.authorId : null,
+            username: typeof tweet.author?.username === 'string' ? sanitizeLine(tweet.author.username, 32) : null,
+            name: typeof tweet.author?.name === 'string' ? sanitizeLine(tweet.author.name, 42) : null,
+            verified: null as boolean | null
+          },
+          text: typeof tweet.text === 'string' ? sanitizeLine(tweet.text, 340) : '',
+          metrics: {
+            likeCount: safeMetric(tweet.likeCount),
+            retweetCount: safeMetric(tweet.retweetCount),
+            replyCount: safeMetric(tweet.replyCount),
+            quoteCount: null as number | null
+          }
+        }
+      })
+      .filter((entry): entry is TwitterTweetSummary => entry !== null)
 
-      const tweets = payload.data ?? []
-      const summarized = tweets
-        .map((tweet) => {
-          const id = typeof tweet?.id === 'string' ? tweet.id : ''
-          if (!id) return null
-          const authorId = typeof tweet.author_id === 'string' ? tweet.author_id : null
-          const author = authorId ? userById.get(authorId) : undefined
-          const text = typeof tweet?.text === 'string' ? sanitizeLine(tweet.text, 340) : ''
-          const createdAt = typeof tweet?.created_at === 'string' ? tweet.created_at : null
-          const metrics = tweet?.public_metrics ?? {}
-          const safeMetric = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
-          return {
-            id,
-            url: `https://x.com/i/web/status/${id}`,
-            createdAt,
-            author: {
-              id: author?.id ?? authorId ?? null,
-              username: author?.username ?? null,
-              name: author?.name ?? null,
-              verified: author?.verified ?? null
-            },
-            text,
-            metrics: {
-              likeCount: safeMetric(metrics.like_count),
-              retweetCount: safeMetric(metrics.retweet_count),
-              replyCount: safeMetric(metrics.reply_count),
-              quoteCount: safeMetric(metrics.quote_count)
-            }
-          } satisfies TwitterTweetSummary
-        })
-        .filter((entry): entry is TwitterTweetSummary => Boolean(entry))
+    summarized.sort((a, b) => (b.metrics.likeCount ?? 0) - (a.metrics.likeCount ?? 0))
 
-      summarized.sort((a, b) => (b.metrics.likeCount ?? 0) - (a.metrics.likeCount ?? 0))
+    // Post-filter: drop zero-engagement tweets unless they're from handle queries (from: prefix).
+    const isHandleQuery = query.includes('from:')
+    const filtered = isHandleQuery
+      ? summarized
+      : summarized.filter((t) => (t.metrics.likeCount ?? 0) + (t.metrics.retweetCount ?? 0) > 0)
 
-      // Post-filter: drop zero-engagement tweets unless they're from handle queries (from: prefix).
-      const isHandleQuery = query.includes('from:')
-      const filtered = isHandleQuery
-        ? summarized
-        : summarized.filter((t) => (t.metrics.likeCount ?? 0) + (t.metrics.retweetCount ?? 0) > 0)
-
-      return {
-        query,
-        fetchedAt,
-        tweets: filtered.slice(0, maxResults)
-      }
-    } catch (error) {
-      lastError = sanitizeLine(String(error), 240)
-      continue
-    }
+    return { query, fetchedAt, tweets: filtered.slice(0, maxResults) }
+  } catch (error) {
+    const msg = sanitizeLine(String(error), 240)
+    return { query, fetchedAt, tweets: [], error: `bird search failed: ${msg}` }
   }
-
-  return { query, fetchedAt, tweets: [], error: lastError || 'all twitter auth strategies failed' }
 }
 
 export async function buildExternalIntelPack(params: {
