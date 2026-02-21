@@ -59,6 +59,7 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
   private lastActivityAt = 0
   private ticks = new Map<string, NormalizedTick>()
   private stopped = false
+  private lastStaleForceAtMs = 0
   private mids = new Map<string, { px: number; ts: number }>()
   private lastPublishAtMs = new Map<string, number>()
 
@@ -81,7 +82,14 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
 
       // If we have symbols but the oldest tick exceeds the stale threshold, force reconnect.
       // This catches silent socket stalls where ping/pong still works but data stops flowing.
-      if (this.symbols.length > 0 && this.ticks.size > 0 && maxAgeMs > STALE_SYMBOL_MS) {
+      // Cooldown: only force-terminate once per MAX_RECONNECT_MS to avoid log spam while reconnecting.
+      if (
+        this.symbols.length > 0 &&
+        this.ticks.size > 0 &&
+        maxAgeMs > STALE_SYMBOL_MS &&
+        now - this.lastStaleForceAtMs > MAX_RECONNECT_MS
+      ) {
+        this.lastStaleForceAtMs = now
         console.warn(`[runtime-market] stale data detected (${Math.round(maxAgeMs)}ms), forcing reconnect`)
         this.socket?.terminate()
       }
