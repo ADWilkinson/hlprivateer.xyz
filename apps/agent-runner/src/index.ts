@@ -1016,11 +1016,9 @@ function leverageAwareBaseTargetNotionalUsd(fallbackBaseUsd: number): number {
   const leverageCap = Math.max(0.1, policy.maxLeverage)
   const rawTarget = Number.isFinite(policy.targetLeverage) && policy.targetLeverage > 0 ? policy.targetLeverage : leverageCap
 
-  // Keep hard safety headroom below the runtime LEVERAGE deny threshold.
-  // This reduces reject churn from rounding, fast price moves, and leg recomposition drift.
-  const leverageHeadroomPct = 0.95
-  const leverageHeadroomAbs = 0.25
-  const effectiveLeverageCap = Math.max(0.1, Math.min(leverageCap * leverageHeadroomPct, leverageCap - leverageHeadroomAbs))
+  // Thin headroom below the runtime LEVERAGE deny threshold to prevent reject churn
+  // from rounding and price drift between proposal and execution.
+  const effectiveLeverageCap = Math.max(0.1, leverageCap - 0.1)
   const targetLeverage = clamp(rawTarget, 0.1, effectiveLeverageCap)
 
   const leverageTarget = accountValueUsd * targetLeverage
