@@ -3276,7 +3276,7 @@ async function generateStrategistDirective(params: {
         'Scan the full universe. The best opportunity may be anywhere.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
         'All context (technicals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
-        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd. You decide sizing autonomously. governance.accountValueUsd is equity, governance.maxBudgetUsd is total buying power (equity * leverage). You can use the full maxBudgetUsd for gross notional exposure — that IS the point of leverage. Size proportionally to conviction. $100 legs on a $2k+ account with 20x leverage is absurdly conservative — size with conviction.',
+        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd. You decide sizing autonomously. governance.accountValueUsd is equity, governance.buyingPowerUsd is total buying power (equity * leverage). You can use the full buyingPowerUsd for gross notional — that IS the point of leverage. Size proportionally to conviction within buyingPowerUsd.',
         'riskBudget values must be null or positive numbers.',
         'Do not propose both plan and decision HOLD.'
       ],
