@@ -769,6 +769,10 @@ app.get('/v1/public/floor-tape', routeRateLimit(180, 60_000), async () => {
   return FloorTapeLineSchema.array().parse(store.getPublicSnapshot().recentTape)
 })
 
+app.get('/v1/public/performance', routeRateLimit(60, 60_000), async () => {
+  return store.performanceAttribution ?? { totalTrades: 0, wins: 0, losses: 0, winRate: 0, message: 'no trade data yet' }
+})
+
 app.get('/v1/public/trajectory', routeRateLimit(60, 60_000), async () => {
   return PublicTrajectoryResponseSchema.parse({
     points: store.getTrajectory(),
@@ -1886,6 +1890,13 @@ const stopUiConsumer = bus.consume('hlp.ui.events', '0-0', (envelope) => {
     })
     if (parsed.success) {
       store.addPublicTapeLine(parsed.data)
+    }
+  }
+
+  if (envelope.type === 'PERFORMANCE_ATTRIBUTION') {
+    const payload = envelope.payload as Record<string, unknown>
+    if (payload && typeof payload === 'object') {
+      store.performanceAttribution = payload
     }
   }
 

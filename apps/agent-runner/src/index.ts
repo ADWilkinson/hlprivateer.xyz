@@ -14,6 +14,9 @@ import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMa
 import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
 import { buildExternalIntelPack, summarizeExternalIntel, type ExternalIntelPack } from './intel'
 import { HistoryStore, formatHistoryForPrompt, type ResearchHistoryEntry, type RiskHistoryEntry, type DirectiveHistoryEntry, type IntelHistoryEntry } from './history-store'
+import { TradeJournal } from './trade-journal'
+import { computeTechnicalSignals, type TechnicalSignalPack } from './technical-signals'
+import { ConvictionBoard } from './conviction-board'
 
 type Tick = {
   symbol: string
@@ -1001,16 +1004,35 @@ function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal
   const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
 
   let scale = 1
+
+  // Vol-scaled sizing: inverse relationship between volatility and position size
+  // Low vol (< 10%): scale up to 1.15x — calm markets allow larger positions
+  // Normal vol (10-20%): scale 0.8-1.0x — standard sizing
+  // High vol (> 20%): scale down to 0.5x — reduce exposure in choppy markets
   if (latestVolatility) {
-    const volatilityScale = 1 - Math.min(0.4, Math.abs(latestVolatility.value) / 25)
-    scale *= Math.max(0.6, volatilityScale)
+    const vol = Math.abs(latestVolatility.value)
+    if (vol < 10) {
+      scale *= 1 + (10 - vol) * 0.015 // up to 1.15x in very calm markets
+    } else if (vol < 20) {
+      scale *= 1 - (vol - 10) * 0.02 // 1.0x at 10%, 0.8x at 20%
+    } else {
+      scale *= Math.max(0.5, 0.8 - (vol - 20) * 0.015) // floor at 0.5x
+    }
   }
 
+  // Funding-based edge: slight bias toward positions where funding pays you
   if (latestFunding) {
     scale *= latestFunding.value > 0 ? 0.95 : 1.05
   }
 
-  return Number(Math.max(100, baseTargetNotional * scale).toFixed(2))
+  // Win-rate adjustment from trade journal: boost sizing if recent trades profitable
+  const journal = tradeJournal.summarize()
+  if (journal.totalTrades >= 5) {
+    const winRateEdge = journal.winRate - 0.5 // positive if winning more than 50%
+    scale *= 1 + clamp(winRateEdge * 0.2, -0.1, 0.15) // -10% to +15% based on track record
+  }
+
+  return Number(Math.max(100, baseTargetNotional * clamp(scale, 0.5, 1.2)).toFixed(2))
 }
 
 function leverageAwareBaseTargetNotionalUsd(fallbackBaseUsd: number): number {
@@ -3337,6 +3359,10 @@ async function generateStrategistDirective(params: {
         'USE AIXBT: if aixbt signals show a catalyst or high momentum for an asset, weigh that heavily in your decision. Cross-reference with price action and funding.',
         'SCAN THE FULL UNIVERSE: you have 28 assets. Do not fixate on BTC/ETH — look at mid-caps (UNI, AAVE, LINK, PENDLE, TAO, etc.) for higher-alpha directional setups.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols. Never propose a symbol not in that list — off-basket legs are dropped by the execution layer.',
+        'TECHNICAL SIGNALS: Use technicalSignals (RSI, trend1h/4h/1d, ATR%, volumeRatio) to confirm or reject setups. RSI >70 = overbought caution for new longs, RSI <30 = oversold opportunity. Trend alignment across timeframes increases conviction.',
+        'TRADE HISTORY: tradeHistory shows your past performance. Learn from it — if recent trades in a symbol lost money, require stronger conviction before re-entering. If win rate is high, maintain your approach.',
+        'CONVICTION BOARD: convictionBoard persists across cycles. Symbols with high conviction scores and triggerDistance >0.7 are primed for action — prioritize these over cold symbols.',
+        'PORTFOLIO CORRELATION: portfolioCorrelation shows your portfolio beta to BTC. If beta >1.5 you are running concentrated directional risk — consider adding uncorrelated or short positions to diversify.',
         'When historicalContext shows consecutive HOLDs, scrutinize harder for setups you may be missing. Multiple consecutive HOLDs is a signal you are being too conservative.',
         'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd or the runtime parser will drop it.',
         'riskBudget.maxGrossNotionalUsd, riskBudget.maxNetNotionalUsd, and riskBudget.maxLeverage must be null or positive numbers.',
@@ -3467,6 +3493,10 @@ const researchHistory = new HistoryStore<ResearchHistoryEntry>(HISTORY_DIR, 'res
 const riskHistory = new HistoryStore<RiskHistoryEntry>(HISTORY_DIR, 'risk.ndjson')
 const directiveHistory = new HistoryStore<DirectiveHistoryEntry>(HISTORY_DIR, 'directive.ndjson')
 const intelHistory = new HistoryStore<IntelHistoryEntry>(HISTORY_DIR, 'intel.ndjson', env.AGENT_INTEL_HISTORY_MAX_ENTRIES)
+const tradeJournal = new TradeJournal(HISTORY_DIR, 50)
+const convictionBoard = new ConvictionBoard(HISTORY_DIR)
+let lastTechnicalSignals: TechnicalSignalPack | null = null
+let lastTechnicalSignalsAt = 0
 
 async function publishAudit(event: AuditEvent): Promise<void> {
   queueJournalWrite(event)
@@ -3631,6 +3661,37 @@ function summarizePositionsForAgents(positions: OperatorPosition[]): { drift: 'I
     return { drift: 'POTENTIAL_DRIFT', posture: 'AMBER' }
   }
   return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
+}
+
+function computePortfolioBtcBeta(positions: OperatorPosition[]): Record<string, unknown> | null {
+  if (positions.length === 0) return null
+  const context = activeBasket.context as { priceBySymbol?: Record<string, PriceFeature> } | undefined
+  if (!context?.priceBySymbol) return null
+
+  let weightedBeta = 0
+  let totalNotional = 0
+  const perSymbol: Array<{ symbol: string; betaToBtc: number | null; weight: number }> = []
+
+  for (const pos of positions) {
+    const feature = context.priceBySymbol[pos.symbol]
+    const beta = feature?.betaToBase ?? null
+    const notional = Math.abs(pos.notionalUsd)
+    const direction = pos.side === 'LONG' ? 1 : -1
+
+    if (beta != null && Number.isFinite(beta)) {
+      weightedBeta += beta * notional * direction
+      totalNotional += notional
+    }
+    perSymbol.push({ symbol: pos.symbol, betaToBtc: beta, weight: notional })
+  }
+
+  const portfolioBeta = totalNotional > 0 ? weightedBeta / totalNotional : 0
+
+  return {
+    portfolioBetaToBtc: Number(portfolioBeta.toFixed(3)),
+    warning: Math.abs(portfolioBeta) > 1.5 ? `HIGH DIRECTIONAL RISK: portfolio beta ${portfolioBeta.toFixed(2)} to BTC. Consider hedging or reducing correlated positions.` : null,
+    perSymbol
+  }
 }
 
 function tickStalenessMs(symbols: string[]): { maxAgeMs: number; missing: string[] } {
@@ -3957,6 +4018,28 @@ async function runStrategyPipeline(): Promise<void> {
       level: 'WARN',
       line: 'pipeline: research produced no output this cycle; running risk + strategist with previous context'
     })
+  }
+
+  // Compute technical signals (RSI, trend, ATR) — throttled to every 5 minutes
+  const techSignalNow = Date.now()
+  if (techSignalNow - lastTechnicalSignalsAt >= 5 * 60_000 && activeBasket.symbols.length > 0) {
+    try {
+      const fundingBySymbol: Record<string, number> = {}
+      for (const asset of cachedUniverse.assets) {
+        if (activeBasket.symbols.includes(asset.symbol)) {
+          fundingBySymbol[asset.symbol] = asset.funding
+        }
+      }
+      lastTechnicalSignals = await computeTechnicalSignals({
+        symbols: activeBasket.symbols,
+        postInfo: hlClient.postInfo,
+        fundingBySymbol,
+        concurrency: 4
+      })
+      lastTechnicalSignalsAt = techSignalNow
+    } catch {
+      // non-critical — continue without tech signals
+    }
   }
 
   await runRiskAgent()
@@ -4451,6 +4534,19 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 	      lastRiskReport,
 	      lastScribeAnalysis,
 	      currentDirective: activeDirective,
+	      technicalSignals: lastTechnicalSignals ? Object.fromEntries(
+	        Object.entries(lastTechnicalSignals.signals).map(([sym, sig]) => [sym, {
+	          rsi14: sig.rsi14,
+	          trend1h: sig.trend1h,
+	          trend4h: sig.trend4h,
+	          trend1d: sig.trend1d,
+	          atrPct: sig.atrPct,
+	          volumeRatio: sig.volumeRatio
+	        }])
+	      ) : null,
+	      tradeHistory: tradeJournal.summarize(),
+	      convictionBoard: convictionBoard.forPrompt(),
+	      portfolioCorrelation: computePortfolioBtcBeta(params.positions),
 	      historicalContext: {
 	        recentDirectives: formatHistoryForPrompt('recent strategist decisions', directiveHistory.recent(5), ['ts', 'decision', 'rationale', 'confidence', 'hadPlan']),
 	        recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(3), ['ts', 'headline', 'regime', 'confidence']),
@@ -4566,6 +4662,14 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       hadPlan: activeDirective.plan !== null
     }).catch(() => undefined)
 
+    // Update conviction board from directive
+    convictionBoard.decay()
+    if (activeDirective.plan?.legs) {
+      const legSymbols = activeDirective.plan.legs.map((l) => l.symbol)
+      convictionBoard.updateFromDirective(activeDirective.decision, legSymbols)
+    }
+    convictionBoard.flush().catch(() => undefined)
+
     await publishTape({
       correlationId: ulid(),
       role: 'strategist',
@@ -4585,6 +4689,25 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
         input
       }
     })
+
+    // Publish performance attribution after each directive cycle
+    const journalSummary = tradeJournal.summarize()
+    if (journalSummary.totalTrades > 0) {
+      await bus.publish('hlp.ui.events', {
+        type: 'PERFORMANCE_ATTRIBUTION',
+        stream: 'hlp.ui.events',
+        source: 'agent-runner',
+        correlationId: ulid(),
+        actorType: 'internal_agent',
+        actorId: roleActorId('scribe'),
+        payload: {
+          ...journalSummary,
+          convictionSnapshot: convictionBoard.snapshot(),
+          openTrades: tradeJournal.getOpenTrades(),
+          publishedAt: new Date().toISOString()
+        }
+      }).catch(() => undefined)
+    }
   } finally {
     directiveInFlight = false
   }
@@ -5173,8 +5296,23 @@ const start = async (): Promise<void> => {
         return
       }
 
+      const prevSymbols = new Set(lastPositions.map((p) => p.symbol))
       lastPositions = meaningfulPositions(positions, EXIT_NOTIONAL_EPSILON_USD)
       syncActiveBasketFromPositions(lastPositions)
+
+      // Trade journal: open new trades, update mark prices, close exited trades
+      const currentSymbols = new Set(lastPositions.map((p) => p.symbol))
+      for (const pos of lastPositions) {
+        if (!prevSymbols.has(pos.symbol)) {
+          tradeJournal.openTrade({ symbol: pos.symbol, side: pos.side, entryPx: pos.avgEntryPx, notionalUsd: pos.notionalUsd })
+        }
+        tradeJournal.updateMarkPrice(pos.symbol, pos.markPx)
+      }
+      const markPricesForJournal: Record<string, number> = {}
+      for (const pos of positions) {
+        if (typeof (pos as any).markPx === 'number') markPricesForJournal[(pos as any).symbol] = (pos as any).markPx
+      }
+      tradeJournal.reconcile(currentSymbols, markPricesForJournal)
       if (basketPivot) {
         const nowMs = Date.now()
         if (nowMs > basketPivot.expiresAtMs) {
@@ -5257,7 +5395,9 @@ const start = async (): Promise<void> => {
     researchHistory.load(),
     riskHistory.load(),
     directiveHistory.load(),
-    intelHistory.load()
+    intelHistory.load(),
+    tradeJournal.load(),
+    convictionBoard.load()
   ])
 
   const HEARTBEAT_PATH = '/tmp/.agent-runner-heartbeat'

@@ -15,6 +15,7 @@ const BASE_RECONNECT_MS = 250
 const MAX_RECONNECT_MS = 30_000
 const PING_INTERVAL_MS = 20_000
 const SILENCE_TIMEOUT_MS = 30_000
+const STALE_SYMBOL_MS = 15_000 // force reconnect if any tracked symbol has no tick for this long
 
 type HyperliquidSubscription =
   | { type: 'allMids'; dex?: string }
@@ -70,9 +71,19 @@ class HyperliquidWebSocketAdapter implements MarketDataAdapter {
   async start(): Promise<void> {
     await this.connect()
     this.ageTimer = setInterval(() => {
+      const now = Date.now()
+      let maxAgeMs = 0
       for (const [symbol, tick] of this.ticks.entries()) {
-        const ageMs = Date.now() - Date.parse(tick.updatedAt)
+        const ageMs = now - Date.parse(tick.updatedAt)
         marketDataAgeMs.labels({ symbol, source: 'ws' }).set(Math.max(0, ageMs))
+        maxAgeMs = Math.max(maxAgeMs, ageMs)
+      }
+
+      // If we have symbols but the oldest tick exceeds the stale threshold, force reconnect.
+      // This catches silent socket stalls where ping/pong still works but data stops flowing.
+      if (this.symbols.length > 0 && this.ticks.size > 0 && maxAgeMs > STALE_SYMBOL_MS) {
+        console.warn(`[runtime-market] stale data detected (${Math.round(maxAgeMs)}ms), forcing reconnect`)
+        this.socket?.terminate()
       }
     }, 1_000)
   }

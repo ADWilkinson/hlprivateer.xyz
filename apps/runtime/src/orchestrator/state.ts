@@ -314,6 +314,17 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastRiskAutoMitigationSignature = ''
   let firstInfraFailureAtMs = 0
   let lastInfraAutoFlattenNoticeAtMs = 0
+
+  // Trailing stop state: tracks high/low water marks per symbol for trailing stop logic
+  const trailingStopState = new Map<string, {
+    symbol: string
+    side: 'LONG' | 'SHORT'
+    highWaterPx: number
+    lowWaterPx: number
+    entryPx: number
+    currentSlOrderId: string | null
+    lastUpdateAtMs: number
+  }>()
   let lastNoActionNoticeAtMs = 0
   let lastNoActionSignature = ''
   let lastDustSweepAtMs = 0
@@ -781,6 +792,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         lastUpdateAt: state.lastUpdateAt,
         riskPolicy: runtimeRiskPolicyContext(),
         message,
+        shadowMode: !env.ENABLE_LIVE_OMS,
         ...(accountValueUsd !== undefined ? { accountValueUsd } : {})
       }
     })
@@ -901,6 +913,102 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
       // Cycle reached mark-to-market without error — reset transient error counter.
       consecutiveCycleErrors = 0
+
+      // Trailing stop update: track high/low water marks and move stops in profit direction
+      if (adapter.placeTpsl && env.ENABLE_LIVE_OMS) {
+        const meaningfulPos = state.positions.filter((p) => isMeaningfulPosition(p))
+        const heldSymbols = new Set(meaningfulPos.map((p) => p.symbol))
+
+        // Clean up trailing state for closed positions
+        for (const symbol of trailingStopState.keys()) {
+          if (!heldSymbols.has(symbol)) trailingStopState.delete(symbol)
+        }
+
+        for (const pos of meaningfulPos) {
+          const tick = ticks[pos.symbol]
+          if (!tick) continue
+
+          const existing = trailingStopState.get(pos.symbol)
+          if (!existing) {
+            // Initialize tracking for new positions
+            trailingStopState.set(pos.symbol, {
+              symbol: pos.symbol,
+              side: pos.side,
+              highWaterPx: pos.markPx,
+              lowWaterPx: pos.markPx,
+              entryPx: pos.avgEntryPx,
+              currentSlOrderId: null,
+              lastUpdateAtMs: nowMs
+            })
+            continue
+          }
+
+          // Update water marks
+          existing.highWaterPx = Math.max(existing.highWaterPx, pos.markPx)
+          existing.lowWaterPx = Math.min(existing.lowWaterPx, pos.markPx)
+
+          // Only trail if position is in profit and enough time has passed (5 min cooldown)
+          if (nowMs - existing.lastUpdateAtMs < 5 * 60_000) continue
+
+          const TRAIL_ACTIVATION_PCT = 2.0 // Activate trailing after 2% profit
+          const TRAIL_OFFSET_PCT = 1.5 // Trail 1.5% behind high/low water
+
+          if (pos.side === 'LONG') {
+            const profitPct = ((existing.highWaterPx - existing.entryPx) / existing.entryPx) * 100
+            if (profitPct < TRAIL_ACTIVATION_PCT) continue
+
+            const trailSl = existing.highWaterPx * (1 - TRAIL_OFFSET_PCT / 100)
+            // Only move SL up, never down
+            if (trailSl > existing.entryPx) {
+              try {
+                const closingSide: 'BUY' | 'SELL' = 'SELL'
+                await adapter.placeTpsl({
+                  symbol: pos.symbol,
+                  closingSide,
+                  size: String(pos.qty),
+                  stopLossPrice: trailSl,
+                  tick,
+                  correlationId: `trail-${pos.symbol}-${nowMs}`
+                })
+                existing.lastUpdateAtMs = nowMs
+                await addAudit('trailing_stop.updated', 'runtime', cycleCorrelationId, {
+                  symbol: pos.symbol,
+                  side: pos.side,
+                  highWaterPx: existing.highWaterPx,
+                  newSlPx: trailSl,
+                  profitPct: profitPct.toFixed(2)
+                })
+              } catch { /* non-critical */ }
+            }
+          } else {
+            const profitPct = ((existing.entryPx - existing.lowWaterPx) / existing.entryPx) * 100
+            if (profitPct < TRAIL_ACTIVATION_PCT) continue
+
+            const trailSl = existing.lowWaterPx * (1 + TRAIL_OFFSET_PCT / 100)
+            if (trailSl < existing.entryPx) {
+              try {
+                const closingSide: 'BUY' | 'SELL' = 'BUY'
+                await adapter.placeTpsl({
+                  symbol: pos.symbol,
+                  closingSide,
+                  size: String(pos.qty),
+                  stopLossPrice: trailSl,
+                  tick,
+                  correlationId: `trail-${pos.symbol}-${nowMs}`
+                })
+                existing.lastUpdateAtMs = nowMs
+                await addAudit('trailing_stop.updated', 'runtime', cycleCorrelationId, {
+                  symbol: pos.symbol,
+                  side: pos.side,
+                  lowWaterPx: existing.lowWaterPx,
+                  newSlPx: trailSl,
+                  profitPct: profitPct.toFixed(2)
+                })
+              } catch { /* non-critical */ }
+            }
+          }
+        }
+      }
 
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)

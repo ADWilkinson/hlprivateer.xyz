@@ -100,6 +100,7 @@ export class ApiStore {
   public positions: OperatorPosition[] = []
   public orders: OperatorOrder[] = []
   public audits: AuditEvent[] = []
+  public performanceAttribution: Record<string, unknown> | null = null
   public entitlements = new Map<string, Entitlement>()
   public abuses = new Map<string, number>()
   private tierCapabilities: TierCapabilityMap = DEFAULT_TIER_CAPABILITIES

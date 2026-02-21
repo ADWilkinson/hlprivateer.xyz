@@ -6,6 +6,7 @@ import {
   type CrewHeartbeat,
   type CrewStats,
   normalizeOpenPositions,
+  type PerformanceAttribution,
   type Snapshot,
   TAPE_DISPLAY_LIMIT,
   type TapeEntry,
@@ -26,12 +27,13 @@ import { PositionsTable } from '../ui/PositionsTable'
 import { StatusStrip } from '../ui/StatusStrip'
 import { TapeSection } from '../ui/TapeSection'
 import { pageShellClass } from '../ui/ascii-style'
+import { PerformancePanel } from '../ui/PerformancePanel'
 import { X402AgentMaterialsPanel } from '../ui/X402AgentMaterialsPanel'
 
 type TapeLevel = 'INFO' | 'WARN' | 'ERROR'
 type CrewRole = keyof typeof EMPTY_HEARTBEAT
 type CrewLast = Record<CrewRole, TapeEntry | null>
-type SectionKey = 'status' | 'positions' | 'pnl' | 'crew' | 'intelligence' | 'tape' | 'x402'
+type SectionKey = 'status' | 'positions' | 'pnl' | 'performance' | 'crew' | 'intelligence' | 'tape' | 'x402'
 
 const UI_TICK_MS = 1000
 const RISK_DENIAL_SUPPRESS_MS = 180_000
@@ -114,6 +116,7 @@ type SnapshotPayload = {
   positionNotional?: unknown
   realizedPnlUsd?: unknown
   realized_pnl_usd?: unknown
+  shadowMode?: unknown
   data?: unknown
   [key: string]: unknown
 }
@@ -255,6 +258,7 @@ function normalizeSnapshot(payload: SnapshotPayload, fallback: Snapshot): Snapsh
         : fallback.openPositionNotionalUsd,
     accountValueUsd: nextAccountValueUsd,
     realizedPnlUsd: toFiniteNumber(payload.realizedPnlUsd ?? payload.realized_pnl_usd),
+    shadowMode: typeof payload.shadowMode === 'boolean' ? payload.shadowMode : fallback.shadowMode,
   }
 }
 
@@ -321,6 +325,7 @@ export default function DeckPage() {
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
   const [pnlSeries, setPnlSeries] = useState<Array<{ ts: string; pnlPct: number }>>([])
   const [accountValueSeries, setAccountValueSeries] = useState<Array<{ ts: string; accountValueUsd: number }>>([])
+  const [perfAttribution, setPerfAttribution] = useState<PerformanceAttribution | null>(null)
 
   const [crewLast, setCrewLast] = useState<CrewLast>(() => ({
     scout: null,
@@ -345,6 +350,7 @@ export default function DeckPage() {
     status: false,
     positions: false,
     pnl: false,
+    performance: false,
     crew: false,
     intelligence: false,
     tape: false,
@@ -515,10 +521,11 @@ export default function DeckPage() {
 
     const load = async () => {
       try {
-        const [snapshotResult, tapeResult, trajectoryResult] = await Promise.allSettled([
+        const [snapshotResult, tapeResult, trajectoryResult, perfResult] = await Promise.allSettled([
           fetchWithTimeout(apiUrl('/v1/public/floor-snapshot')),
           fetchWithTimeout(apiUrl('/v1/public/floor-tape')),
           fetchWithTimeout(apiUrl('/v1/public/trajectory')),
+          fetchWithTimeout(apiUrl('/v1/public/performance')),
         ])
 
         if (snapshotResult.status === 'fulfilled') {
@@ -613,6 +620,16 @@ export default function DeckPage() {
                   return true
                 }).slice(-MAX_TRAJECTORY_POINTS)
               })
+            }
+          }
+        }
+
+        if (perfResult.status === 'fulfilled') {
+          const perfResponse = perfResult.value
+          if (perfResponse.ok) {
+            const rawPerf = await perfResponse.json() as PerformanceAttribution
+            if (running && rawPerf && typeof rawPerf.totalTrades === 'number') {
+              setPerfAttribution(rawPerf)
             }
           }
         }
@@ -888,6 +905,9 @@ export default function DeckPage() {
             <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
               {modeStr}
             </div>
+            {snapshot.shadowMode && (
+              <div className='mt-1 text-[8px] uppercase tracking-[0.16em] text-hlpWarning'>shadow</div>
+            )}
           </div>
         </div>
 
@@ -923,6 +943,16 @@ export default function DeckPage() {
             isCollapsed={collapsedSections.pnl}
             onToggle={() => toggleSection('pnl')}
             sectionId='pnl'
+          />
+
+          <AsciiDivider variant='compass' />
+
+          <PerformancePanel
+            data={perfAttribution}
+            isLoading={isBootstrapping}
+            isCollapsed={collapsedSections.performance}
+            onToggle={() => toggleSection('performance')}
+            sectionId='performance'
           />
 
           <AsciiDivider variant='compass' />

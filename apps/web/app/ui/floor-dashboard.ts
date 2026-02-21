@@ -122,6 +122,26 @@ export interface Snapshot {
   openPositions?: OpenPosition[]
   openPositionCount?: number
   openPositionNotionalUsd?: number
+  shadowMode?: boolean
+}
+
+export interface PerformanceAttribution {
+  totalTrades: number
+  wins: number
+  losses: number
+  winRate: number
+  avgWinPct: number
+  avgLossPct: number
+  avgHoldMs: number
+  bestTrade: { symbol: string; pnlPct: number } | null
+  worstTrade: { symbol: string; pnlPct: number } | null
+  recentClosed: Array<{
+    symbol: string
+    side: string
+    realizedPnlPct: number | null
+    exitReason: string | null
+  }>
+  publishedAt?: string
 }
 
 export type TapeEntry = {
