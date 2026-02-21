@@ -4435,7 +4435,8 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       state: lastStateUpdate ?? null,
       drift: summary.drift,
       postureHint: lastRiskReport?.posture ?? summary.posture,
-      targetNotionalUsd: params.targetNotionalUsd,
+      maxBudgetUsd: params.targetNotionalUsd,
+      minLegNotionalUsd: 100,
       heldSymbols,
       activeUniverse: {
         symbols: activeBasket.symbols,
@@ -4487,10 +4488,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 	        recentDirectives: formatHistoryForPrompt('recent strategist decisions', directiveHistory.recent(5), ['ts', 'decision', 'rationale', 'confidence', 'hadPlan']),
 	        recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(3), ['ts', 'headline', 'regime', 'confidence']),
 	        recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(3), ['ts', 'posture', 'confidence']),
-	        consecutiveHolds: directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD'),
-	        holdWarning: directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD') >= 3
-	          ? `WARNING: ${directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD')} consecutive HOLDs. You are likely being too conservative. Scrutinize the universe harder for tradeable setups.`
-	          : null
+	        consecutiveHolds: directiveHistory.countConsecutiveFromEnd((e) => e.decision === 'HOLD')
 	      }
 	    }
 
