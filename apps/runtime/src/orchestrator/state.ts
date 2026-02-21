@@ -1227,7 +1227,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
       if (previousMode === 'READY' && hasAnyExposure()) {
         await setMode('IN_TRADE', 'trade entry')
-      } else if (hasAnyExposure() && (state.mode === 'IN_TRADE' || state.mode === 'REBALANCE')) {
+      } else if (hasAnyExposure() && state.mode === 'IN_TRADE') {
         await setMode('REBALANCE', 'rebalance')
       } else if (!hasAnyExposure() && state.mode !== 'READY') {
         await setMode('READY', 'flat')
