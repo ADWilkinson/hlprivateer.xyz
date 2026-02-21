@@ -3240,7 +3240,7 @@ async function generateStrategistDirective(params: {
             takeProfitPrice: { type: 'number' },
             thesisNote: { type: 'string' }
           },
-          required: ['symbol', 'side', 'notionalUsd', 'stopLossPrice', 'takeProfitPrice', 'thesisNote']
+          required: ['symbol', 'side', 'notionalUsd', 'thesisNote']
         },
         minItems: 1,
         maxItems: 12
@@ -3294,7 +3294,7 @@ async function generateStrategistDirective(params: {
         'EXIT: close ALL positions to flat immediately. Use for portfolio-wide risk-off, not routine trade management. To close a specific position, use REBALANCE with notionalUsd=0.',
         'AMBER posture = reduce sizing proportionally, not stop trading.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), avoid discretionary churn — the runtime handles risk recovery.',
-        'For each OPEN/REBALANCE leg, specify stopLossPrice and takeProfitPrice as absolute price levels. For LONG: SL below markPrice, TP above. For SHORT: SL above markPrice, TP below. Inverted levels are rejected.',
+        'For each leg, you may optionally specify stopLossPrice and/or takeProfitPrice as absolute price levels. For LONG: SL below markPrice, TP above. For SHORT: SL above, TP below. Inverted levels are rejected. Omitting them is valid — the runtime has trailing stops and you can manage exits via REBALANCE.',
         'thesisNote per leg: explain the setup and what would invalidate it (max 500 chars).',
         'Existing positions have active TP/SL on the exchange. Only include a REBALANCE leg for an existing symbol if the thesis is invalidated or you are rotating.',
         'Do not oversize to recover losses. pnlPct is historical — each trade stands on its own merit.',
