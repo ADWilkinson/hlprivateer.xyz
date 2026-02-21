@@ -42,14 +42,16 @@ RUN apt-get update \
 
 RUN mkdir -p /home/bun/.bun
 RUN bun install -g @anthropic-ai/claude-code
-RUN npm install -g @openai/codex@latest
+RUN npm install -g @openai/codex@latest @steipete/bird
 RUN mkdir -p /home/bun/.bun/bin \
   && cp -f /usr/local/bin/bun /home/bun/.bun/bin/bun \
   && cp -f /usr/local/bin/claude /home/bun/.bun/bin/claude || true \
   && ln -sf /home/bun/.bun/bin/bun /usr/local/bin/bun \
   && ln -sf /home/bun/.bun/bin/claude /usr/local/bin/claude \
   && ln -sf /usr/lib/node_modules/@openai/codex/bin/codex.js /home/bun/.bun/bin/codex \
-  && ln -sf /usr/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex
+  && ln -sf /usr/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex \
+  && ln -sf /usr/lib/node_modules/@steipete/bird/dist/cli.js /home/bun/.bun/bin/bird \
+  && ln -sf /usr/lib/node_modules/@steipete/bird/dist/cli.js /usr/local/bin/bird
 RUN chown -R bun:bun /home/bun/.bun
 RUN mkdir -p /app/journals && chown bun:bun /app/journals
 
