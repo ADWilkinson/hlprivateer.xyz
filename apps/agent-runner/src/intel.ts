@@ -306,9 +306,11 @@ async function twitterSearchRecent(params: {
 
   type AuthStrategy = 'oauth1' | 'bearer' | 'cookie'
   const strategies: AuthStrategy[] = []
+  // Cookie auth (web bearer + session) has the widest search access on free tier.
+  // OAuth1 and app bearer tokens require paid API tiers for search/recent.
+  if (hasCookieCreds) strategies.push('cookie')
   if (hasOAuth1) strategies.push('oauth1')
   if (hasBearerCreds) strategies.push('bearer')
-  if (hasCookieCreds) strategies.push('cookie')
 
   if (strategies.length === 0) {
     return { query, fetchedAt, tweets: [], error: 'no twitter credentials available' }
@@ -346,7 +348,7 @@ async function twitterSearchRecent(params: {
           typeof payloadRaw === 'string' ? payloadRaw : JSON.stringify(payloadRaw),
           240
         )}`
-        if (response.status === 401 || response.status === 403) {
+        if (response.status === 401 || response.status === 403 || response.status === 429) {
           continue
         }
         return { query, fetchedAt, tweets: [], error: lastError }

@@ -1378,35 +1378,41 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     const action = proposal.actions[0]
     const created: OperatorOrder[] = []
 
+    // Resolve ticks and filter legs, then place all orders in parallel.
+    const eligibleLegs: Array<{ leg: typeof action.legs[number]; tick: NormalizedTick }> = []
     for (const leg of action.legs) {
-      if (state.mode === 'HALT') {
-        break
-      }
-
+      if (state.mode === 'HALT') break
       const tick = ticks[leg.symbol] ?? (await marketAdapter.latest(leg.symbol))
-      if (!tick) {
-        continue
-      }
-
+      if (!tick) continue
       if (decision === 'ALLOW_REDUCE_ONLY') {
         const shouldReduce = state.positions.some((position) =>
           (position.side === 'LONG' && leg.side === 'SELL' && position.symbol === leg.symbol) ||
           (position.side === 'SHORT' && leg.side === 'BUY' && position.symbol === leg.symbol)
         )
-
-        if (!shouldReduce) {
-          continue
-        }
+        if (!shouldReduce) continue
       }
+      eligibleLegs.push({ leg, tick })
+    }
 
-      const placed = await adapter.place({
-        symbol: leg.symbol,
-        side: leg.side,
-        notionalUsd: leg.notionalUsd,
-        idempotencyKey: `${proposal.proposalId}:${leg.symbol}:${leg.side}:${action.type}`,
-        tick
-      })
-      created.push(placed)
+    const results = await Promise.allSettled(
+      eligibleLegs.map(({ leg, tick }) =>
+        adapter.place({
+          symbol: leg.symbol,
+          side: leg.side,
+          notionalUsd: leg.notionalUsd,
+          idempotencyKey: `${proposal.proposalId}:${leg.symbol}:${leg.side}:${action.type}`,
+          tick
+        })
+      )
+    )
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        created.push(result.value)
+      } else {
+        await addAudit('execution.leg_error', 'runtime', proposal.proposalId, {
+          error: String(result.reason)
+        })
+      }
     }
 
     let snapshot = await adapter.snapshot()

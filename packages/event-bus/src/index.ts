@@ -128,6 +128,11 @@ export class RedisEventBus implements EventBus {
 
   private stream(stream: StreamName): string {
     StreamNameSchema.parse(stream)
+    // StreamName values already include the 'hlp.' prefix (e.g. 'hlp.audit.events'),
+    // so only prepend the configured prefix when it differs from the default embedded one.
+    if (this.prefix === defaultStreamPrefix && stream.startsWith(`${defaultStreamPrefix}.`)) {
+      return stream
+    }
     return `${this.prefix}.${stream}`
   }
 

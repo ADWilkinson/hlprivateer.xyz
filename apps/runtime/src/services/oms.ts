@@ -409,6 +409,11 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     const sizeRaw = input.notionalUsd / pxNum
     const size = formatSize(sizeRaw, szDecimals)
 
+    // Use GTC so the order rests on the book if it doesn't fill immediately,
+    // then poll for fill up to GTC_FILL_TIMEOUT_MS before cancelling.
+    const GTC_FILL_TIMEOUT_MS = 8_000
+    const GTC_POLL_INTERVAL_MS = 500
+
     const result = await exchange.order({
       orders: [
         {
@@ -417,7 +422,7 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
           p: px,
           s: size,
           r: false,
-          t: { limit: { tif: 'Ioc' } },
+          t: { limit: { tif: 'Gtc' } },
           c: cloid
         }
       ],
@@ -430,12 +435,11 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     }
 
     if (typeof status === 'string') {
-      // Some exchange responses are indirect; resolve by querying status via cloid.
       const resolved = await withRetry(() => info.orderStatus({ user: wallet.address, oid: cloid }), { maxRetries: 3 })
       if (resolved.status === 'order') {
         const mapped = mapOrderStatusToPlaced(resolved.order, nowIso)
         idempotencyMap.set(input.idempotencyKey, mapped.orderId)
-      idempotencySeenAt.set(input.idempotencyKey, Date.now())
+        idempotencySeenAt.set(input.idempotencyKey, Date.now())
         return mapped
       }
       throw new Error(`order unresolved: ${status}`)
@@ -468,20 +472,65 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
 
     if ('resting' in status) {
       const resting = (status as any).resting as { oid: number }
-      const placed: PlacedOrder = {
-        orderId: String(resting.oid),
+      const oid = String(resting.oid)
+      idempotencyMap.set(input.idempotencyKey, oid)
+      idempotencySeenAt.set(input.idempotencyKey, Date.now())
+
+      // Poll for fill with timeout, then cancel if still resting.
+      const deadline = Date.now() + GTC_FILL_TIMEOUT_MS
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, GTC_POLL_INTERVAL_MS))
+        const check = await info.orderStatus({ user: wallet.address, oid: resting.oid }).catch(() => null)
+        if (!check || check.status !== 'order') continue
+        const hlStatus = check.order.status
+        if (hlStatus === 'filled') {
+          const origSz = Number(check.order.order.origSz)
+          const remainingSz = Number(check.order.order.sz)
+          const filledQty = Number.isFinite(origSz) && Number.isFinite(remainingSz) ? Math.max(0, origSz - remainingSz) : 0
+          const limitPx = Number(check.order.order.limitPx)
+          return {
+            orderId: oid,
+            symbol: input.symbol,
+            side: input.side,
+            status: 'FILLED' as OrderState,
+            notionalUsd: filledQty * (Number.isFinite(limitPx) ? limitPx : pxNum),
+            filledQty,
+            avgFillPx: Number.isFinite(limitPx) ? limitPx : pxNum,
+            createdAt: nowIso,
+            source: 'LIVE' as const
+          }
+        }
+        if (hlStatus === 'canceled' || hlStatus.endsWith('Canceled')) {
+          return {
+            orderId: oid,
+            symbol: input.symbol,
+            side: input.side,
+            status: 'CANCELLED' as OrderState,
+            notionalUsd: 0,
+            filledQty: 0,
+            avgFillPx: pxNum,
+            createdAt: nowIso,
+            source: 'LIVE' as const
+          }
+        }
+      }
+
+      // Timeout: cancel the resting order and return as cancelled.
+      console.warn(`oms: GTC order ${oid} (${input.symbol}) not filled after ${GTC_FILL_TIMEOUT_MS}ms, cancelling`)
+      await exchange.cancel({ cancels: [{ a: assetId, o: resting.oid }] }).catch((err) =>
+        console.warn(`oms: cancel after timeout failed for ${oid}:`, err)
+      )
+      return {
+        orderId: oid,
         symbol: input.symbol,
         side: input.side,
-        status: 'WORKING',
-        notionalUsd: input.notionalUsd,
+        status: 'CANCELLED' as OrderState,
+        notionalUsd: 0,
         filledQty: 0,
         avgFillPx: pxNum,
         createdAt: nowIso,
-        source: 'LIVE'
+        source: 'LIVE' as const
       }
-      idempotencyMap.set(input.idempotencyKey, placed.orderId)
-      idempotencySeenAt.set(input.idempotencyKey, Date.now())
-      return placed
     }
 
     throw new Error('order rejected: unknown status variant')
