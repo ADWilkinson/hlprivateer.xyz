@@ -604,9 +604,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   })
   await store.saveSystemState(state.mode, persistedState?.reason ?? 'startup')
 
-  await marketAdapter.start()
-  await pluginManager.start()
-
   const setMode = async (mode: TradeState, reason: string): Promise<void> => {
     if (!canTransition(state.mode, mode)) {
       await addAudit('invalid_transition', 'runtime', envelopeId(), {
@@ -667,6 +664,9 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       }
     })
   }
+
+  await marketAdapter.start()
+  await pluginManager.start()
 
   if (!persistedState) {
     await setMode('WARMUP', 'startup complete')

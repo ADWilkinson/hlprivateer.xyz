@@ -62,7 +62,7 @@ Cycle interval: `CYCLE_MS` (default 5000ms)
 **Live**: Hyperliquid SDK (`@nktkas/hyperliquid`), IOC limit orders with slippage buffer, CLOID-based idempotency (SHA256 of idempotencyKey), restart-safe (queries exchange by CLOID before placing). Only enabled when `ENABLE_LIVE_OMS=true` AND `LIVE_MODE_APPROVED=true`.
 
 ## Market Data (`services/market.ts`)
-WebSocket to Hyperliquid (`HL_WS_URL`). Subscribes to `allMids` + per-symbol `bbo`. Normalizes to `NormalizedTick` schema. Publishes to `hlp.market.normalized` (throttled 1 tick/sec/symbol). Auto-reconnect with exponential backoff (250ms → 30s).
+Fetch-on-demand via Hyperliquid REST `allMids` endpoint (`HL_INFO_URL`). Returns mid prices for all basket symbols in a single HTTP call. Cached with 4s TTL (within one 5s runtime cycle). Normalizes to `NormalizedTick` schema and publishes to `hlp.market.normalized`. No persistent WebSocket — eliminates reconnect/staleness failure modes.
 
 ## Plugin System (`services/plugin-manager.ts`)
 Loads `PluginRuntime` implementations from `plugins/`. Poll interval per `manifest.cooldownMs`. Failures isolated (caught/logged). Signals published to `hlp.plugin.signals` (max 256 in-memory).
