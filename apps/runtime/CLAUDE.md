@@ -102,3 +102,11 @@ Append-only audit trail with SHA256 hash chaining. Transactional position/order 
 
 ## Metrics
 Prometheus at `/metrics`: `cycles_total`, `proposals_total`, `commands_total` (counters); `mode`, `market_data_age_ms` (gauges); `cycle_duration_ms` (histogram).
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

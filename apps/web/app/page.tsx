@@ -284,32 +284,26 @@ export default function LandingPage() {
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
 
-      <div className='flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-[11px] uppercase tracking-[0.16em] text-hlpMuted'>
-        <span>
+      <div className='grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 text-[10px] uppercase tracking-[0.16em]'>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           PNL <span className='text-hlpFg'>{pnl}</span>
         </span>
-        <span className='text-hlpBorder'>|</span>
-        <span>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           EQUITY <span className='text-hlpFg'>{equity}</span>
         </span>
-        <span className='text-hlpBorder'>|</span>
-        <span>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           REALIZED <span className={realizedColor}>{realizedStr}</span>
         </span>
-        <span className='text-hlpBorder'>|</span>
-        <span>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           LEVERAGE <span className='text-hlpFg'>{lev}</span>
         </span>
-        <span className='text-hlpBorder'>|</span>
-        <span>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           SHARPE <span className='text-hlpFg'>{sharpe}</span>
         </span>
-        <span className='text-hlpBorder'>|</span>
-        <span>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           OPEN <span className='text-hlpFg'>{openPositionCount === null ? '--' : openPositionCount}</span>
         </span>
-        <span className='text-hlpBorder'>|</span>
-        <span>
+        <span className='border border-hlpBorder bg-hlpSurface px-2 py-1.5'>
           NOTIONAL <span className='text-hlpFg'>{openPositionNotional}</span>
         </span>
       </div>
@@ -364,16 +358,16 @@ export default function LandingPage() {
         />
       </div>
 
-      <div className='flex flex-wrap items-center justify-center gap-3'>
+      <div className='flex flex-wrap items-center justify-center gap-2'>
         <Link
           href='/floor'
-          className='border border-hlpBorder bg-hlpInverseBg px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpPanel transition-colors hover:bg-hlpFg hover:text-hlpBg'
+          className='border border-hlpBorder bg-hlpInverseBg px-5 py-2.5 text-[9px] uppercase tracking-[0.22em] text-hlpPanel transition-colors hover:bg-hlpFg hover:text-hlpBg'
         >
           ENTER FLOOR
         </Link>
         <a
           href='/llms.txt'
-          className='border border-hlpBorder bg-hlpPanel px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
+          className='border border-hlpBorder bg-hlpPanel px-5 py-2.5 text-[9px] uppercase tracking-[0.22em] text-hlpMuted transition-colors hover:bg-hlpSurface hover:text-hlpFg'
         >
           AGENT DOCS
         </a>

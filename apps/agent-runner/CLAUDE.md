@@ -88,3 +88,11 @@ Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structur
 - `DRY_RUN=true` forces SIM mode
 - `AGENT_PIPELINE_BASE_MS=60000` (1min) for faster testing
 - Check `journals/journal-ops.ndjson` for floor status and urgency level changes
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

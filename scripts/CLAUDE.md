@@ -46,3 +46,11 @@ Executes tasks across all workspace packages in dependency order. `dev` runs par
 |--------|---------|
 | `demo.ts` | Mock x402 flow (SHA256 dev verifier) |
 | `facilitator-demo.ts` | Real x402 via facilitator + EVM on-chain settlement |
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

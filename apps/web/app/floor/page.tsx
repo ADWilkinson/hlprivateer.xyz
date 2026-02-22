@@ -43,9 +43,21 @@ const TRAJECTORY_REFRESH_MS = 8000
 const INITIAL_FETCH_TIMEOUT_MS = 7000
 const RECONNECT_BASE_MS = 1500
 const RECONNECT_MAX_MS = 15_000
+const MOBILE_BREAKPOINT_PX = 768
 const LOG_PREFIX = '[DeckPage]'
 const DECK_PNL_FMT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3, minimumFractionDigits: 3 })
 const DECK_USD_FMT = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 2 })
+
+const getCollapsedDefaults = (isCompact: boolean): Record<SectionKey, boolean> => ({
+  status: false,
+  positions: false,
+  pnl: false,
+  performance: true,
+  crew: true,
+  intelligence: true,
+  tape: false,
+  x402: true,
+})
 
 function truncate(value: unknown, max = 180): string {
   let next: string
@@ -335,6 +347,9 @@ export default function DeckPage() {
   }))
   const [crewHeartbeat, setCrewHeartbeat] = useState<CrewHeartbeat>(EMPTY_HEARTBEAT)
   const [crewSignals, setCrewSignals] = useState<CrewStats>(EMPTY_STATS)
+  const [isCompactLayout, setIsCompactLayout] = useState<boolean>(() =>
+    typeof window === 'undefined' ? false : window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches,
+  )
   const [suppressedNoAction, setSuppressedNoAction] = useState(0)
   const [deckFeedAgeMs, setDeckFeedAgeMs] = useState<number>(0)
   const [deckMissing, setDeckMissing] = useState<number>(0)
@@ -343,16 +358,11 @@ export default function DeckPage() {
   const [riskDeniedSuppressed, setRiskDeniedSuppressed] = useState(0)
   const [riskDeniedReason, setRiskDeniedReason] = useState('')
   const [isBootstrapping, setIsBootstrapping] = useState(true)
-  const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
-    status: false,
-    positions: false,
-    pnl: false,
-    performance: false,
-    crew: false,
-    intelligence: false,
-    tape: false,
-    x402: false,
-  })
+  const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>(() =>
+    getCollapsedDefaults(
+      typeof window === 'undefined' ? false : window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches,
+    ),
+  )
   const riskDenialRef = useRef<{ signature: string; atMs: number }>({ signature: '', atMs: 0 })
   const standbySeenRef = useRef<Record<string, number>>({})
   const seenTapeRef = useRef<Set<string>>(new Set())
@@ -370,6 +380,43 @@ export default function DeckPage() {
   useEffect(() => {
     tapeRef.current?.scrollTo({ top: 0 })
   }, [tape])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`)
+    const applyCompactLayout = () => {
+      const isCompact = mediaQuery.matches
+      setIsCompactLayout(isCompact)
+      setCollapsedSections((current) =>
+        isCompact
+          ? getCollapsedDefaults(true)
+          : current.crew === true || current.performance === true || current.intelligence === true || current.x402 === true
+            ? {
+                ...current,
+                positions: false,
+                pnl: false,
+                status: false,
+                tape: false,
+                performance: false,
+                crew: false,
+                intelligence: false,
+                x402: false,
+              }
+            : current,
+      )
+    }
+
+    applyCompactLayout()
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', applyCompactLayout)
+      return () => mediaQuery.removeEventListener('change', applyCompactLayout)
+    }
+
+    mediaQuery.addListener?.(applyCompactLayout)
+    return () => {
+      mediaQuery.removeListener?.(applyCompactLayout)
+    }
+  }, [])
 
   useEffect(() => {
     let running = true
@@ -875,36 +922,25 @@ export default function DeckPage() {
         <h1 className='sr-only'>HL Privateer live trading floor</h1>
         <FloorHeader onX402Access={() => setCollapsedSections((current) => ({ ...current, x402: false }))} />
 
-        <div className='flex flex-wrap items-end justify-center gap-x-10 gap-y-3 py-5 animate-hlp-fade-up-delay-1'>
-          <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MARKET PNL</div>
-            <div className={`text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none ${pnlColor}`}>
+        <div className='grid grid-cols-2 gap-2 py-2 sm:grid-cols-4 lg:gap-3'>
+          <div className='border border-hlpBorder bg-hlpSurface px-2 py-2'>
+            <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MARKET PNL</div>
+            <div className={`mt-0.5 text-[13px] font-semibold tracking-[0.03em] ${pnlColor}`}>
               {pnlStr}
             </div>
           </div>
-          <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
-          <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>ACCOUNT VALUE</div>
-            <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
-              {equityStr}
-            </div>
+          <div className='border border-hlpBorder bg-hlpSurface px-2 py-2'>
+            <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>ACCOUNT</div>
+            <div className='mt-0.5 text-[13px] font-semibold tracking-[0.03em] text-hlpFg'>{equityStr}</div>
           </div>
-          <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
-          <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>REALIZED</div>
-            <div className={`text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none ${realizedColor}`}>
-              {realizedStr}
-            </div>
+          <div className='border border-hlpBorder bg-hlpSurface px-2 py-2'>
+            <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>REALIZED</div>
+            <div className={`mt-0.5 text-[13px] font-semibold tracking-[0.03em] ${realizedColor}`}>{realizedStr}</div>
           </div>
-          <div className='text-hlpBorder/40 text-[22px] leading-none select-none hidden sm:block' aria-hidden='true'>|</div>
-          <div className='text-center'>
-            <div className='text-[8px] uppercase tracking-[0.20em] text-hlpDim mb-1'>MODE</div>
-            <div className='text-[22px] sm:text-[28px] font-semibold tracking-[0.04em] leading-none text-hlpFg'>
-              {modeStr}
-            </div>
-            {snapshot.shadowMode && (
-              <div className='mt-1 text-[8px] uppercase tracking-[0.16em] text-hlpWarning'>shadow</div>
-            )}
+          <div className='border border-hlpBorder bg-hlpSurface px-2 py-2'>
+            <div className='text-[8px] uppercase tracking-[0.2em] text-hlpMuted'>MODE</div>
+            <div className='mt-0.5 text-[13px] font-semibold tracking-[0.03em] text-hlpFg'>{modeStr}</div>
+            {snapshot.shadowMode && <div className='text-[8px] uppercase tracking-[0.16em] text-hlpWarning'>SHADOW</div>}
           </div>
         </div>
 
@@ -925,6 +961,7 @@ export default function DeckPage() {
           <PositionsTable
             positions={snapshot.openPositions ?? []}
             isLoading={isBootstrapping}
+            compact={isCompactLayout}
             isCollapsed={collapsedSections.positions}
             onToggle={() => toggleSection('positions')}
             sectionId='positions'
@@ -937,6 +974,7 @@ export default function DeckPage() {
             trajectory={pnlSeries}
             accountValueTrajectory={accountValueSeries}
             isLoading={isBootstrapping}
+            compact={isCompactLayout}
             isCollapsed={collapsedSections.pnl}
             onToggle={() => toggleSection('pnl')}
             sectionId='pnl'
@@ -982,6 +1020,7 @@ export default function DeckPage() {
             tape={tape}
             tapeRef={tapeRef}
             isLoading={isBootstrapping}
+            compact={isCompactLayout}
             isCollapsed={collapsedSections.tape}
             onToggle={() => toggleSection('tape')}
             sectionId='tape'

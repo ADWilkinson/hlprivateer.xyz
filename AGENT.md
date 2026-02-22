@@ -54,3 +54,11 @@ All files are served at `https://hlprivateer.xyz/<path>`.
 - `/v1/public/floor-snapshot` — Public floor snapshot
 - `/v1/public/floor-tape` — Recent ops log lines
 - `/healthz` — Health check
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

@@ -3,7 +3,7 @@
 Self-hosted, TypeScript-first, agentic Hyperliquid trading platform with deterministic risk hard-gates.
 
 ## Read First
-- `AGENT.md`: single index to the full documentation set and code entry points.
+- `AGENTS.md`: single index to the full documentation set and code entry points.
 - `llms.txt`: LLM-oriented map of the repo.
 - `README.md`: quick start and high-level product framing.
 
@@ -94,4 +94,13 @@ Agent Runner → hlp.strategy.proposals → Runtime (risk eval → OMS execution
 - Operational changes must update `RUNBOOK.md`.
 
 # currentDate
-Today's date is 2026-02-15.
+Today's date is 2026-02-22.
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.
+- `apps/web/`: updated to keep `/floor` mobile-friendly by default (compact dashboard defaults and compact-aware position/sparkline/tape rendering).

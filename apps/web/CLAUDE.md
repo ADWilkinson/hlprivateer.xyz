@@ -24,9 +24,9 @@ app/
 
 ## Key Pages
 
-**Landing (`/`)**: Public page with live PnL sparklines (14-point bars), leverage trajectory, strategy doctrine. Polls `/v1/public/floor-snapshot` every 12s. LocalStorage-backed time series (max 240 points).
+**Landing (`/`)**: Public page with live PnL snapshot cards, leverage and sharpe telemetry. Polls `/v1/public/floor-snapshot` every 12s. LocalStorage-backed time series (max 240 points).
 
-**Data Dashboard (`/data`)**: WebSocket connection to `ws.hlprivateer.xyz`. Collapsible sections: status, PnL, crew heartbeats (7 roles), tape, x402. Tape deduplication with 3min cooldown for risk-denial suppression. PnL + account value charting.
+**Floor Dashboard (`/floor`)**: Mobile-first operator interface with compact defaults for noncritical sections and compact-aware positions/tape/pnl rendering (`PositionsTable`, `TapeSection`, `PnlPanel`). WebSocket connection to `ws.hlprivateer.xyz`. Collapsible sections: status, positions, pnl, performance, crew, intelligence, tape, x402.
 
 ## UI Components (`app/ui/`)
 - `ascii-style.ts`: Design tokens (`pageShellClass`, `cardClass`, `cardHeaderClass`, etc.)
@@ -61,3 +61,11 @@ bun run build     # Standalone
 bun run build:static  # Static export (HLP_STATIC_EXPORT=1)
 ```
 Static site deployed to Cloudflare Pages via `deploy:web:cloudflare` root script.
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

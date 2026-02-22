@@ -26,6 +26,9 @@ const SPARKLINE_HEIGHT = 300
 const SPARKLINE_PAD_X = 12
 const SPARKLINE_PAD_Y = 10
 const SPARKLINE_X_AXIS_Y = 274
+const SPARKLINE_WIDTH_COMPACT = 420
+const SPARKLINE_HEIGHT_COMPACT = 180
+const SPARKLINE_X_AXIS_Y_COMPACT = 154
 
 type TrajectoryPoint = { ts: string; pnlPct: number }
 type AccountValuePoint = { ts: string; accountValueUsd: number }
@@ -39,6 +42,7 @@ type PnlPanelProps = {
   trajectory?: TrajectoryPoint[]
   accountValueTrajectory?: AccountValuePoint[]
   isLoading?: boolean
+  compact?: boolean
   isCollapsed?: boolean
   onToggle?: () => void
   sectionId?: string
@@ -108,6 +112,7 @@ function buildSparkline(
   values: TimedValuePoint[],
   fallback: number | undefined,
   axisLabel: (value: number) => string,
+  compact: boolean,
 ): SparklineMetric {
   const numeric = values.filter((value) => Number.isFinite(value.value))
   const safeFallback = typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : undefined
@@ -136,24 +141,24 @@ function buildSparkline(
     currentPointY: SPARKLINE_X_AXIS_Y,
     timeStartLabel: 'start',
     timeEndLabel: 'now',
-    width: SPARKLINE_WIDTH,
-    height: SPARKLINE_HEIGHT,
+    width: compact ? SPARKLINE_WIDTH_COMPACT : SPARKLINE_WIDTH,
+    height: compact ? SPARKLINE_HEIGHT_COMPACT : SPARKLINE_HEIGHT,
     padX: SPARKLINE_PAD_X,
     padY: SPARKLINE_PAD_Y,
-    chartWidth: SPARKLINE_WIDTH - SPARKLINE_PAD_X * 2,
-    chartHeight: SPARKLINE_X_AXIS_Y - SPARKLINE_PAD_Y,
-    xAxisY: SPARKLINE_X_AXIS_Y,
+    chartWidth: (compact ? SPARKLINE_WIDTH_COMPACT : SPARKLINE_WIDTH) - SPARKLINE_PAD_X * 2,
+    chartHeight: (compact ? SPARKLINE_X_AXIS_Y_COMPACT : SPARKLINE_X_AXIS_Y) - SPARKLINE_PAD_Y,
+    xAxisY: compact ? SPARKLINE_X_AXIS_Y_COMPACT : SPARKLINE_X_AXIS_Y,
   }
 
   if (numeric.length === 0 && safeFallback === undefined) {
     return baseline
   }
 
-  const width = SPARKLINE_WIDTH
-  const height = SPARKLINE_HEIGHT
+  const width = compact ? SPARKLINE_WIDTH_COMPACT : SPARKLINE_WIDTH
+  const height = compact ? SPARKLINE_HEIGHT_COMPACT : SPARKLINE_HEIGHT
   const padX = SPARKLINE_PAD_X
   const padY = SPARKLINE_PAD_Y
-  const xAxisY = SPARKLINE_X_AXIS_Y
+  const xAxisY = compact ? SPARKLINE_X_AXIS_Y_COMPACT : SPARKLINE_X_AXIS_Y
   const chartHeight = xAxisY - padY
   const chartWidth = width - padX * 2
   let min = Math.min(...ordered.map((point) => point.value))
@@ -214,6 +219,7 @@ function SparklineCard({
   axisLabel,
   stats,
   isLoading,
+  compact,
 }: {
   id: string
   title: string
@@ -221,6 +227,7 @@ function SparklineCard({
   axisLabel: (value: number) => string
   stats: SparklineMetric
   isLoading: boolean
+  compact?: boolean
 }) {
   const currentLabel = `now ${stats.currentPointLabel}`
   const currentLabelWidth = Math.max(92, Math.round(currentLabel.length * 7.2))
@@ -244,13 +251,22 @@ function SparklineCard({
       </div>
       <div className='px-3 pb-3 pt-2'>
         {isLoading ? (
-          <div className='grid min-h-[204px] items-center gap-3 bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'>
+          <div
+            className='grid items-center gap-3 bg-hlpSurface/80 p-3 text-[11px] text-hlpMuted'
+            style={{ minHeight: compact ? 118 : 204 }}
+          >
             <div className='text-[11px] uppercase tracking-[0.18em]'>trajectory warming</div>
             <span className={`h-4 w-44 ${skeletonPulseClass}`} />
-            <span className='inline-block h-32 w-full bg-hlpSurface animate-pulse' />
+            <span
+              className='inline-block w-full bg-hlpSurface animate-pulse'
+              style={{ height: compact ? 66 : 128 }}
+            />
           </div>
         ) : (
-          <div className='relative h-[262px] w-full overflow-hidden border border-hlpBorder bg-hlpBg'>
+          <div
+            className='relative w-full overflow-hidden border border-hlpBorder bg-hlpBg'
+            style={{ height: compact ? `${SPARKLINE_X_AXIS_Y_COMPACT + 8}px` : '262px' }}
+          >
             <svg viewBox={`0 0 ${stats.width} ${stats.height}`} preserveAspectRatio='none' className='h-full w-full'>
               <line
                 x1={stats.padX}
@@ -413,17 +429,30 @@ export function PnlPanel({
   trajectory = EMPTY_PNL,
   accountValueTrajectory = EMPTY_ACCOUNT,
   isLoading = false,
+  compact = false,
   isCollapsed = false,
   onToggle,
   sectionId = 'pnl',
 }: PnlPanelProps) {
   const pnlStats = useMemo(
-    () => buildSparkline(trajectory.map((point) => ({ ts: point.ts, value: point.pnlPct })), snapshot.pnlPct, toSigned),
-    [trajectory, snapshot.pnlPct],
+    () =>
+      buildSparkline(
+        trajectory.map((point) => ({ ts: point.ts, value: point.pnlPct })),
+        snapshot.pnlPct,
+        toSigned,
+        compact,
+      ),
+    [compact, trajectory, snapshot.pnlPct],
   )
   const accountValueStats = useMemo(
-    () => buildSparkline(accountValueTrajectory.map((point) => ({ ts: point.ts, value: point.accountValueUsd })), snapshot.accountValueUsd, toUsd),
-    [accountValueTrajectory, snapshot.accountValueUsd],
+    () =>
+      buildSparkline(
+        accountValueTrajectory.map((point) => ({ ts: point.ts, value: point.accountValueUsd })),
+        snapshot.accountValueUsd,
+        toUsd,
+        compact,
+      ),
+    [compact, accountValueTrajectory, snapshot.accountValueUsd],
   )
 
   return (
@@ -447,7 +476,7 @@ export function PnlPanel({
 
       <div id={`section-${sectionId}`} hidden={isCollapsed}>
         {!isCollapsed && (
-          <div className={`${panelBodyPad} grid gap-3`}>
+          <div className={panelBodyPad}>
             <div className='grid gap-2 xl:grid-cols-2'>
               <SparklineCard
                 id='market-pnl'
@@ -456,15 +485,19 @@ export function PnlPanel({
                 axisLabel={toSigned}
                 stats={pnlStats}
                 isLoading={isLoading}
+                compact={compact}
               />
-              <SparklineCard
-                id='account-value'
-                title='ACCOUNT VALUE OVER TIME'
-                colorClass='text-hlpNeutral'
-                axisLabel={toUsd}
-                stats={accountValueStats}
-                isLoading={isLoading}
-              />
+              {!compact ? (
+                <SparklineCard
+                  id='account-value'
+                  title='ACCOUNT VALUE OVER TIME'
+                  colorClass='text-hlpNeutral'
+                  axisLabel={toUsd}
+                  stats={accountValueStats}
+                  isLoading={isLoading}
+                  compact={compact}
+                />
+              ) : null}
             </div>
           </div>
         )}

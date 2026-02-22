@@ -94,3 +94,11 @@ Tables: `system_state`, `orders`, `positions`, `audits`, `commands`, `entitlemen
 
 ## Metrics
 `hlp_api_requests_total`, `hlp_api_request_duration_seconds`, `hlp_command_total`, `hlp_audit_records_total`
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

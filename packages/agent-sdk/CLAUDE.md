@@ -34,3 +34,11 @@ const result = await submitAgentCommand(baseUrl, entitlement.challengeId, '/stat
 - Stateless (caller manages entitlements)
 - Fail-fast validation (Zod parse errors)
 - Compatible with API's `x402.ts` verifier
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

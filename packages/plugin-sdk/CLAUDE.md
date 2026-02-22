@@ -31,3 +31,11 @@ TypeScript SDK defining the contract for external agents/plugins that integrate 
 ## Deps
 - `@hl/privateer-contracts`: Event envelope types
 - `zod`: Manifest + signal validation
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

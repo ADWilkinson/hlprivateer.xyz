@@ -47,3 +47,11 @@ Separate compose stack (all `network_mode: host`):
 - **grafana** (:3000, admin/admin) - Dashboards for runtime cycles, risk decisions, WS connections
 
 **Alert rules**: `hlp_stale_market_data` (>5s for 2m, critical), `hlp_risk_denied_excess` (>5%/5m rate, warning).
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

@@ -57,3 +57,11 @@ interface EventBus {
 - `apps/api`: Consumes UI events, publishes commands
 - `apps/ws-gateway`: Consumes UI/audit events, publishes commands
 - `apps/agent-runner`: Publishes proposals, consumes risk decisions
+
+## Repository Documentation
+- `AGENTS.md`: operational runbook and deployment flow.
+- `README.md`: repo overview and setup commands.
+- `API.md`: endpoint contracts and x402 pricing.
+- `docs/SPEC.md`: architecture and behavioral invariants.
+- `RUNBOOK.md`: operational recovery and day-to-day runbook.
+- `SECURITY.md`: secret handling and threat model.

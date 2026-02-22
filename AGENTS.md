@@ -93,6 +93,9 @@ bun install
 bun run build
 ```
 
+UI note:
+- `/floor` now defaults to a compact mobile-first dashboard layout with minimal noncritical sections collapsed.
+
 Targeted tests:
 ```bash
 cd apps/runtime && bunx vitest run --passWithNoTests
