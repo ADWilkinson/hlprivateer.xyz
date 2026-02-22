@@ -6,7 +6,7 @@ type BadgeVariant = 'square' | 'angle' | 'curly'
 
 type TableAlign = 'left' | 'center' | 'right'
 
-type AsciiTableColumn<T> = {
+export type AsciiTableColumn<T> = {
   key: keyof T | string
   header: string
   align?: TableAlign
@@ -137,4 +137,3 @@ export function AsciiTable<T extends Record<string, unknown>>({
     </div>
   )
 }
-

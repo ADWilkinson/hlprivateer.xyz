@@ -8,7 +8,7 @@ import {
   sectionStripClass,
   sectionTitleClass,
 } from './ascii-style'
-import { AsciiBadge, AsciiTable } from './ascii-kit'
+import { AsciiBadge, AsciiTable, type AsciiTableColumn } from './ascii-kit'
 
 const USD_0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const USD_2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2, minimumFractionDigits: 2 })
@@ -38,7 +38,7 @@ export function PositionsTable({
 }: PositionsTableProps) {
   const totalNotional = positions.reduce((sum, p) => sum + (p.notionalUsd ?? 0), 0)
   const totalPnl = positions.reduce((sum, p) => sum + (p.pnlUsd ?? 0), 0)
-  const columns = compact
+  const columns: AsciiTableColumn<OpenPosition>[] = compact
     ? [
         {
           key: 'symbol',
