@@ -3886,8 +3886,17 @@ async function runStrategyPipeline(): Promise<void> {
   }
 
   const prevRecommendation = lastResearchReport?.recommendation ?? null
-  const researchAtBefore = lastResearchAt
-  await runResearchAgent()
+  const researchRefreshed = await runResearchAgent()
+  if (!researchRefreshed) {
+    await publishTape({
+      correlationId: ulid(),
+      role: 'ops',
+      level: 'WARN',
+      line: 'pipeline: research produced no output this cycle; skipping risk + strategist this cycle'
+    })
+    return
+  }
+
   const newRecommendation = lastResearchReport?.recommendation ?? null
   if (prevRecommendation !== null && newRecommendation !== null && prevRecommendation !== newRecommendation) {
     lastPipelineAt = now - env.AGENT_PIPELINE_BASE_MS + 5 * 60_000
@@ -3896,15 +3905,6 @@ async function runStrategyPipeline(): Promise<void> {
       role: 'ops',
       level: 'INFO',
       line: `research recommendation shifted: [${prevRecommendation}] → [${newRecommendation}]; next pipeline cycle in 5min`
-    })
-  }
-
-  if (lastResearchAt === researchAtBefore) {
-    await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level: 'WARN',
-      line: 'pipeline: research produced no output this cycle; running risk + strategist with previous context'
     })
   }
 
@@ -3939,7 +3939,7 @@ async function runStrategyPipeline(): Promise<void> {
   }
 }
 
-async function runResearchAgent(): Promise<void> {
+async function runResearchAgent(): Promise<boolean> {
   const now = Date.now()
 
   const signalPack = summarizeLatestSignals(now)
@@ -4104,7 +4104,7 @@ async function runResearchAgent(): Promise<void> {
             level: 'WARN',
             line: `research codex+claude failed; skipping research refresh: ${String(fallbackError).slice(0, 120)}`
           })
-          return
+          return false
         }
       } else {
         await publishTape({
@@ -4113,7 +4113,7 @@ async function runResearchAgent(): Promise<void> {
           level: 'WARN',
           line: 'research codex failed: codex and claude unavailable; skipping research refresh'
         })
-        return
+        return false
       }
     } else {
       const canUseCodexLlm = await isCodexAvailable()
@@ -4135,7 +4135,7 @@ async function runResearchAgent(): Promise<void> {
             level: 'WARN',
             line: `research claude+codex failed; skipping research refresh: ${summarizeCodexError(fallbackError)}${untilNote}`
           })
-          return
+          return false
         }
       } else {
         await publishTape({
@@ -4144,13 +4144,13 @@ async function runResearchAgent(): Promise<void> {
           level: 'WARN',
           line: `research llm unavailable: claude and codex unavailable; skipping research refresh (claude error: ${String(primaryError).slice(0, 180)})`
         })
-        return
+        return false
       }
     }
   }
 
   if (!report) {
-    return
+    return false
   }
 
   if (report.suggestedTwitterQueries.length > 0) {
@@ -4209,6 +4209,8 @@ async function runResearchAgent(): Promise<void> {
       input
     }
   })
+
+  return true
 }
 
 async function runRiskAgent(): Promise<void> {
