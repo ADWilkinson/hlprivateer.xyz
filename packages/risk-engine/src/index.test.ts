@@ -8,7 +8,6 @@ const baseConfig = {
   maxSlippageBps: 25,
   staleDataMs: 3000,
   liquidityBufferPct: 1,
-  notionalParityTolerance: 0.15,
   failClosedOnDependencyError: true
 }
 
@@ -18,6 +17,7 @@ describe('risk-engine', () => {
       state: 'READY',
       actorType: 'internal_agent',
       accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
       openPositions: [],
       ticks: {
@@ -66,11 +66,55 @@ describe('risk-engine', () => {
     expect(decision.reasons).toHaveLength(0)
   })
 
+  it('allows directional long-only proposals', () => {
+    const decision = evaluateRisk(baseConfig, {
+      state: 'READY',
+      actorType: 'internal_agent',
+      accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
+      dependenciesHealthy: true,
+      openPositions: [],
+      ticks: {
+        HYPE: {
+          symbol: 'HYPE',
+          px: 100,
+          bid: 100,
+          ask: 100,
+          bidSize: 1000,
+          askSize: 1000,
+          updatedAt: new Date().toISOString()
+        }
+      },
+      proposal: {
+        proposalId: 'p-directional',
+        cycleId: 'c1',
+        summary: 'directional long',
+        confidence: 0.9,
+        requestedMode: 'SIM',
+        createdBy: 'agent',
+        actions: [
+          {
+            type: 'ENTER',
+            rationale: 'conviction long',
+            notionalUsd: 5000,
+            expectedSlippageBps: 2,
+            legs: [
+              { symbol: 'HYPE', side: 'BUY', notionalUsd: 5000 }
+            ]
+          }
+        ]
+      }
+    })
+
+    expect(decision.decision).toBe('ALLOW')
+  })
+
   it('denies proposals with stale data', () => {
     const decision = evaluateRisk(baseConfig, {
       state: 'READY',
       actorType: 'internal_agent',
       accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
       openPositions: [],
       ticks: {
@@ -124,40 +168,15 @@ describe('risk-engine', () => {
       state: 'SAFE_MODE',
       actorType: 'human',
       accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
       openPositions: [
-        {
-          symbol: 'HYPE',
-          side: 'LONG',
-          qty: 10,
-          notionalUsd: 1000
-        },
-        {
-          symbol: 'ETH',
-          side: 'SHORT',
-          qty: 10,
-          notionalUsd: 1000
-        }
+        { symbol: 'HYPE', side: 'LONG', qty: 10, notionalUsd: 1000 },
+        { symbol: 'ETH', side: 'SHORT', qty: 10, notionalUsd: 1000 }
       ],
       ticks: {
-        HYPE: {
-          symbol: 'HYPE',
-          px: 100,
-          bid: 100,
-          ask: 100,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        ETH: {
-          symbol: 'ETH',
-          px: 2000,
-          bid: 2000,
-          ask: 2000,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        }
+        HYPE: { symbol: 'HYPE', px: 100, bid: 100, ask: 100, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        ETH: { symbol: 'ETH', px: 2000, bid: 2000, ask: 2000, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
       },
       proposal: {
         proposalId: 'p4',
@@ -190,40 +209,15 @@ describe('risk-engine', () => {
       state: 'SAFE_MODE',
       actorType: 'human',
       accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
       openPositions: [
-        {
-          symbol: 'HYPE',
-          side: 'LONG',
-          qty: 10,
-          notionalUsd: 1000
-        },
-        {
-          symbol: 'ETH',
-          side: 'SHORT',
-          qty: 10,
-          notionalUsd: 1000
-        }
+        { symbol: 'HYPE', side: 'LONG', qty: 10, notionalUsd: 1000 },
+        { symbol: 'ETH', side: 'SHORT', qty: 10, notionalUsd: 1000 }
       ],
       ticks: {
-        HYPE: {
-          symbol: 'HYPE',
-          px: 100,
-          bid: 100,
-          ask: 100,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        ETH: {
-          symbol: 'ETH',
-          px: 2000,
-          bid: 2000,
-          ask: 2000,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        }
+        HYPE: { symbol: 'HYPE', px: 100, bid: 100, ask: 100, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        ETH: { symbol: 'ETH', px: 2000, bid: 2000, ask: 2000, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
       },
       proposal: {
         proposalId: 'p5',
@@ -253,11 +247,12 @@ describe('risk-engine', () => {
     expect(decision.reasons.every((reason) => reason.code !== 'SAFE_MODE')).toBe(true)
   })
 
-  it('allows EXIT proposals in REBALANCE state even with drawdown', () => {
+  it('allows EXIT proposals even during drawdown', () => {
     const decision = evaluateRisk(baseConfig, {
       state: 'REBALANCE',
       actorType: 'internal_agent',
-      accountValueUsd: 1008,
+      accountValueUsd: 9000,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
       openPositions: [
         { symbol: 'BTC', side: 'SHORT', qty: 0.00448, notionalUsd: 303.36 },
@@ -296,42 +291,35 @@ describe('risk-engine', () => {
     })
 
     expect(decision.decision).toBe('ALLOW')
-    expect(decision.reasons.some((reason) => reason.code === 'DRAWDOWN')).toBe(false)
+    // DRAWDOWN reason is present informational but is NOT blocking for reducing exits
+    expect(decision.reasons.some((reason) => reason.code === 'DRAWDOWN')).toBe(true)
   })
 
-  it('denies EXIT proposals that would increase gross exposure', () => {
+  it('denies when drawdown exceeds max', () => {
     const decision = evaluateRisk(baseConfig, {
-      state: 'REBALANCE',
+      state: 'READY',
       actorType: 'internal_agent',
-      accountValueUsd: 10000,
+      accountValueUsd: 9400,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
-      openPositions: [
-        { symbol: 'HYPE', side: 'LONG', qty: 10, notionalUsd: 1000 },
-        { symbol: 'ETH', side: 'SHORT', qty: 5, notionalUsd: 1000 }
-      ],
+      openPositions: [],
       ticks: {
-        HYPE: { symbol: 'HYPE', px: 100, bid: 100, ask: 100, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
-        ETH: { symbol: 'ETH', px: 2000, bid: 2000, ask: 2000, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
-        SOL: { symbol: 'SOL', px: 85, bid: 85, ask: 85, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
+        HYPE: { symbol: 'HYPE', px: 100, bid: 100, ask: 100, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
       },
       proposal: {
-        proposalId: 'p-exit-bad',
+        proposalId: 'p-dd',
         cycleId: 'c1',
-        summary: 'fake exit that adds exposure',
+        summary: 'trade during drawdown',
         confidence: 0.5,
         requestedMode: 'SIM',
         createdBy: 'agent',
         actions: [
           {
-            type: 'EXIT',
-            rationale: 'bogus exit',
-            notionalUsd: 3000,
+            type: 'ENTER',
+            rationale: 'test',
+            notionalUsd: 1000,
             expectedSlippageBps: 2,
-            legs: [
-              { symbol: 'HYPE', side: 'SELL', notionalUsd: 1000 },
-              { symbol: 'ETH', side: 'BUY', notionalUsd: 1000 },
-              { symbol: 'SOL', side: 'BUY', notionalUsd: 3000 }
-            ]
+            legs: [{ symbol: 'HYPE', side: 'BUY', notionalUsd: 1000 }]
           }
         ]
       }
@@ -346,27 +334,12 @@ describe('risk-engine', () => {
       state: 'READY',
       actorType: 'external_agent',
       accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
       dependenciesHealthy: true,
       openPositions: [],
       ticks: {
-        HYPE: {
-          symbol: 'HYPE',
-          px: 100,
-          bid: 100,
-          ask: 100,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        },
-        ETH: {
-          symbol: 'ETH',
-          px: 2000,
-          bid: 2000,
-          ask: 2000,
-          bidSize: 1000,
-          askSize: 1000,
-          updatedAt: new Date().toISOString()
-        }
+        HYPE: { symbol: 'HYPE', px: 100, bid: 100, ask: 100, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() },
+        ETH: { symbol: 'ETH', px: 2000, bid: 2000, ask: 2000, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
       },
       proposal: {
         proposalId: 'p6',

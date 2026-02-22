@@ -184,8 +184,7 @@ export const RiskReasonSchema = z.object({
 export const RiskDecisionComputedSchema = z.object({
   grossExposureUsd: z.number(),
   netExposureUsd: z.number(),
-  projectedDrawdownPct: z.number(),
-  notionalImbalancePct: z.number().optional()
+  projectedDrawdownPct: z.number()
 })
 export type RiskDecisionComputed = z.infer<typeof RiskDecisionComputedSchema>
 

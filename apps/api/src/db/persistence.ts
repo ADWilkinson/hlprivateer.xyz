@@ -446,35 +446,40 @@ function createDisabledStore(reason: string): ApiPersistence {
       })
     },
     saveAudit: async (event) => {
-      const previousRows = await store.db
-        .select({ hash: audits.hash })
-        .from(audits)
-        .orderBy(desc(audits.ts))
-        .limit(1)
+      // Wrap in a transaction to prevent hash chain race (SELECT-then-INSERT must be atomic).
+      const result = await store.db.transaction(async (tx) => {
+        const previousRows = await tx
+          .select({ hash: audits.hash })
+          .from(audits)
+          .orderBy(desc(audits.ts))
+          .limit(1)
 
-      const previousHash = previousRows[0]?.hash ?? null
-      const hash = computeAuditHash(event, previousHash)
+        const previousHash = previousRows[0]?.hash ?? null
+        const hash = computeAuditHash(event, previousHash)
 
-      const rawDetails = { ...(event.details ?? {}), previousHash }
-      const sanitizedDetails = JSON.parse(
-        JSON.stringify(rawDetails).replace(/\\ud[89a-f][0-9a-f]{2}/gi, '')
-      ) as Record<string, unknown>
+        const rawDetails = { ...(event.details ?? {}), previousHash }
+        const sanitizedDetails = JSON.parse(
+          JSON.stringify(rawDetails).replace(/\\ud[89a-f][0-9a-f]{2}/gi, '')
+        ) as Record<string, unknown>
 
-      const inserted = await store.db
-        .insert(audits)
-        .values({
-          actorType: event.actorType,
-          actorId: event.actorId,
-          action: event.action,
-          resource: event.resource,
-          correlationId: event.correlationId,
-          ts: new Date(event.ts),
-          details: sanitizedDetails,
-          hash
-        })
-        .returning({ id: audits.id })
+        const inserted = await tx
+          .insert(audits)
+          .values({
+            actorType: event.actorType,
+            actorId: event.actorId,
+            action: event.action,
+            resource: event.resource,
+            correlationId: event.correlationId,
+            ts: new Date(event.ts),
+            details: sanitizedDetails,
+            hash
+          })
+          .returning({ id: audits.id })
 
-      return inserted[0]?.id ?? 'unavailable'
+        return inserted[0]?.id ?? 'unavailable'
+      })
+
+      return result
     },
     listAudits: async (limit, cursor) => {
       const rows = await store.db

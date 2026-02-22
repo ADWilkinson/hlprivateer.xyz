@@ -993,8 +993,39 @@ app.patch('/v1/operator/config/risk', { ...routeRateLimit(30, 60_000), preHandle
     return
   }
 
+  // Propagate risk config to the runtime via the command bus (same path as /risk-policy command).
+  const riskPatchArgs = Object.entries(body)
+    .filter(([key]) => key !== 'reason')
+    .map(([key, value]) => `${key}=${value}`)
+  const requestId = ulid()
+  const claims = resolveOperatorClaims(request)
+  const actorRole =
+    claims.roles.includes(OPERATOR_ADMIN_ROLE) ? OPERATOR_ADMIN_ROLE : (claims.roles[0] ?? OPERATOR_VIEW_ROLE)
+
+  await bus.publish('hlp.commands', {
+    type: 'operator.command',
+    stream: 'hlp.commands',
+    source: 'api',
+    correlationId: requestId,
+    actorType: 'human',
+    actorId: claims.sub,
+    payload: {
+      command: '/risk-policy',
+      args: riskPatchArgs,
+      reason,
+      actor: {
+        actorType: 'human',
+        actorId: claims.sub,
+        role: actorRole,
+        requestedAt: new Date().toISOString()
+      },
+      actorRole,
+      capabilities: ['command.execute']
+    }
+  })
+
   store.setSnapshot({ healthCode: 'GREEN' })
-  addAudit(store, resolveOperatorClaims(request).sub, 'operator.config.risk', {
+  addAudit(store, claims.sub, 'operator.config.risk', {
     ...body,
     reason
   })

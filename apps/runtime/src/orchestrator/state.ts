@@ -202,10 +202,7 @@ const RISK_POLICY_ARG_ALIASES: Record<string, keyof RuntimeRiskPolicy> = {
   'stale-data-ms': 'staleDataMs',
   liquidityBufferPct: 'liquidityBufferPct',
   liquidity_buffer_pct: 'liquidityBufferPct',
-  'liquidity-buffer-pct': 'liquidityBufferPct',
-  notionalParityTolerance: 'notionalParityTolerance',
-  notional_parity_tolerance: 'notionalParityTolerance',
-  'notional-parity-tolerance': 'notionalParityTolerance'
+  'liquidity-buffer-pct': 'liquidityBufferPct'
 }
 
 void promClient.collectDefaultMetrics()
@@ -230,8 +227,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     maxExposureUsd: env.RISK_MAX_NOTIONAL_USD,
     maxSlippageBps: env.RISK_MAX_SLIPPAGE_BPS,
     staleDataMs: env.RISK_STALE_DATA_MS,
-    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT,
-    notionalParityTolerance: env.RISK_NOTIONAL_PARITY_TOLERANCE
+    liquidityBufferPct: env.RISK_LIQUIDITY_BUFFER_PCT
   }
 
   const readRuntimeRiskPolicy = (): RuntimeRiskPolicy => ({ ...runtimeRiskPolicy })
@@ -273,6 +269,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let lastLiveAccountValueCheckAtMs = 0
   let lastLiveAccountValueOkAtMs = 0
   let cachedLiveAccountValueUsd = 0
+  let peakAccountValueUsd = 0
   let cachedLiveWalletAddress = ''
   let agentWatchlistSymbols: string[] = []
   let lastSafeModeHoldNoticeAtMs = 0
@@ -500,6 +497,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         const next = await getAccountValueUsd()
         if (Number.isFinite(next) && next >= 0) {
           cachedLiveAccountValueUsd = next
+          if (next > peakAccountValueUsd) peakAccountValueUsd = next
           lastLiveAccountValueOkAtMs = nowMs
         }
       }
@@ -539,8 +537,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       maxExposureUsd: policy.maxExposureUsd,
       maxSlippageBps: policy.maxSlippageBps,
       staleDataMs: policy.staleDataMs,
-      liquidityBufferPct: policy.liquidityBufferPct,
-      notionalParityTolerance: policy.notionalParityTolerance
+      liquidityBufferPct: policy.liquidityBufferPct
     }
   }
 
@@ -916,8 +913,12 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
             // Only move SL up, never down
             if (trailSl > existing.entryPx) {
               try {
+                // Cancel previous SL before placing new one to avoid orphaned orders
+                if (existing.currentSlOrderId) {
+                  await adapter.cancel(existing.currentSlOrderId, `trail-replace-${pos.symbol}`).catch(() => {})
+                }
                 const closingSide: 'BUY' | 'SELL' = 'SELL'
-                await adapter.placeTpsl({
+                const tpslResult = await adapter.placeTpsl({
                   symbol: pos.symbol,
                   closingSide,
                   size: String(pos.qty),
@@ -925,6 +926,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
                   tick,
                   correlationId: `trail-${pos.symbol}-${nowMs}`
                 })
+                existing.currentSlOrderId = tpslResult.slOrderId ?? null
                 existing.lastUpdateAtMs = nowMs
                 await addAudit('trailing_stop.updated', 'runtime', cycleCorrelationId, {
                   symbol: pos.symbol,
@@ -942,8 +944,12 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
             const trailSl = existing.lowWaterPx * (1 + TRAIL_OFFSET_PCT / 100)
             if (trailSl < existing.entryPx) {
               try {
+                // Cancel previous SL before placing new one to avoid orphaned orders
+                if (existing.currentSlOrderId) {
+                  await adapter.cancel(existing.currentSlOrderId, `trail-replace-${pos.symbol}`).catch(() => {})
+                }
                 const closingSide: 'BUY' | 'SELL' = 'BUY'
-                await adapter.placeTpsl({
+                const tpslResult = await adapter.placeTpsl({
                   symbol: pos.symbol,
                   closingSide,
                   size: String(pos.qty),
@@ -951,6 +957,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
                   tick,
                   correlationId: `trail-${pos.symbol}-${nowMs}`
                 })
+                existing.currentSlOrderId = tpslResult.slOrderId ?? null
                 existing.lastUpdateAtMs = nowMs
                 await addAudit('trailing_stop.updated', 'runtime', cycleCorrelationId, {
                   symbol: pos.symbol,
@@ -1232,6 +1239,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         state: state.mode,
         actorType: 'system',
         accountValueUsd: resolveRuntimeAccountValueUsd(),
+        peakAccountValueUsd,
         dependenciesHealthy,
         openPositions: meaningfulPositions(state.positions),
         ticks,
@@ -1380,43 +1388,44 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     decision: RiskDecision,
     ticks: Record<string, NormalizedTick>
   ): Promise<void> => {
-    const action = proposal.actions[0]
     const created: OperatorOrder[] = []
 
-    // Resolve ticks and filter legs, then place all orders in parallel.
-    const eligibleLegs: Array<{ leg: typeof action.legs[number]; tick: NormalizedTick }> = []
-    for (const leg of action.legs) {
-      if (state.mode === 'HALT') break
-      const tick = ticks[leg.symbol] ?? (await marketAdapter.latest(leg.symbol))
-      if (!tick) continue
-      if (decision === 'ALLOW_REDUCE_ONLY') {
-        const shouldReduce = state.positions.some((position) =>
-          (position.side === 'LONG' && leg.side === 'SELL' && position.symbol === leg.symbol) ||
-          (position.side === 'SHORT' && leg.side === 'BUY' && position.symbol === leg.symbol)
-        )
-        if (!shouldReduce) continue
+    for (const action of proposal.actions) {
+      // Resolve ticks and filter legs, then place all orders in parallel.
+      const eligibleLegs: Array<{ leg: typeof action.legs[number]; tick: NormalizedTick }> = []
+      for (const leg of action.legs) {
+        if (state.mode === 'HALT') break
+        const tick = ticks[leg.symbol] ?? (await marketAdapter.latest(leg.symbol))
+        if (!tick) continue
+        if (decision === 'ALLOW_REDUCE_ONLY') {
+          const shouldReduce = state.positions.some((position) =>
+            (position.side === 'LONG' && leg.side === 'SELL' && position.symbol === leg.symbol) ||
+            (position.side === 'SHORT' && leg.side === 'BUY' && position.symbol === leg.symbol)
+          )
+          if (!shouldReduce) continue
+        }
+        eligibleLegs.push({ leg, tick })
       }
-      eligibleLegs.push({ leg, tick })
-    }
 
-    const results = await Promise.allSettled(
-      eligibleLegs.map(({ leg, tick }) =>
-        adapter.place({
-          symbol: leg.symbol,
-          side: leg.side,
-          notionalUsd: leg.notionalUsd,
-          idempotencyKey: `${proposal.proposalId}:${leg.symbol}:${leg.side}:${action.type}`,
-          tick
-        })
+      const results = await Promise.allSettled(
+        eligibleLegs.map(({ leg, tick }) =>
+          adapter.place({
+            symbol: leg.symbol,
+            side: leg.side,
+            notionalUsd: leg.notionalUsd,
+            idempotencyKey: `${proposal.proposalId}:${leg.symbol}:${leg.side}:${action.type}`,
+            tick
+          })
+        )
       )
-    )
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        created.push(result.value)
-      } else {
-        await addAudit('execution.leg_error', 'runtime', proposal.proposalId, {
-          error: String(result.reason)
-        })
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          created.push(result.value)
+        } else {
+          await addAudit('execution.leg_error', 'runtime', proposal.proposalId, {
+            error: String(result.reason)
+          })
+        }
       }
     }
 
@@ -1464,8 +1473,10 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       }
     }
 
-    if (adapter.placeTpsl && (action.type === 'ENTER' || action.type === 'REBALANCE')) {
-      const legsWithTpsl = action.legs.filter(
+    const allActions = proposal.actions
+    const tpslActions = allActions.filter((a) => a.type === 'ENTER' || a.type === 'REBALANCE')
+    if (adapter.placeTpsl && tpslActions.length > 0) {
+      const legsWithTpsl = tpslActions.flatMap((a) => a.legs).filter(
         (leg: any) => leg.stopLossPrice != null || leg.takeProfitPrice != null
       )
 
@@ -1570,14 +1581,16 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       }
     }
 
-    if (action.type === 'EXIT') {
+    const hasExitAction = allActions.some((a) => a.type === 'EXIT')
+    if (hasExitAction) {
       if (!hasAnyExposure(state.positions)) {
         activeThesis = null
       }
     } else if (hasAnyExposure(state.positions)) {
+      const allSymbols = allActions.flatMap((a) => a.legs.map((leg: { symbol: string }) => leg.symbol))
       activeThesis = {
         thesisId: proposal.thesis?.thesisId ?? proposal.proposalId,
-        symbols: [...new Set(action.legs.map((leg) => leg.symbol))]
+        symbols: [...new Set(allSymbols)]
       }
     }
 
