@@ -44,7 +44,7 @@ export function PositionsTable({
           key: 'symbol',
           header: 'SYMBOL',
           align: 'left',
-          render: (value) => (
+          render: (value: unknown) => (
             <span className='font-semibold text-hlpFg'>{String(value ?? '')}</span>
           ),
         },
@@ -52,7 +52,7 @@ export function PositionsTable({
           key: 'side',
           header: 'SIDE',
           align: 'center',
-          render: (value) => {
+          render: (value: unknown) => {
             const s = typeof value === 'string' ? value.toUpperCase() : '--'
             const label = s === 'BUY' ? 'LONG' : s === 'SELL' ? 'SHORT' : (s || '--')
             const color =
@@ -68,7 +68,7 @@ export function PositionsTable({
           key: 'notionalUsd',
           header: 'NOTIONAL',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? Math.abs(value) : null
             return <span className='text-hlpFg'>{n === null ? '--' : USD_0.format(n)}</span>
           },
@@ -77,7 +77,7 @@ export function PositionsTable({
           key: 'pnlUsd',
           header: 'PNL',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? value : null
             if (n === null) return <span className='text-hlpMuted'>--</span>
             const color = n >= 0 ? 'text-hlpPositive' : 'text-hlpNegative'
@@ -90,7 +90,7 @@ export function PositionsTable({
           key: 'symbol',
           header: 'SYMBOL',
           align: 'left',
-          render: (value) => (
+          render: (value: unknown) => (
             <span className='font-semibold text-hlpFg'>{String(value ?? '')}</span>
           ),
         },
@@ -98,7 +98,7 @@ export function PositionsTable({
           key: 'side',
           header: 'SIDE',
           align: 'center',
-          render: (value) => {
+          render: (value: unknown) => {
             const s = typeof value === 'string' ? value.toUpperCase() : '--'
             const label = s === 'BUY' ? 'LONG' : s === 'SELL' ? 'SHORT' : (s || '--')
             const color =
@@ -114,7 +114,7 @@ export function PositionsTable({
           key: 'size',
           header: 'QTY',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? value : null
             return <span className='text-hlpFg'>{n === null ? '--' : NUM_4.format(n)}</span>
           },
@@ -123,7 +123,7 @@ export function PositionsTable({
           key: 'entryPrice',
           header: 'ENTRY',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? value : null
             return <span className='text-hlpMuted'>{n === null ? '--' : USD_2.format(n)}</span>
           },
@@ -132,7 +132,7 @@ export function PositionsTable({
           key: 'markPrice',
           header: 'MARK',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? value : null
             return <span className='text-hlpFg'>{n === null ? '--' : USD_2.format(n)}</span>
           },
@@ -141,7 +141,7 @@ export function PositionsTable({
           key: 'notionalUsd',
           header: 'NOTIONAL',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? Math.abs(value) : null
             return <span className='text-hlpFg'>{n === null ? '--' : USD_0.format(n)}</span>
           },
@@ -150,7 +150,7 @@ export function PositionsTable({
           key: 'pnlUsd',
           header: 'PNL',
           align: 'right',
-          render: (value) => {
+          render: (value: unknown) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? value : null
             if (n === null) return <span className='text-hlpMuted'>--</span>
             const color = n >= 0 ? 'text-hlpPositive' : 'text-hlpNegative'
