@@ -4084,7 +4084,6 @@ async function runStrategyPipeline(): Promise<void> {
     }
 
     const researchStartedAt = Date.now()
-    const prevRecommendation = lastResearchReport?.recommendation ?? null
     const researchRefreshed = await runResearchAgent()
     const researchElapsedMs = Date.now() - researchStartedAt
     await publishTape({
@@ -4111,17 +4110,6 @@ async function runStrategyPipeline(): Promise<void> {
         role: 'ops',
         level: 'WARN',
         line: 'pipeline: research produced no output this cycle; continuing with prior research report'
-      })
-    }
-
-    const newRecommendation = lastResearchReport?.recommendation ?? null
-    if (prevRecommendation !== null && newRecommendation !== null && prevRecommendation !== newRecommendation) {
-      lastPipelineAt = now - env.AGENT_PIPELINE_BASE_MS + 5 * 60_000
-      await publishTape({
-        correlationId: ulid(),
-        role: 'ops',
-        level: 'INFO',
-        line: `research recommendation shifted: [${prevRecommendation}] → [${newRecommendation}]; next pipeline cycle in 5min`
       })
     }
 
