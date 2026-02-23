@@ -12,7 +12,6 @@ import {
   PublicPnlResponseSchema,
   PublicSnapshotSchema,
   PublicTrajectoryResponseSchema,
-  PaymentProofSchema,
   EntitlementSchema,
   EntitlementTierSchema,
   HttpReplayQuerySchema,
@@ -23,9 +22,6 @@ import promClient from 'prom-client'
 import { env } from './config'
 import { RedisEventBus, InMemoryEventBus } from '@hl/privateer-event-bus'
 import { createChallenge, verifyChallenge } from './x402'
-import type { RouteConfig } from '@x402/core/server'
-import type { Network } from '@x402/core/types'
-import { createX402FacilitatorGate } from './x402-facilitator'
 import { Erc8004FeedbackService } from './erc8004-feedback'
 import { registerAuth, OPERATOR_ADMIN_ROLE, OPERATOR_VIEW_ROLE } from './middleware'
 import { ApiStore } from './store'
@@ -173,135 +169,6 @@ app.setErrorHandler(async (error, request, reply) => {
 })
 
 let feedbackService: Erc8004FeedbackService | null = null
-if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null && env.ERC8004_FEEDBACK_PRIVATE_KEY) {
-  feedbackService = new Erc8004FeedbackService({
-    chainId: env.ERC8004_CHAIN_ID as 8453 | 84532,
-    agentId: BigInt(env.ERC8004_AGENT_ID),
-    rpcUrl: env.ERC8004_RPC_URL,
-    privateKey: env.ERC8004_FEEDBACK_PRIVATE_KEY as `0x${string}`,
-    logger: app.log,
-  })
-  app.log.info({ chainId: env.ERC8004_CHAIN_ID, agentId: env.ERC8004_AGENT_ID }, 'erc8004 feedback service started')
-}
-
-let x402Facilitator: Awaited<ReturnType<typeof createX402FacilitatorGate>> | null = null
-if (env.X402_ENABLED && env.X402_PROVIDER === 'facilitator') {
-  const payTo = String(env.X402_PAYTO ?? '').trim()
-  if (!payTo) {
-    throw new Error('X402_PROVIDER=facilitator requires X402_PAYTO')
-  }
-
-  const network = env.X402_NETWORK as Network
-  const acceptExact = (price: string) => ({
-    scheme: 'exact',
-    price,
-    network,
-    payTo,
-    maxTimeoutSeconds: 120
-  })
-
-  const routes: Record<string, RouteConfig> = {
-    'GET /v1/agent/stream/snapshot': {
-      accepts: acceptExact(env.X402_PRICE_STREAM_SNAPSHOT),
-      description: 'HL Privateer public floor snapshot (agent access)',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: {},
-        output: { mode: 'READY', pnlPct: 4.2, accountValue: 12500, positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, unrealizedPnl: 42 }], tape: [] }
-      }}}
-    },
-    'GET /v1/agent/analysis/latest': {
-      accepts: acceptExact(env.X402_PRICE_ANALYSIS_LATEST),
-      description: 'Latest HL Privateer agent analysis',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: {},
-        output: { id: 'ana_01', role: 'strategist', thesis: 'Bullish momentum on HYPE', signals: ['HYPE long'], confidence: 0.82, ts: '2026-02-16T12:00:00Z' }
-      }}}
-    },
-    'GET /v1/agent/analysis': {
-      accepts: acceptExact(env.X402_PRICE_ANALYSIS_HISTORY),
-      description: 'HL Privateer agent analysis history',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: { latest: 'false', limit: '10', cursor: '0' },
-        output: { items: [], cursor: null, hasMore: false }
-      }}}
-    },
-    'GET /v1/agent/positions': {
-      accepts: acceptExact(env.X402_PRICE_POSITIONS),
-      description: 'Current HL Privateer positions',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: {},
-        output: { positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, markPx: 23.5, unrealizedPnl: 20, leverage: 3 }] }
-      }}}
-    },
-    'GET /v1/agent/orders': {
-      accepts: acceptExact(env.X402_PRICE_ORDERS),
-      description: 'Current HL Privateer orders',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: {},
-        output: { orders: [{ symbol: 'HYPE', side: 'buy', size: 25, price: 22.8, type: 'limit', status: 'open' }] }
-      }}}
-    },
-    'GET /v1/agent/data/overview': {
-      accepts: acceptExact(env.X402_PRICE_MARKET_DATA),
-      description: 'HL Privateer market + execution overview for machine agents',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: {},
-        output: { mode: 'READY', pnlPct: 4.2, riskPolicy: { maxLeverage: 20, maxDrawdownPct: 20 }, signals: [], executions: [] }
-      }}}
-    },
-    'GET /v1/agent/insights': {
-      accepts: acceptExact(env.X402_PRICE_AGENT_INSIGHTS),
-      description: 'HL Privateer floor insights bundle (health, mode, policy, risk, tape)',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: { scope: 'ai' },
-        output: { health: 'ok', mode: 'READY', riskPolicy: {}, analysis: null, positions: [], tape: [] }
-      }}}
-    },
-    'GET /v1/agent/copy-trade/signals': {
-      accepts: acceptExact(env.X402_PRICE_COPY_TRADE_SIGNALS),
-      description: 'HL Privateer copy-trade signals and analyst events',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: { limit: '20' },
-        output: { signals: [{ type: 'proposal', symbol: 'HYPE', side: 'long', confidence: 0.82, ts: '2026-02-16T12:00:00Z' }] }
-      }}}
-    },
-    'GET /v1/agent/copy-trade/positions': {
-      accepts: acceptExact(env.X402_PRICE_COPY_TRADE_POSITIONS),
-      description: 'HL Privateer positions formatted for copy-trading consumers',
-      mimeType: 'application/json',
-      extensions: { bazaar: { info: {
-        input: {},
-        output: { positions: [{ symbol: 'HYPE', side: 'long', size: 50, entryPx: 23.1, weight: 0.4 }], updatedAt: '2026-02-16T12:00:00Z' }
-      }}}
-    }
-  }
-
-  try {
-    x402Facilitator = await createX402FacilitatorGate({
-      apiBaseUrl: env.API_BASE_URL,
-      facilitatorUrl: env.X402_FACILITATOR_URL,
-      cdpApiKeyId: env.CDP_API_KEY_ID,
-      cdpApiKeySecret: env.CDP_API_KEY_SECRET,
-      routes,
-      onSettled: feedbackService
-        ? (route, paidAmountUsd) => feedbackService!.recordSettlement(route, paidAmountUsd)
-        : undefined,
-    })
-
-    app.addHook('preSerialization', x402Facilitator.preSerialization)
-    app.log.info(`x402 facilitator gate enabled network=${network} payTo=${payTo.slice(0, 10)}...`)
-  } catch (error) {
-    app.log.warn(`x402 facilitator gate failed to initialize, agent payment routes degraded: ${String(error)}`)
-  }
-}
 
 const adminUsers = new Set(
   env.OPERATOR_ADMIN_USERS.split(',')
@@ -402,6 +269,7 @@ interface EntitlementUsage {
 }
 
 const agentUsage = new Map<string, EntitlementUsage>()
+const verifiedEntitlements = new Set<string>()
 
 const usageWindowMs = 60_000
 
@@ -742,6 +610,24 @@ if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null) {
   reputationRefreshTimer = setInterval(() => void refreshReputation(), 300_000)
 }
 
+if (env.ERC8004_ENABLED && env.ERC8004_AGENT_ID != null && env.ERC8004_FEEDBACK_PRIVATE_KEY) {
+  try {
+    const normalizedPrivateKey = env.ERC8004_FEEDBACK_PRIVATE_KEY.startsWith('0x')
+      ? env.ERC8004_FEEDBACK_PRIVATE_KEY
+      : `0x${env.ERC8004_FEEDBACK_PRIVATE_KEY}`
+    const chainId = env.ERC8004_CHAIN_ID === 84532 ? 84532 : 8453
+    feedbackService = new Erc8004FeedbackService({
+      chainId,
+      agentId: BigInt(env.ERC8004_AGENT_ID),
+      rpcUrl: env.ERC8004_RPC_URL,
+      privateKey: normalizedPrivateKey as `0x${string}`,
+      logger: app.log
+    })
+  } catch (err) {
+    app.log.error({ err }, 'failed to initialize erc8004 feedback service')
+  }
+}
+
 app.get('/health', routeRateLimit(180, 60_000), async (_request, reply) => {
   const [busHealth, dbHealth] = await Promise.all([
     bus.health().catch(() => ({ ok: false })),
@@ -779,15 +665,20 @@ app.get('/v1/public/identity', routeRateLimit(30, 60_000), async () => {
   if (!env.ERC8004_ENABLED || env.ERC8004_AGENT_ID == null) {
     return { erc8004: null, reputation: null }
   }
+
+  const registry = env.ERC8004_CHAIN_ID === 84532
+    ? '0x8004B663056A597Dffe9eCcC1965A193B7388713'
+    : '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63'
+
   return {
     erc8004: {
       chainId: env.ERC8004_CHAIN_ID,
       agentId: env.ERC8004_AGENT_ID,
-      identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-      reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
-      registrationFile: `${env.PUBLIC_BASE_URL}/.well-known/agent-registration.json`,
+      identityRegistry: registry,
+      reputationRegistry: registry,
+      registrationFile: `${env.PUBLIC_BASE_URL.replace(/\/$/, '')}/agent-registration.json`
     },
-    reputation: cachedReputationSummary,
+    reputation: cachedReputationSummary
   }
 })
 
@@ -1303,302 +1194,161 @@ app.post('/v1/agent/handshake', routeRateLimit(120, 60_000), async (request, rep
   return reply.send({ challenge, entitlement })
 })
 
+app.post('/v1/agent/verify', routeRateLimit(120, 60_000), async (request, reply) => {
+  const body = (request.body as Record<string, unknown> | undefined) ?? {}
+  const challengeId = sanitizeText(String(body.challengeId ?? request.headers['x-agent-entitlement'] ?? ''), { maxLength: 120 })
+  const proof = body.proof ?? getProofFromRequest(request)
+
+  if (!challengeId || proof === undefined) {
+    reply.code(400).send({ error: 'INVALID_PROOF', message: 'challengeId and proof required' })
+    return
+  }
+
+  const proofObject = proof && typeof proof === 'object' ? (proof as Record<string, unknown>) : undefined
+  const paidAmountUsd = normalizeAmountUsd(proofObject?.paidAmountUsd)
+  const verification = verifyChallenge(challengeId, proof)
+  if (!verification.ok) {
+    const abuseCount = recordAbuse(challengeId)
+    issuePaymentRecord({
+      agentId: sanitizeText(String(proofObject?.agentId ?? 'agent'), { maxLength: 120 }) || 'agent',
+      entitlementId: challengeId,
+      challengeId,
+      status: 'payment.failed',
+      amountUsd: paidAmountUsd,
+      proof: proofObject ?? { challengeId },
+      metadata: {
+        route: '/v1/agent/verify',
+        reason: verification.reason ?? 'invalid proof',
+        abuseCount
+      }
+    })
+    ;(request as any).x402GateHandled = true
+    reply.code(402).send({ error: 'PAYMENT_REQUIRED', message: verification.reason ?? 'invalid proof' })
+    return
+  }
+
+  const entitlement = await store.getEntitlement(challengeId)
+  if (!entitlement) {
+    reply.code(404).send({ error: 'NOT_FOUND', message: 'entitlement not found for challenge' })
+    return
+  }
+
+  const expiresAtMs = Date.parse(entitlement.expiresAt)
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    reply.code(401).send({ error: 'UNAUTHORIZED', message: 'entitlement expired' })
+    return
+  }
+
+  verifiedEntitlements.add(challengeId)
+  issuePaymentRecord({
+    agentId: entitlement.agentId,
+    entitlementId: challengeId,
+    challengeId,
+    status: 'payment.verified',
+    amountUsd: paidAmountUsd,
+    proof: proofObject ?? { challengeId },
+    verifiedAt: new Date().toISOString(),
+    metadata: {
+      route: '/v1/agent/verify',
+      tier: entitlement.tier
+    }
+  })
+  if (feedbackService && paidAmountUsd > 0) {
+    feedbackService.recordSettlement('/v1/agent/verify', paidAmountUsd)
+  }
+  addAgentAudit(store, entitlement.agentId, 'agent.payment.verified', {
+    challengeId,
+    tier: entitlement.tier,
+    paidAmountUsd
+  })
+  reply.send({ verified: true, entitlementId: challengeId, entitlement })
+})
+
 const x402Protected = (requiredCapability?: string) => {
   return async (request: any, reply: any) => {
-    const token = String(request.headers['x-agent-token'] ?? '')
-    const proofPayload = getProofFromRequest(request)
-    const parsedProof = PaymentProofSchema.safeParse(proofPayload)
-    const amountUsd = parsedProof.success ? normalizeAmountUsd(parsedProof.data.paidAmountUsd) : 0
-    const proofAgentId = parsedProof.success ? parsedProof.data.agentId : (token || 'agent')
-
-    const entitlementHeader = request.headers['x-agent-entitlement']
-    const normalizedEntitlementHeader = Array.isArray(entitlementHeader) ? entitlementHeader[0] : entitlementHeader
-    const entitlementFromProof = parsedProof.success ? parsedProof.data.challengeId : undefined
-    const normalizedEntitlementId =
-      typeof normalizedEntitlementHeader === 'string' && normalizedEntitlementHeader.trim().length > 0
-        ? normalizedEntitlementHeader.trim()
-        : typeof entitlementFromProof === 'string' && entitlementFromProof.trim().length > 0
-          ? entitlementFromProof.trim()
-          : ''
-
-    if (!normalizedEntitlementId) {
-      const challenge = createChallenge(token || 'agent', String(request.url), 'tier1')
-      issuePaymentRecord({
-        agentId: proofAgentId,
-        entitlementId: 'pending',
-        challengeId: challenge.challengeId,
-        status: 'challenge.issued',
-        amountUsd,
-        proof: parsedProof.success ? parsedProof.data : proofPayload,
-        metadata: {
-          route: request.url,
-          reason: 'missing entitlement/challenge id'
-        }
-      })
-      request.x402GateHandled = true
-      reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
-      reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'x402-payment required', challenge })
-      return
-    }
-
-    if (isEntitlementBanned(normalizedEntitlementId)) {
-      request.x402GateHandled = true
-      reply.code(429).send({ error: 'TEMPORARY_BAN', message: 'rate-limited by abuse protection' })
-      return
-    }
-
-    let entitlement = await store.getEntitlement(normalizedEntitlementId)
-
-    if (!entitlement) {
-      if (proofPayload) {
-        const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
-        if (!verifyResult.ok) {
-          const reason = verifyResult.reason || 'proof verification failed'
-          const abuseCount = recordAbuse(normalizedEntitlementId)
-          issuePaymentRecord({
-            agentId: proofAgentId,
-            entitlementId: normalizedEntitlementId,
-            challengeId: normalizedEntitlementId,
-            status: parsedProof.success ? 'failed.verification_rejected' : 'failed.invalid_proof',
-            amountUsd,
-            proof: parsedProof.success ? parsedProof.data : proofPayload,
-            metadata: {
-              route: request.url,
-              reason,
-              abuseCount,
-              paymentEnabled: true
-            }
-          })
-          if (abuseCount >= ABUSE_BAN_THRESHOLD) {
-            request.x402GateHandled = true
-            reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
-            return
-          }
-
-          request.x402GateHandled = true
-          reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
-          reply.code(402).send({
-            error: 'PAYMENT_REQUIRED',
-            reason,
-            challenge: normalizedEntitlementId,
-            abuseCount
-          })
-          return
-        }
-
-        const tier = parsedProof.success ? parsedProof.data.tier : 'tier0'
-        const minted = EntitlementSchema.parse({
-          agentId: proofAgentId,
-          tier,
-          capabilities: getCapabilitiesForTier(tier),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          quotaRemaining: 1000,
-          rateLimitPerMinute: 30
-        })
-
-        await store.setEntitlement({ entitlementId: normalizedEntitlementId, entitlement: minted })
-        entitlement = minted
-
-        reply.header('PAYMENT-RESPONSE', encodePaymentHeader({
-          ok: true,
-          entitlementId: normalizedEntitlementId,
-          verifiedAt: new Date().toISOString()
-        }))
-      } else {
-        const challenge = createChallenge(token || proofAgentId || 'agent', String(request.url), 'tier1')
-        issuePaymentRecord({
-          agentId: proofAgentId,
-          entitlementId: normalizedEntitlementId,
-          challengeId: challenge.challengeId,
-          status: 'challenge.issued',
-          amountUsd,
-          metadata: {
-            route: request.url,
-            reason: 'unknown entitlement'
-          }
-        })
-        request.x402GateHandled = true
-        reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challenge }))
-        reply.code(402).send({ error: 'PAYMENT_REQUIRED', reason: 'unknown entitlement', challenge })
-        return
-      }
-    } else if (proofPayload) {
-      const verifyResult = verifyChallenge(normalizedEntitlementId, proofPayload)
-      if (!verifyResult.ok) {
-        const reason = verifyResult.reason || 'proof verification failed'
-        const abuseCount = recordAbuse(normalizedEntitlementId)
-        issuePaymentRecord({
-          agentId: proofAgentId,
-          entitlementId: normalizedEntitlementId,
-          challengeId: normalizedEntitlementId,
-          status: parsedProof.success ? 'failed.verification_rejected' : 'failed.invalid_proof',
-          amountUsd,
-          proof: parsedProof.success ? parsedProof.data : proofPayload,
-          metadata: {
-            route: request.url,
-            reason,
-            abuseCount,
-            paymentEnabled: true
-          }
-        })
-        if (abuseCount >= ABUSE_BAN_THRESHOLD) {
-          request.x402GateHandled = true
-          reply.code(429).send({ error: 'TEMPORARY_BAN', message: `payment proof abuse (${abuseCount})` })
-          return
-        }
-
-        request.x402GateHandled = true
-        reply.header('PAYMENT-REQUIRED', encodePaymentHeader({ challengeId: normalizedEntitlementId, reason }))
-        reply.code(402).send({
-          error: 'PAYMENT_REQUIRED',
-          reason,
-          challenge: normalizedEntitlementId,
-          abuseCount
-        })
-        return
-      }
-
-      // Provide a settlement-style response header for clients implementing x402 v2 semantics.
-      reply.header('PAYMENT-RESPONSE', encodePaymentHeader({
-        ok: true,
-        entitlementId: normalizedEntitlementId,
-        verifiedAt: new Date().toISOString()
-      }))
-    }
-
-    if (token && entitlement.agentId !== token) {
-      const abuseCount = recordAbuse(normalizedEntitlementId)
-      issuePaymentRecord({
+    if (!env.X402_ENABLED) {
+      const token = sanitizeText(String(request.headers['x-agent-token'] ?? 'agent'), { maxLength: 120 }) || 'agent'
+      const tier = 'tier3'
+      const entitlement = EntitlementSchema.parse({
         agentId: token,
-        entitlementId: normalizedEntitlementId,
-        challengeId: normalizedEntitlementId,
-        status: 'failed.invalid_agent',
-        amountUsd,
-        metadata: {
-          route: request.url,
-          abuseCount,
-          entitlementAgentId: entitlement.agentId
-        }
+        tier,
+        capabilities: getCapabilitiesForTier(tier),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        quotaRemaining: 1_000_000,
+        rateLimitPerMinute: 10_000
       })
-      if (abuseCount >= ABUSE_BAN_THRESHOLD) {
-        request.x402GateHandled = true
-        reply.code(429).send({ error: 'TEMPORARY_BAN', message: `agent identity mismatch (abuse ${abuseCount})` })
-        return
+      if (requiredCapability && !entitlement.capabilities.includes(requiredCapability)) {
+        entitlement.capabilities.push(requiredCapability)
       }
-
-      request.x402GateHandled = true
-      reply.code(403).send({ error: 'INVALID_AGENT', message: `agent mismatch (${abuseCount})` })
+      ;(request as EntitlementRequest).entitlement = entitlement
       return
     }
 
-    if (new Date(entitlement.expiresAt) < new Date()) {
-      issuePaymentRecord({
-        agentId: entitlement.agentId,
-        entitlementId: normalizedEntitlementId,
-        challengeId: normalizedEntitlementId,
-        status: 'failed.entitlement_expired',
-        amountUsd,
-        proof: proofPayload,
-        metadata: {
-          route: request.url,
-          expiresAt: entitlement.expiresAt
-        }
+    const entitlementId = sanitizeText(String(request.headers['x-agent-entitlement'] ?? ''), { maxLength: 120 })
+    if (!entitlementId) {
+      ;(request as any).x402GateHandled = true
+      reply.code(402).send({
+        error: 'PAYMENT_REQUIRED',
+        message: 'missing x-agent-entitlement header; use /v1/agent/handshake then /v1/agent/verify'
       })
-      request.x402GateHandled = true
-      reply.code(410).send({ error: 'EXPIRED', message: 'entitlement expired' })
+      return
+    }
+
+    if (isEntitlementBanned(entitlementId)) {
+      ;(request as any).x402GateHandled = true
+      reply.code(429).send({ error: 'TEMPORARY_BAN', message: 'entitlement temporarily banned' })
+      return
+    }
+
+    if (!verifiedEntitlements.has(entitlementId)) {
+      ;(request as any).x402GateHandled = true
+      reply.code(402).send({ error: 'PAYMENT_REQUIRED', message: 'entitlement not verified; call /v1/agent/verify' })
+      return
+    }
+
+    const entitlement = await store.getEntitlement(entitlementId)
+    if (!entitlement) {
+      verifiedEntitlements.delete(entitlementId)
+      ;(request as any).x402GateHandled = true
+      reply.code(401).send({ error: 'UNAUTHORIZED', message: 'entitlement not found' })
+      return
+    }
+
+    const expiresAtMs = Date.parse(entitlement.expiresAt)
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      verifiedEntitlements.delete(entitlementId)
+      ;(request as any).x402GateHandled = true
+      reply.code(401).send({ error: 'UNAUTHORIZED', message: 'entitlement expired' })
+      return
+    }
+
+    const usage = ensureUsageRecord(entitlementId)
+    usage.requestCount += 1
+    if (usage.requestCount > Math.max(1, entitlement.rateLimitPerMinute)) {
+      ;(request as any).x402GateHandled = true
+      reply.code(429).send({ error: 'RATE_LIMITED', message: 'entitlement rate limit exceeded' })
       return
     }
 
     if (requiredCapability && !entitlement.capabilities.includes(requiredCapability)) {
-      issuePaymentRecord({
-        agentId: entitlement.agentId,
-        entitlementId: normalizedEntitlementId,
-        challengeId: normalizedEntitlementId,
-        status: 'failed.missing_capability',
-        amountUsd,
-        proof: proofPayload,
-        metadata: {
-          route: request.url,
-          requiredCapability
-        }
-      })
-      request.x402GateHandled = true
-      reply.code(403).send({ error: 'FORBIDDEN', message: `missing capability: ${requiredCapability}` })
+      ;(request as any).x402GateHandled = true
+      reply.code(403).send({ error: 'FORBIDDEN', message: `entitlement missing capability: ${requiredCapability}` })
       return
     }
 
-    const usage = ensureUsageRecord(normalizedEntitlementId)
-    usage.requestCount += 1
-    if (usage.requestCount > entitlement.rateLimitPerMinute) {
-      issuePaymentRecord({
-        agentId: entitlement.agentId,
-        entitlementId: normalizedEntitlementId,
-        challengeId: normalizedEntitlementId,
-        status: 'failed.rate_limited',
-        amountUsd,
-        proof: proofPayload,
-        metadata: {
-          route: request.url,
-          requestCount: usage.requestCount,
-          rateLimitPerMinute: entitlement.rateLimitPerMinute
-        }
-      })
-      request.x402GateHandled = true
-      reply.code(429).send({ error: 'RATE_LIMIT_EXCEEDED', message: 'too many requests for entitlement window' })
+    const quota = consumeQuota(entitlement)
+    if (quota.overLimit) {
+      ;(request as any).x402GateHandled = true
+      reply.code(429).send({ error: 'RATE_LIMITED', message: 'entitlement quota exhausted' })
       return
     }
 
-    const { quotaRemaining, overLimit } = consumeQuota(entitlement)
-    if (overLimit) {
-      issuePaymentRecord({
-        agentId: entitlement.agentId,
-        entitlementId: normalizedEntitlementId,
-        challengeId: normalizedEntitlementId,
-        status: 'failed.quota_exhausted',
-        amountUsd,
-        proof: proofPayload,
-        metadata: {
-          route: request.url,
-          quotaRemaining
-        }
-      })
-      request.x402GateHandled = true
-      reply.code(403).send({ error: 'QUOTA_EXHAUSTED', message: 'quota exceeded' })
-      return
-    }
-
-    await store.setEntitlement({
-      entitlementId: normalizedEntitlementId,
-      entitlement: {
-        ...entitlement,
-        quotaRemaining
-      }
-    })
-    issuePaymentRecord({
-      agentId: entitlement.agentId,
-      entitlementId: normalizedEntitlementId,
-      challengeId: normalizedEntitlementId,
-      status: proofPayload ? 'verified' : 'entitlement.usage',
-      amountUsd,
-      proof: proofPayload ?? undefined,
-      verifiedAt: new Date().toISOString(),
-      metadata: {
-        route: request.url,
-        quotaRemaining
-      }
-    })
-
-    ;(request as EntitlementRequest).entitlement = {
-      ...entitlement,
-      quotaRemaining
-    }
+    await store.setEntitlement({ entitlementId, entitlement })
+    ;(request as EntitlementRequest).entitlement = entitlement
   }
 }
 
 const x402AgentReadGate = (requiredCapability?: string) => {
-  if (x402Facilitator) {
-    return x402Facilitator.preHandler
-  }
   return x402Protected(requiredCapability)
 }
 

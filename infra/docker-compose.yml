@@ -56,7 +56,6 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL_FILE: ""
       API_HOST: 0.0.0.0
-      PORT: 4000
       API_PORT: 4000
       REDIS_URL: redis://redis:6379
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
@@ -92,7 +91,6 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       WS_PORT: 4100
       REDIS_URL: redis://redis:6379
-      PORT: 4100
       WS_ALLOW_INSECURE_TOKENS: ${WS_ALLOW_INSECURE_TOKENS:-false}
     depends_on:
       redis:
@@ -153,25 +151,9 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       REDIS_URL: redis://redis:6379
       HOME: /home/bun
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_API_KEY_FILE: ${OPENAI_API_KEY_FILE:-}
-      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
-      OPENAI_ORG_ID: ${OPENAI_ORG_ID:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_API_KEY_FILE: ${ANTHROPIC_API_KEY_FILE:-}
-      CLAUDE_CODE_API_KEY: ${CLAUDE_CODE_API_KEY:-}
-      CLAUDE_CODE_API_KEY_FILE: ${CLAUDE_CODE_API_KEY_FILE:-}
-      CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-/usr/local/bin/claude}
-      CODEX_CLI_PATH: ${CODEX_CLI_PATH:-/usr/local/bin/codex}
-      AGENT_RUNNER_CLAUDE_DIR: ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}
-      AGENT_RUNNER_CODEX_DIR: ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}
-      AGENT_RUNNER_CLAUDE_CFG_DIR: ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}
       XDG_CONFIG_HOME: /home/bun/.config
       CLAUDE_SESSION_DIR: /home/bun/.claude/session
-      RISK_MAX_DRAWDOWN_PCT: 100
       AGENT_JOURNAL_PATH: /app/journals
-      OPENCLAW_HOME: /home/bun/.openclaw/workspace
-      OPENCLAW_TWITTER_CREDS_PATH: /home/bun/.openclaw/workspace/.twitter_creds.json
     depends_on:
       redis:
         condition: service_healthy
@@ -182,7 +164,6 @@ services:
       - ${AGENT_RUNNER_CLAUDE_DIR:-/home/dappnode/.claude}:/home/bun/.claude
       - ${AGENT_RUNNER_CODEX_DIR:-/home/dappnode/.codex}:/home/bun/.codex
       - ${AGENT_RUNNER_CLAUDE_CFG_DIR:-/home/dappnode/.config/claude}:/home/bun/.config/claude
-      - ${OPENCLAW_HOME:-/home/dappnode/.openclaw/workspace}:/home/bun/.openclaw/workspace:ro
       - hlprivateer-journals:/app/journals
     healthcheck:
       test: ["CMD-SHELL", "test $(( $(date +%s) - $(stat -c %Y /tmp/.agent-runner-heartbeat 2>/dev/null || echo 0) )) -lt 120 || exit 1"]

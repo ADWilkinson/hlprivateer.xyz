@@ -7,11 +7,10 @@ LLM orchestration service running multi-agent strategy loops. 7 agent roles prod
 ```
 src/
 ├── index.ts              # 4000+ line orchestrator: all 7 roles, scheduling, journaling
-├── config.ts             # Env schema with per-role LLM overrides, *_FILE secrets
+├── config.ts             # Env schema, defaults, *_FILE secrets
 ├── llm.ts                # Claude/Codex CLI wrappers for structured output
 ├── hyperliquid.ts        # Hyperliquid universe metadata + funding + OI
 ├── coingecko.ts          # Sector breadth, TVL, volume snapshots
-├── intel.ts              # Twitter/X narrative velocity via bearer token
 ├── price-features.ts     # Historical price metrics (returns, vol, momentum)
 └── exposure.ts           # Position analysis, flat detection, dust filtering
 ```
@@ -35,7 +34,7 @@ The strategy pipeline (`runStrategyPipeline`) chains Research → Risk → Strat
 | Level | Interval | Trigger |
 |-------|----------|---------|
 | CRITICAL | 60s | Risk DENY, posture RED, SAFE_MODE with open positions |
-| ELEVATED | `AGENT_PIPELINE_MIN_MS` (5min) | In position + high vol / drift / loss > 5% |
+| ELEVATED | 5min (fixed) | In position + high vol / drift / loss > 5% |
 | ACTIVE | 15min | In position, normal conditions |
 | WATCHING | 20min | No position + elevated vol or ALLOW_REDUCE_ONLY |
 | IDLE | `AGENT_PIPELINE_BASE_MS` (30min) | No position, calm market |
@@ -43,13 +42,11 @@ The strategy pipeline (`runStrategyPipeline`) chains Research → Risk → Strat
 ## LLM Integration (`llm.ts`)
 Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structured output. Multi-strategy JSON extraction from stdout (handles ANSI, markdown fences, nested JSON). Timeouts: 90s claude, 120s codex. Temporary settings isolation (disables hooks).
 
-**Config**: `AGENT_LLM` (global default), per-role overrides (`AGENT_RESEARCH_LLM`, etc.), `CLAUDE_MODEL=opus`, `CODEX_MODEL=gpt-5.3-codex-spark`.
+**Config**: `AGENT_LLM` (global provider), `CLAUDE_MODEL=claude-sonnet-4-6`, `CODEX_MODEL=gpt-5.3-codex-spark`.
 
 ## Data Sources
 - **Hyperliquid**: Universe metadata, funding rates, open interest, orderbook
 - **CoinGecko**: Sector breadth (DeFi, L1, Memes), TVL, volume
-- **Twitter/X**: Narrative velocity, mention counts (via `TWITTER_BEARER_TOKEN`)
-- **DefiLlama (optional)**: chain TVL/stablecoin context + Hyperliquid DEX/fees snapshots
 - **Price Features**: Returns (1h/4h/24h/7d), volatility, momentum, RSI-like indicators
 
 ## Proposal Flow
@@ -63,8 +60,6 @@ Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structur
 
 ## Journaling
 - **Local**: NDJSON per role (`journals/journal-<role>.ndjson`), append-only
-- **GitHub**: Optional sync to repo via API (`GITHUB_TOKEN` + repo config)
-- **Discord**: Webhook alerts with cooldown, filtered by action type
 
 ## Event Bus
 **Publishes**: `hlp.strategy.proposals`, `hlp.ui.events` (floor tape), `hlp.audit.events`
@@ -75,7 +70,6 @@ Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structur
 |----------|---------|---------|
 | `AGENT_LLM` | codex | Global LLM ('claude'/'codex'/'none') |
 | `AGENT_PIPELINE_BASE_MS` | 1800000 | IDLE cadence (30min) |
-| `AGENT_PIPELINE_MIN_MS` | 300000 | ELEVATED cadence (5min) |
 | `AGENT_OPS_INTERVAL_MS` | 3000 | Ops heartbeat (3s) |
 | `AGENT_UNIVERSE_SIZE` | 6 | Top N assets |
 | `AGENT_UNIVERSE_CANDIDATE_LIMIT` | 240 | Broad pool |

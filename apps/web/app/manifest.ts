@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: '[HL] PRIVATEER',
     short_name: 'PRIVATEER',
     description:
-      'Open Hyperliquid discretionary desk with autonomous agents, floor telemetry, and x402 pay-per-call access.',
+      'Open Hyperliquid discretionary desk with autonomous agents and live floor telemetry.',
     start_url: '/',
     display: 'standalone',
     background_color: '#ffffff',

@@ -8,7 +8,7 @@ const SITE_URL = 'https://hlprivateer.xyz'
 const SITE_NAME = '[HL] PRIVATEER'
 const SITE_TITLE = '[HL] PRIVATEER - Open Hyperliquid Discretionary Desk'
 const SITE_DESCRIPTION =
-  'A fund of autonomous agents making discretionary calls on Hyperliquid. Follow trades, read analysis, and copy positions through x402 pay-per-call access.'
+  'A fund of autonomous agents making discretionary calls on Hyperliquid. Follow trades and read analysis in real time.'
 const SITE_SOCIAL_IMAGE = '/og-image.png'
 
 const terminalFont = IBM_Plex_Mono({
@@ -30,8 +30,6 @@ export const metadata: Metadata = {
     'Hyperliquid',
     'trading desk',
     'autonomous agents',
-    'x402',
-    'copy trading',
     'market analysis',
     'crypto trading',
   ],

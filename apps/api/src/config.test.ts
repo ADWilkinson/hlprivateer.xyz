@@ -55,13 +55,4 @@ describe('api config', () => {
     await expect(import('./config')).rejects.toThrow(/production requires OPERATOR_LOGIN_SECRET/)
   })
 
-  it('refuses to start in production with default X402 verifier secret', async () => {
-    process.env.NODE_ENV = 'production'
-    process.env.JWT_SECRET = 'some-jwt-secret'
-    process.env.OPERATOR_LOGIN_SECRET = 'some-operator-secret'
-    process.env.X402_VERIFIER_SECRET = 'x402-secret'
-
-    vi.resetModules()
-    await expect(import('./config')).rejects.toThrow(/production requires X402_VERIFIER_SECRET/)
-  })
 })

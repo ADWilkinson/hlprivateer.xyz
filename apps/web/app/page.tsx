@@ -106,7 +106,7 @@ const structuredData = {
       name: '[HL] PRIVATEER',
       url: SITE_URL,
       description:
-        'Open Hyperliquid discretionary desk with autonomous agents, live floor telemetry, and x402 pay-per-call access.',
+        'Open Hyperliquid discretionary desk with autonomous agents and live floor telemetry.',
       inLanguage: 'en-US',
     },
   ],
@@ -271,15 +271,7 @@ export default function LandingPage() {
 
       <div className='max-w-[600px] text-center text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
         <p>Open discretionary desk on Hyperliquid.</p>
-        <p>
-          Read our analysis, follow the fund. All via{' '}
-          <a
-            href='/API.md'
-            className='text-hlpFg underline underline-offset-2 hover:text-hlpPositive'
-          >
-            x402
-          </a>.
-        </p>
+        <p>Read our analysis and follow the core fund in real time.</p>
       </div>
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />

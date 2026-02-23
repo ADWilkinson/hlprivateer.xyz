@@ -35,14 +35,11 @@ const booleanFromEnv = z.preprocess((value) => {
 
 export const runtimeEnv = z
   .object({
-    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-    LOG_LEVEL: z.string().default('info'),
     REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
     REDIS_STREAM_PREFIX: z.string().default('hlp'),
     CYCLE_MS: z.coerce.number().default(5000),
     DRY_RUN: booleanFromEnv.default(false),
     DATABASE_URL: z.string().optional(),
-    HL_WS_URL: z.string().optional(),
     HL_INFO_URL: z.string().optional(),
     HL_IS_TESTNET: booleanFromEnv.default(false),
     HL_API_URL: z.string().optional(),
@@ -84,7 +81,6 @@ export const runtimeEnv = z
   .parse({
     ...process.env,
     DATABASE_URL: loadEnvValue('DATABASE_URL'),
-    HL_WS_URL: loadEnvValue('HL_WS_URL'),
     HL_INFO_URL: loadEnvValue('HL_INFO_URL'),
     HL_API_URL: loadEnvValue('HL_API_URL'),
     HL_PRIVATE_KEY: loadEnvValue('HL_PRIVATE_KEY')

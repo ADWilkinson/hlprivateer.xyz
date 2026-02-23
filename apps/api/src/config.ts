@@ -50,9 +50,24 @@ const x402PriceSchema = z
     message: 'x402 route price must be at least $0.01',
   })
 
+const LEGACY_X402_PRICE_KEYS = [
+  'X402_PRICE_STREAM_SNAPSHOT',
+  'X402_PRICE_ANALYSIS_LATEST',
+  'X402_PRICE_ANALYSIS_HISTORY',
+  'X402_PRICE_POSITIONS',
+  'X402_PRICE_ORDERS',
+  'X402_PRICE_MARKET_DATA',
+  'X402_PRICE_AGENT_INSIGHTS',
+  'X402_PRICE_COPY_TRADE_SIGNALS',
+  'X402_PRICE_COPY_TRADE_POSITIONS',
+]
+
+const resolvedLegacyX402Price = LEGACY_X402_PRICE_KEYS
+  .map((key) => loadEnvValue(key))
+  .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().default(4000),
   API_PORT: z.coerce.number().default(4000),
   API_HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -73,15 +88,7 @@ const envSchema = z.object({
   X402_PAYTO: z.string().optional(),
   CDP_API_KEY_ID: z.string().optional(),
   CDP_API_KEY_SECRET: z.string().optional(),
-  X402_PRICE_STREAM_SNAPSHOT: x402PriceSchema.default('$0.01'),
-  X402_PRICE_ANALYSIS_LATEST: x402PriceSchema.default('$0.01'),
-  X402_PRICE_ANALYSIS_HISTORY: z.string().default('$0.01'),
-  X402_PRICE_POSITIONS: z.string().default('$0.01'),
-  X402_PRICE_ORDERS: z.string().default('$0.01'),
-  X402_PRICE_MARKET_DATA: z.string().default('$0.02'),
-  X402_PRICE_AGENT_INSIGHTS: z.string().default('$0.02'),
-  X402_PRICE_COPY_TRADE_SIGNALS: z.string().default('$0.03'),
-  X402_PRICE_COPY_TRADE_POSITIONS: z.string().default('$0.03'),
+  X402_PRICE_USD: x402PriceSchema.default('$0.01'),
   RISK_MAX_LEVERAGE: z.coerce.number().default(20),
   RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(20),
   RISK_MAX_NOTIONAL_USD: z.coerce.number().default(50_000),
@@ -108,12 +115,12 @@ const parsed = envSchema.parse({
   X402_VERIFIER_SECRET: loadEnvValue('X402_VERIFIER_SECRET'),
   CDP_API_KEY_ID: loadEnvValue('CDP_API_KEY_ID'),
   CDP_API_KEY_SECRET: loadEnvValue('CDP_API_KEY_SECRET'),
+  X402_PRICE_USD: loadEnvValue('X402_PRICE_USD') ?? resolvedLegacyX402Price,
   ERC8004_RPC_URL: loadEnvValue('ERC8004_RPC_URL'),
   ERC8004_FEEDBACK_PRIVATE_KEY: loadEnvValue('ERC8004_FEEDBACK_PRIVATE_KEY'),
 })
 
 const DEFAULT_JWT_SECRET = "replace-me"
-const DEFAULT_X402_VERIFIER_SECRET = "x402-secret"
 
 function assertSafeProductionSecrets(env: Env) {
   if (env.NODE_ENV !== "production") return
@@ -127,31 +134,13 @@ function assertSafeProductionSecrets(env: Env) {
   if (!operatorLogin || operatorLogin === DEFAULT_JWT_SECRET) {
     throw new Error("production requires OPERATOR_LOGIN_SECRET (do not use default/empty)")
   }
-
-  const x402Verifier = env.X402_VERIFIER_SECRET?.trim()
-  if (!x402Verifier || x402Verifier === DEFAULT_X402_VERIFIER_SECRET) {
-    throw new Error("production requires X402_VERIFIER_SECRET (do not use default \"x402-secret\")")
-  }
 }
 
-// Keep x402 "mock" as a dev-only mode. Production should always run real facilitator-backed payments.
 if (parsed.NODE_ENV === 'production') {
   assertSafeProductionSecrets(parsed)
-
-  if (!parsed.X402_ENABLED) {
-    throw new Error('production requires X402_ENABLED=true')
-  }
-
-  if (parsed.X402_PROVIDER !== 'facilitator') {
-    throw new Error('production requires X402_PROVIDER=facilitator (mock is dev-only)')
-  }
 }
 
-if (parsed.X402_PROVIDER === 'facilitator') {
-  if (!parsed.X402_ENABLED) {
-    throw new Error('X402_PROVIDER=facilitator requires X402_ENABLED=true')
-  }
-
+if (parsed.X402_ENABLED && parsed.X402_PROVIDER === 'facilitator') {
   const payTo = parsed.X402_PAYTO?.trim()
   if (!payTo) {
     throw new Error('X402_PROVIDER=facilitator requires X402_PAYTO (merchant receiving address)')

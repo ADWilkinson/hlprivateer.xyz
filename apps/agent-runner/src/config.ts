@@ -46,34 +46,9 @@ export const env = z
     REDIS_STREAM_PREFIX: z.string().default('hlp'),
 
     AGENT_ID: z.string().min(1).default('agent-runner'),
-    // Global/default LLM choice for all internal agents.
-    AGENT_LLM: z.enum(['claude', 'codex', 'none']).default('codex'),
-    // Optional per-role overrides (defaults to AGENT_LLM).
-    AGENT_RESEARCH_LLM: z.enum(['claude', 'codex', 'none']).optional(),
-    AGENT_RISK_LLM: z.enum(['claude', 'codex', 'none']).optional(),
-    AGENT_STRATEGIST_LLM: z.enum(['claude', 'codex', 'none']).optional(),
-    AGENT_SCRIBE_LLM: z.enum(['claude', 'codex', 'none']).optional(),
-    // Per-role Claude model overrides (defaults to CLAUDE_MODEL).
-    AGENT_RESEARCH_CLAUDE_MODEL: z.string().optional(),
-    AGENT_RISK_CLAUDE_MODEL: z.string().optional(),
-    AGENT_STRATEGIST_CLAUDE_MODEL: z.string().optional(),
-    AGENT_SCRIBE_CLAUDE_MODEL: z.string().optional(),
-    // Per-role Codex model overrides (defaults to CODEX_MODEL).
-    AGENT_RESEARCH_CODEX_MODEL: z.string().optional(),
-    AGENT_RISK_CODEX_MODEL: z.string().optional(),
-    AGENT_STRATEGIST_CODEX_MODEL: z.string().optional(),
-    AGENT_SCRIBE_CODEX_MODEL: z.string().optional(),
-    // Per-role reasoning effort overrides (defaults to CODEX_REASONING_EFFORT).
-    AGENT_RESEARCH_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
-    AGENT_RISK_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
-    AGENT_STRATEGIST_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
-    AGENT_SCRIBE_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
-    // Per-role LLM command timeouts (ms) for each internal agent invocation.
+    // Single global LLM config for all internal roles.
+    AGENT_LLM: z.enum(['claude', 'codex', 'none']).default('claude'),
     AGENT_LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(3_600_000),
-    AGENT_RESEARCH_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
-    AGENT_RISK_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
-    AGENT_STRATEGIST_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
-    AGENT_SCRIBE_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
     AGENT_PIPELINE_BASE_MS: z.coerce
       .number()
       .int()
@@ -83,7 +58,6 @@ export const env = z
     AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(3000),
     OPS_AUTO_HALT: booleanFromEnv.default(false),
     AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(25),
-    AGENT_TARGET_NOTIONAL_USD: z.coerce.number().positive().default(100),
     RISK_MAX_LEVERAGE: z.coerce.number().positive().default(20),
     RISK_MAX_DRAWDOWN_PCT: z.coerce.number().positive().default(100),
     RISK_MAX_NOTIONAL_USD: z.coerce.number().positive().default(50000),
@@ -97,9 +71,6 @@ export const env = z
       .default(100)
       .transform((value) => Math.max(100, value)),
 
-    // Optional local data-source tooling.
-    OPENCLAW_HOME: z.string().default('/home/dappnode/.openclaw/workspace'),
-    OPENCLAW_MARKET_DATA_PATH: z.string().default('/home/dappnode/.openclaw/workspace/skills/market-data/market-data.js'),
     OPENCLAW_TWITTER_CREDS_PATH: z.string().default('/home/dappnode/.openclaw/workspace/.twitter_creds.json'),
     AGENT_INTEL_ENABLED: booleanFromEnv.default(true),
     AGENT_INTEL_MIN_REFRESH_MS: z.coerce.number().int().min(0).max(6 * 60 * 60_000).default(10 * 60_000),
@@ -115,7 +86,6 @@ export const env = z
     DEFI_LLAMA_TIMEOUT_MS: z.coerce.number().int().positive().default(4_000),
     DEFI_LLAMA_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(5 * 60_000),
     TWITTER_BEARER_TOKEN: z.string().default(''),
-    BRAVE_API_KEY: z.string().default(''),
     BRAVE_API_URL: z.string().default('https://api.search.brave.com/res/v1/web/search'),
 
     // Hyperliquid info endpoint for universe selection.
@@ -165,15 +135,6 @@ export const env = z
     DISCORD_WEBHOOK_COOLDOWN_MS: z.coerce.number().int().positive().default(60_000),
     DISCORD_WEBHOOK_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
 
-    OPENAI_API_KEY: z.string().optional(),
-    OPENAI_API_KEY_FILE: z.string().optional(),
-    OPENAI_API_BASE_URL: z.string().optional(),
-    OPENAI_ORG_ID: z.string().optional(),
-    ANTHROPIC_API_KEY: z.string().optional(),
-    ANTHROPIC_API_KEY_FILE: z.string().optional(),
-    CLAUDE_CODE_API_KEY: z.string().optional(),
-    CLAUDE_CODE_API_KEY_FILE: z.string().optional(),
-
     // aixbt signal intelligence (optional).
     AIXBT_API_KEY: z.string().default(''),
     AIXBT_ENABLED: booleanFromEnv.default(true),
@@ -201,10 +162,7 @@ export const env = z
     GITHUB_JOURNAL_BRANCH: resolvedGitHubJournalBranch,
     REDIS_URL: loadEnvValue('REDIS_URL'),
     AIXBT_API_KEY: loadEnvValue('AIXBT_API_KEY'),
-    TWITTER_BEARER_TOKEN: loadEnvValue('TWITTER_BEARER_TOKEN'),
-    OPENAI_API_KEY: loadEnvValue('OPENAI_API_KEY'),
-    ANTHROPIC_API_KEY: loadEnvValue('ANTHROPIC_API_KEY'),
-    CLAUDE_CODE_API_KEY: loadEnvValue('CLAUDE_CODE_API_KEY')
+    TWITTER_BEARER_TOKEN: loadEnvValue('TWITTER_BEARER_TOKEN')
   })
 
 export type AgentRunnerEnv = typeof env

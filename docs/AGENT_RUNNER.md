@@ -34,12 +34,10 @@ Core:
 - `REDIS_URL`, `REDIS_STREAM_PREFIX`
 - `AGENT_ID` (default `agent-runner`)
 - `AGENT_PIPELINE_BASE_MS` (default 1800000 / 30min; IDLE cadence, clamped [5min, 1h])
-- `AGENT_PIPELINE_MIN_MS` (default 300000 / 5min; ELEVATED cadence, clamped [1min, 15min])
 - `AGENT_OPS_INTERVAL_MS` (default 3000)
 - `OPS_AUTO_HALT` (default false; when true, ops-agent may publish `/halt` on severe stale data)
 
 Strategy knobs (shared with runtime):
-- `AGENT_TARGET_NOTIONAL_USD` (minimum strategy capital floor; default `100`)
 - `AGENT_MIN_REBALANCE_LEG_USD` (minimum per-leg execution size in USD)
 - `DRY_RUN`, `ENABLE_LIVE_OMS` (used by the agent-runner to mark proposals as `requestedMode=LIVE` when live is enabled)
 - `RUNTIME_FLAT_DUST_NOTIONAL_USD` (dust threshold; positions smaller than this are treated as flat to avoid recovery loops)
@@ -53,19 +51,6 @@ Universe selection:
 - `AGENT_FEATURE_WINDOW_MIN`, `AGENT_FEATURE_CONCURRENCY`
 - Optional spot/sector enrichment: `COINGECKO_API_KEY`, `COINGECKO_BASE_URL`, `COINGECKO_TIMEOUT_MS`
 
-OpenClaw integration:
-- `OPENCLAW_HOME`
-- `OPENCLAW_MARKET_DATA_PATH`
-- `OPENCLAW_TWITTER_CREDS_PATH` (defaults to `/home/dappnode/.openclaw/workspace/.twitter_creds.json`)
-- `TWITTER_BEARER_TOKEN` (optional override; otherwise creds are loaded from OpenClaw)
-- `AGENT_INTEL_ENABLED` (default true; enables external intel refresh)
-- `AGENT_INTEL_TWITTER_ENABLED` (default true)
-- `AGENT_INTEL_TWITTER_MAX_RESULTS` (default 8)
-- `AGENT_INTEL_TIMEOUT_MS` (default 8000)
-- `DEFI_LLAMA_ENABLED` (default true; supplementary enrichment only)
-- `DEFI_LLAMA_TIMEOUT_MS` (default 4000)
-- `DEFI_LLAMA_CACHE_TTL_MS` (default 300000 / 5min)
-
 LLM:
 - Docker auth mounts (required for non-interactive Claude/Codex):
   - `AGENT_RUNNER_CLAUDE_DIR=/home/bun/.claude`
@@ -73,22 +58,8 @@ LLM:
   - `AGENT_RUNNER_CLAUDE_CFG_DIR=/home/bun/.config/claude`
   - `CLAUDE_CLI_PATH=/usr/local/bin/claude`
   - `CODEX_CLI_PATH=/usr/local/bin/codex`
-- Optional API keys for non-mounted CLI auth:
-  - `OPENAI_API_KEY`
-  - `OPENAI_API_KEY_FILE`
-  - `OPENAI_API_BASE_URL`
-  - `OPENAI_ORG_ID`
-  - `ANTHROPIC_API_KEY`
-  - `ANTHROPIC_API_KEY_FILE`
-  - `CLAUDE_CODE_API_KEY`
-  - `CLAUDE_CODE_API_KEY_FILE`
 - `AGENT_LLM=claude|codex|none`
-- Optional per-role overrides:
-  - `AGENT_RESEARCH_LLM=claude|codex|none`
-  - `AGENT_RISK_LLM=claude|codex|none`
-  - `AGENT_STRATEGIST_LLM=claude|codex|none`
-  - `AGENT_SCRIBE_LLM=claude|codex|none`
-- `CLAUDE_MODEL` (default `opus`)
+- `CLAUDE_MODEL` (default `claude-sonnet-4-6`)
 - `CODEX_MODEL` (default `gpt-5.3-codex-spark`)
 - `CODEX_REASONING_EFFORT` (default `xhigh`)
 
@@ -107,7 +78,13 @@ The runner uses `codex exec` with:
 - `--output-schema <schema.json>`
 - `-c model_reasoning_effort="<effort>"`
 
-This is designed to be non-interactive automation. If Codex fails (missing binary, auth, transient error), the runner retries via Claude (Opus) and emits a floor-tape warning; if Claude also fails, it falls back to deterministic output.
+This is designed to be non-interactive automation. If Codex fails (missing binary, auth, transient error), the runner retries via Claude and emits a floor-tape warning; if Claude also fails, it falls back to deterministic output.
+
+## Simplified Runtime Defaults
+- GitHub journal sync is disabled.
+- Discord webhook notifications are disabled.
+- External intel refresh (Twitter/AIXBT/DefiLlama) is disabled in the core run path.
+- Core loop remains: market context -> research -> risk -> strategy -> proposal publish.
 
 ## Development Workflow
 1. Run the stack locally in non-live mode:
@@ -128,5 +105,4 @@ journalctl -u hlprivateer-agent-runner.service -f --no-pager
 
 4. Operate in production mode:
 - Set `DRY_RUN=false` and `ENABLE_LIVE_OMS=true` only after live-mode controls and risk policy are confirmed.
-- Remember: the runtime is the only component that can execute orders, and it is still hard-gated by the risk engine.
 - Remember: the runtime is the only component that can execute orders, and it is still hard-gated by the risk engine.

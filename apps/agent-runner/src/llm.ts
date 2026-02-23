@@ -5,12 +5,34 @@ import path from 'node:path'
 import { ulid } from 'ulid'
 import { env } from './config'
 
+const MAX_LOGGED_ARG_LENGTH = 160
+
+function safeTruncateForCommand(value: string, maxLength: number): string {
+  const normalized = value.trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, maxLength)}…`
+}
+
+function commandPreview(command: string, args: string[]): string {
+  const previewArgs = args
+    .map((arg) => safeTruncateForCommand(String(arg), MAX_LOGGED_ARG_LENGTH))
+    .join(' ')
+    .trim()
+
+  return `${safeTruncateForCommand(command, MAX_LOGGED_ARG_LENGTH)}${previewArgs ? ` ${previewArgs}` : ''}`
+}
+
 async function runCommand(
   cmd: string,
   args: string[],
   timeoutMs: number,
   env?: NodeJS.ProcessEnv
 ): Promise<{ stdout: string; stderr: string }> {
+  const startedAt = Date.now()
+  const commandLine = commandPreview(cmd, args)
   return await new Promise((resolve, reject) => {
     const processEnv = {
       ...process.env,
@@ -22,29 +44,71 @@ async function runCommand(
       env: processEnv,
       detached: process.platform !== 'win32'
     })
+    let settled = false
+    const settle = (error: Error | null, result: { stdout: string; stderr: string } | null = null): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+
+      if (error) {
+        reject(error)
+      } else if (result) {
+        resolve(result)
+      }
+    }
+
     let stdout = ''
     let stderr = ''
 
-    const timeout = setTimeout(() => {
+    const requestId = ulid()
+    const killCommandProcess = (): void => {
       const pid = child.pid
-      if (pid) {
+      if (!pid) {
+        return
+      }
+
+      try {
+        if (process.platform === 'win32') {
+          child.kill('SIGKILL')
+        } else {
+          process.kill(-pid, 'SIGKILL')
+        }
+      } catch {
         try {
-          if (process.platform === 'win32') {
+          child.kill('SIGKILL')
+        } catch {
+          // ignore
+        }
+      }
+
+      setTimeout(() => {
+        if (settled) {
+          return
+        }
+        console.warn(`agent-runner command watchdog forced kill commandId=${requestId} line=${commandLine}`)
+        try {
+          if (pid) {
             child.kill('SIGKILL')
-          } else {
-            process.kill(-pid, 'SIGKILL')
           }
         } catch {
-          try {
-            child.kill('SIGKILL')
-          } catch {
-            // ignore
-          }
+          // ignore
         }
+      }, 1_500)
+    }
+
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return
       } else {
-        child.kill('SIGKILL')
+        const elapsedMs = Date.now() - startedAt
+        killCommandProcess()
+        settle(
+          new Error(
+            `${cmd} timed out after ${timeoutMs}ms; commandId=${requestId} elapsedMs=${elapsedMs} command=${safeTruncateForCommand(commandLine, 240)}`
+          )
+        )
       }
-      reject(new Error(`${cmd} timed out after ${timeoutMs}ms`))
     }, timeoutMs)
 
     child.stdout.on('data', (chunk) => {
@@ -56,16 +120,16 @@ async function runCommand(
 
     child.on('error', (err) => {
       clearTimeout(timeout)
-      reject(err)
+      settle(err instanceof Error ? err : new Error(String(err)))
     })
 
     child.on('close', (code) => {
       clearTimeout(timeout)
       if (code !== 0) {
-        reject(new Error(`${cmd} exited with code ${code}: ${stderr.trim()}`))
+        settle(new Error(`${cmd} exited with code ${code}: ${stderr.trim()}`))
         return
       }
-      resolve({ stdout, stderr })
+      settle(null, { stdout, stderr })
     })
   })
 }

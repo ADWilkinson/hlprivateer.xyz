@@ -12,7 +12,7 @@ import { fetchMetaAndAssetCtxs, type HyperliquidUniverseAsset } from './hyperliq
 import { computePriceFeaturePack, type PriceFeature } from './price-features'
 import { createCoinGeckoClient, type CoinGeckoCategorySnapshot, type CoinGeckoMarketSnapshot } from './coingecko'
 import { isCommandAvailable, runClaudeStructured, runCodexStructured } from './llm'
-import { buildExternalIntelPack, summarizeExternalIntel, type ExternalIntelPack } from './intel'
+import { summarizeExternalIntel, type ExternalIntelPack } from './intel'
 import { HistoryStore, formatHistoryForPrompt, type ResearchHistoryEntry, type RiskHistoryEntry, type DirectiveHistoryEntry, type IntelHistoryEntry } from './history-store'
 import { TradeJournal } from './trade-journal'
 import { computeTechnicalSignals, type TechnicalSignalPack } from './technical-signals'
@@ -122,16 +122,11 @@ type DiscordEmbed = {
   timestamp?: string
 }
 
-const DISCORD_ACTION_SET = new Set(
-  env.DISCORD_WEBHOOK_ACTIONS
-    .split(',')
-    .map((action) => sanitizeLine(action, 120).toLowerCase())
-    .filter(Boolean)
-)
-const GITHUB_API_BASE_URL = env.GITHUB_API_URL.replace(/\/+$/, '')
+const DISCORD_ACTION_SET = new Set<string>(['run.summary'])
+const GITHUB_API_BASE_URL = ''
 
 const JOURNAL_PATH = path.resolve(process.cwd(), env.AGENT_JOURNAL_PATH)
-const GITHUB_JOURNAL_PATH = env.AGENT_GITHUB_JOURNAL_PATH
+const GITHUB_JOURNAL_PATH = ''
 
 let journalWriteChain: Promise<void> = Promise.resolve()
 let journalDirectoryReady = new Map<string, Promise<void>>()
@@ -140,6 +135,19 @@ let githubJournalFlushChain: Promise<void> = Promise.resolve()
 let githubJournalFlushTimer: ReturnType<typeof setInterval> | null = null
 let pendingGitHubJournalTargets = new Map<string, GitHubJournalTarget>()
 let lastDiscordNotifyByFingerprint = new Map<string, number>()
+type DiscordRunSummaryState = {
+  cycleId: string
+  startedAtMs: number
+  modeStart: string
+  symbolCountStart: number
+  recommendationStart: string
+  auditEventCount: number
+  warnCount: number
+  errorCount: number
+  actionCounts: Map<string, number>
+  highlights: string[]
+}
+let activeDiscordRunSummary: DiscordRunSummaryState | null = null
 
 function normalizeGitHubBranch(branch = env.GITHUB_JOURNAL_BRANCH): string {
   const normalized = sanitizeLine(branch, 100)
@@ -229,18 +237,11 @@ function resolveJournalPaths(event: AuditEvent): GitHubJournalTarget {
 }
 
 function isGitHubJournalFlushEnabled(): boolean {
-  return env.AGENT_GITHUB_JOURNAL_FLUSH_INTERVAL_MS > 0
+  return false
 }
 
 function isGitHubJournalEnabled(): boolean {
-  return (
-    env.AGENT_GITHUB_JOURNAL_ENABLED &&
-    env.GITHUB_TOKEN.length > 0 &&
-    normalizeGitHubPath(GITHUB_JOURNAL_PATH).length > 0 &&
-    normalizeGitHubBranch().length > 0 &&
-    sanitizeLine(env.GITHUB_REPO_OWNER, 120).length > 0 &&
-    sanitizeLine(env.GITHUB_REPO_NAME, 120).length > 0
-  )
+  return false
 }
 
 async function ensureGitHubJournalFileState(
@@ -405,6 +406,18 @@ function normalizeProposalNotional(value: number): number {
 
 function deriveAuditLevel(event: AuditEvent): AuditLevel {
   const action = String(event.action ?? '')
+  if (action === 'run.summary') {
+    const details = event.details && typeof event.details === 'object' ? (event.details as Record<string, unknown>) : {}
+    const errorCount = Number(details.errorCount ?? 0)
+    const warnCount = Number(details.warnCount ?? 0)
+    if (Number.isFinite(errorCount) && errorCount > 0) {
+      return 'ERROR'
+    }
+    if (Number.isFinite(warnCount) && warnCount > 0) {
+      return 'WARN'
+    }
+    return 'INFO'
+  }
   const lowered = action.toLowerCase()
   if (lowered.startsWith('error.') || lowered.includes('.error') || lowered.endsWith('_error') || lowered.endsWith('.fatal')) {
     return 'ERROR'
@@ -436,15 +449,7 @@ function deriveAuditLevel(event: AuditEvent): AuditLevel {
 }
 
 function isDiscordNotificationEnabled(): boolean {
-  if (!env.DISCORD_WEBHOOK_ENABLED || !env.DISCORD_WEBHOOK_URL) {
-    return false
-  }
-
-  if (DISCORD_ACTION_SET.size === 0) {
-    return false
-  }
-
-  return true
+  return sanitizeLine(env.DISCORD_WEBHOOK_URL, 2000).length > 0
 }
 
 function isDiscordActionAllowed(action: string): boolean {
@@ -723,6 +728,36 @@ function formatTradeExecutedEmbed(d: Record<string, unknown>): DiscordEmbedResul
   return { description: `**${desc}**`, fields }
 }
 
+function formatRunSummaryEmbed(d: Record<string, unknown>): DiscordEmbedResult {
+  const outcome = sanitizeLine(String(d.outcome ?? 'completed'), 32).toUpperCase()
+  const durationMs = Number(d.durationMs ?? 0)
+  const modeStart = sanitizeLine(String(d.modeStart ?? '--'), 24).toUpperCase()
+  const modeEnd = sanitizeLine(String(d.modeEnd ?? '--'), 24).toUpperCase()
+  const fields: DiscordEmbedField[] = [
+    { name: 'Outcome', value: outcome || '--', inline: true },
+    { name: 'Duration', value: Number.isFinite(durationMs) ? `${Math.max(0, Math.round(durationMs))}ms` : '--', inline: true },
+    { name: 'Mode', value: `${modeStart || '--'} -> ${modeEnd || '--'}`, inline: true },
+    {
+      name: 'Alerts',
+      value: `warn=${Math.max(0, Number(d.warnCount ?? 0) || 0)} error=${Math.max(0, Number(d.errorCount ?? 0) || 0)}`,
+      inline: true
+    },
+    {
+      name: 'Events',
+      value: String(d.actionBreakdown ?? '--') || '--'
+    }
+  ]
+  const highlights = sanitizeLine(String(d.highlights ?? ''), 2000)
+  if (highlights) {
+    fields.push({ name: 'Highlights', value: sanitizeDiscordMultiline(highlights, 1024) })
+  }
+  const note = sanitizeLine(String(d.note ?? ''), 300)
+  if (note) {
+    fields.push({ name: 'Note', value: sanitizeDiscordMultiline(note, 512) })
+  }
+  return { description: '**Pipeline run summary**', fields }
+}
+
 function fallbackJsonEmbed(details: unknown): DiscordEmbedResult {
   const json = summarizeDetailsForDiscord(details, 1800).replace(/```/g, '``')
   return { description: json ? `\`\`\`json\n${sanitizeDiscordMultiline(json, 1800)}\n\`\`\`` : undefined }
@@ -742,6 +777,151 @@ const DISCORD_FORMATTERS: Record<string, (d: Record<string, unknown>) => Discord
   'mode.change': formatModeChangeEmbed,
   'execution.mode': formatModeChangeEmbed,
   'trade.executed': formatTradeExecutedEmbed,
+  'run.summary': formatRunSummaryEmbed,
+}
+
+function startDiscordRunSummary(params: {
+  cycleId: string
+  startedAtMs: number
+  modeStart: string
+  symbolCountStart: number
+  recommendationStart: string
+}): DiscordRunSummaryState {
+  return {
+    cycleId: params.cycleId,
+    startedAtMs: params.startedAtMs,
+    modeStart: params.modeStart,
+    symbolCountStart: params.symbolCountStart,
+    recommendationStart: params.recommendationStart,
+    auditEventCount: 0,
+    warnCount: 0,
+    errorCount: 0,
+    actionCounts: new Map<string, number>(),
+    highlights: []
+  }
+}
+
+function summarizeRunActionCounts(actionCounts: Map<string, number>, maxItems = 8): string {
+  const ranked = Array.from(actionCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxItems)
+  if (ranked.length === 0) {
+    return 'none'
+  }
+  return ranked.map(([action, count]) => `${action}:${count}`).join(', ')
+}
+
+function summaryHighlightForEvent(event: AuditEvent): string | null {
+  const details = event.details && typeof event.details === 'object' ? (event.details as Record<string, unknown>) : {}
+  if (event.action === 'research.report') {
+    const recommendation = sanitizeLine(String(details.recommendation ?? ''), 24).toUpperCase()
+    const regime = sanitizeLine(String(details.regime ?? ''), 24).toUpperCase()
+    if (recommendation || regime) {
+      return `research ${recommendation || '--'} (${regime || '--'})`
+    }
+  }
+  if (event.action === 'risk.report') {
+    const posture = sanitizeLine(String(details.posture ?? ''), 24).toUpperCase()
+    if (posture) {
+      return `risk posture ${posture}`
+    }
+  }
+  if (event.action === 'risk.decision') {
+    const decision = sanitizeLine(String(details.decision ?? ''), 24).toUpperCase()
+    if (decision) {
+      return `risk decision ${decision}`
+    }
+  }
+  if (event.action === 'agent.proposal') {
+    const decision = sanitizeLine(String(details.decision ?? ''), 24).toUpperCase()
+    const requestedMode = sanitizeLine(String(details.requestedMode ?? ''), 24).toUpperCase()
+    if (decision || requestedMode) {
+      return `proposal ${decision || '--'} mode=${requestedMode || '--'}`
+    }
+  }
+  if (event.action === 'analysis.report') {
+    const headline = sanitizeLine(String(details.headline ?? details.summary ?? ''), 64)
+    if (headline) {
+      return `analysis ${headline}`
+    }
+  }
+  if (event.action === 'agent.error') {
+    const message = sanitizeLine(String(details.message ?? details.error ?? ''), 64)
+    if (message) {
+      return `error ${message}`
+    }
+  }
+
+  const level = deriveAuditLevel(event)
+  if (level !== 'INFO') {
+    const reason = sanitizeLine(String(details.reason ?? details.message ?? ''), 48)
+    return reason ? `${event.action}: ${reason}` : event.action
+  }
+
+  return null
+}
+
+function recordDiscordRunSummaryEvent(event: AuditEvent): void {
+  const state = activeDiscordRunSummary
+  if (!state) {
+    return
+  }
+
+  state.auditEventCount += 1
+  const action = sanitizeLine(event.action, 120) || 'unknown'
+  state.actionCounts.set(action, (state.actionCounts.get(action) ?? 0) + 1)
+  const level = deriveAuditLevel(event)
+  if (level === 'WARN') {
+    state.warnCount += 1
+  } else if (level === 'ERROR') {
+    state.errorCount += 1
+  }
+  const highlight = summaryHighlightForEvent(event)
+  if (highlight && !state.highlights.includes(highlight) && state.highlights.length < 8) {
+    state.highlights.push(highlight)
+  }
+}
+
+async function notifyDiscordRunSummary(params: {
+  state: DiscordRunSummaryState
+  outcome: string
+  durationMs: number
+  note?: string
+  modeEnd: string
+  symbolCountEnd: number
+  recommendationEnd: string
+}): Promise<void> {
+  if (!isDiscordNotificationEnabled()) {
+    return
+  }
+
+  const highlights = params.state.highlights.slice(0, 6).map((line) => `- ${line}`).join('\n')
+  await notifyDiscord({
+    id: ulid(),
+    ts: new Date().toISOString(),
+    actorType: 'internal_agent',
+    actorId: roleActorId('ops'),
+    action: 'run.summary',
+    resource: 'agent.pipeline',
+    correlationId: params.state.cycleId,
+    details: {
+      outcome: sanitizeLine(params.outcome, 32),
+      durationMs: Math.max(0, Math.round(params.durationMs)),
+      modeStart: params.state.modeStart,
+      modeEnd: params.modeEnd,
+      symbolCountStart: params.state.symbolCountStart,
+      symbolCountEnd: params.symbolCountEnd,
+      recommendationStart: params.state.recommendationStart,
+      recommendationEnd: params.recommendationEnd,
+      auditEventCount: params.state.auditEventCount,
+      warnCount: params.state.warnCount,
+      errorCount: params.state.errorCount,
+      actionBreakdown: summarizeRunActionCounts(params.state.actionCounts),
+      highlights,
+      note: params.note ? sanitizeLine(params.note, 240) : '',
+      startedAt: new Date(params.state.startedAtMs).toISOString()
+    }
+  })
 }
 
 function queueJournalWrite(event: AuditEvent): void {
@@ -959,49 +1139,19 @@ interface LlmRoleConfig {
   timeoutMs: number
 }
 
-function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
+function llmConfigForRole(_role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
   let provider: LlmChoice = env.AGENT_LLM
-  let claudeModel: string | undefined
-  let codexModel: string | undefined
-  let reasoning: ReasoningEffort | undefined
-  let timeoutMs: number | undefined
-
-  if (role === 'research') {
-    provider = env.AGENT_RESEARCH_LLM ?? provider
-    claudeModel = env.AGENT_RESEARCH_CLAUDE_MODEL
-    codexModel = env.AGENT_RESEARCH_CODEX_MODEL
-    reasoning = env.AGENT_RESEARCH_REASONING_EFFORT
-    timeoutMs = env.AGENT_RESEARCH_LLM_TIMEOUT_MS
-  } else if (role === 'risk') {
-    provider = env.AGENT_RISK_LLM ?? provider
-    claudeModel = env.AGENT_RISK_CLAUDE_MODEL
-    codexModel = env.AGENT_RISK_CODEX_MODEL
-    reasoning = env.AGENT_RISK_REASONING_EFFORT
-    timeoutMs = env.AGENT_RISK_LLM_TIMEOUT_MS
-  } else if (role === 'strategist' || role === 'execution') {
-    provider = env.AGENT_STRATEGIST_LLM ?? provider
-    claudeModel = env.AGENT_STRATEGIST_CLAUDE_MODEL
-    codexModel = env.AGENT_STRATEGIST_CODEX_MODEL
-    reasoning = env.AGENT_STRATEGIST_REASONING_EFFORT
-    timeoutMs = env.AGENT_STRATEGIST_LLM_TIMEOUT_MS
-  } else if (role === 'scribe') {
-    provider = env.AGENT_SCRIBE_LLM ?? provider
-    claudeModel = env.AGENT_SCRIBE_CLAUDE_MODEL
-    codexModel = env.AGENT_SCRIBE_CODEX_MODEL
-    reasoning = env.AGENT_SCRIBE_REASONING_EFFORT
-    timeoutMs = env.AGENT_SCRIBE_LLM_TIMEOUT_MS
-  }
 
   if (provider === 'codex' && codexDisabledUntilMs > nowMs) {
     provider = 'claude'
   }
 
-  const resolvedClaudeModel = claudeModel ?? env.CLAUDE_MODEL
-  const resolvedTimeoutMs = timeoutMs ?? env.AGENT_LLM_TIMEOUT_MS
+  const resolvedClaudeModel = env.CLAUDE_MODEL
+  const resolvedTimeoutMs = env.AGENT_LLM_TIMEOUT_MS
   return {
     provider,
-    model: provider === 'claude' ? resolvedClaudeModel : (codexModel ?? env.CODEX_MODEL),
-    reasoningEffort: reasoning ?? env.CODEX_REASONING_EFFORT,
+    model: provider === 'claude' ? resolvedClaudeModel : env.CODEX_MODEL,
+    reasoningEffort: env.CODEX_REASONING_EFFORT,
     claudeFallbackModel: resolvedClaudeModel,
     timeoutMs: resolvedTimeoutMs
   }
@@ -3445,7 +3595,7 @@ let lastTechnicalSignalsAt = 0
 
 async function publishAudit(event: AuditEvent): Promise<void> {
   queueJournalWrite(event)
-  void notifyDiscord(event)
+  recordDiscordRunSummaryEvent(event)
 
   await bus.publish('hlp.audit.events', {
     type: 'AGENT_ANALYSIS',
@@ -3911,76 +4061,145 @@ async function runOpsAgent(): Promise<void> {
 
 async function runStrategyPipeline(): Promise<void> {
   const now = Date.now()
+  const cycleId = ulid()
+  const pipelineStartedAt = now
+  const runSummaryState = startDiscordRunSummary({
+    cycleId,
+    startedAtMs: pipelineStartedAt,
+    modeStart: lastMode,
+    symbolCountStart: activeBasket.symbols.length,
+    recommendationStart: String(lastResearchReport?.recommendation ?? 'none')
+  })
+  activeDiscordRunSummary = runSummaryState
+  let pipelineOutcome = 'completed'
+  let pipelineNote = ''
 
-  // Universe must be populated BEFORE research so the research agent has symbols to analyze.
-  const nowMs = Date.now()
-  const hasFreshUniverse =
-    activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
-  if (!hasFreshUniverse && lastMode !== 'HALT') {
-    const maxBudgetUsd = computeMaxBudgetUsd()
-    const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
-    await maybeSelectBasket({ targetNotionalUsd: maxBudgetUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
-  }
-
-  const prevRecommendation = lastResearchReport?.recommendation ?? null
-  const researchRefreshed = await runResearchAgent()
-  if (!researchRefreshed && !lastResearchReport) {
+  try {
     await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level: 'WARN',
-      line: 'pipeline: research produced no output this cycle; skipping risk + strategist this cycle'
-    })
-    return
-  }
-  if (!researchRefreshed && lastResearchReport) {
-    await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level: 'WARN',
-      line: 'pipeline: research produced no output this cycle; continuing with prior research report'
-    })
-  }
-
-  const newRecommendation = lastResearchReport?.recommendation ?? null
-  if (prevRecommendation !== null && newRecommendation !== null && prevRecommendation !== newRecommendation) {
-    lastPipelineAt = now - env.AGENT_PIPELINE_BASE_MS + 5 * 60_000
-    await publishTape({
-      correlationId: ulid(),
+      correlationId: cycleId,
       role: 'ops',
       level: 'INFO',
-      line: `research recommendation shifted: [${prevRecommendation}] → [${newRecommendation}]; next pipeline cycle in 5min`
+      line: `pipeline: start mode=${lastMode} symbols=${activeBasket.symbols.length} recommendation=${lastResearchReport?.recommendation ?? 'none'}`
     })
-  }
 
-  // Compute technical signals (RSI, trend, ATR) — throttled to every 5 minutes
-  const techSignalNow = Date.now()
-  if (techSignalNow - lastTechnicalSignalsAt >= 5 * 60_000 && activeBasket.symbols.length > 0) {
-    try {
-      const fundingBySymbol: Record<string, number> = {}
-      for (const asset of cachedUniverse.assets) {
-        if (activeBasket.symbols.includes(asset.symbol)) {
-          fundingBySymbol[asset.symbol] = asset.funding
-        }
-      }
-      lastTechnicalSignals = await computeTechnicalSignals({
-        symbols: activeBasket.symbols,
-        postInfo: hlClient.postInfo,
-        fundingBySymbol,
-        concurrency: 4
-      })
-      lastTechnicalSignalsAt = techSignalNow
-    } catch {
-      // non-critical — continue without tech signals
+    // Universe must be populated BEFORE research so the research agent has symbols to analyze.
+    const nowMs = Date.now()
+    const hasFreshUniverse =
+      activeBasket.symbols.length >= 1 && nowMs - Date.parse(activeBasket.selectedAt) <= env.AGENT_UNIVERSE_REFRESH_MS
+    if (!hasFreshUniverse && lastMode !== 'HALT') {
+      const maxBudgetUsd = computeMaxBudgetUsd()
+      const signals = [...latestSignals.values()].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+      await maybeSelectBasket({ targetNotionalUsd: maxBudgetUsd, signals, positions: lastPositions, force: activeBasket.symbols.length === 0 })
     }
-  }
 
-  await runRiskAgent()
-  await runStrategistCycle()
+    const researchStartedAt = Date.now()
+    const prevRecommendation = lastResearchReport?.recommendation ?? null
+    const researchRefreshed = await runResearchAgent()
+    const researchElapsedMs = Date.now() - researchStartedAt
+    await publishTape({
+      correlationId: cycleId,
+      role: 'ops',
+      level: 'INFO',
+      line: `pipeline: research completed in ${researchElapsedMs}ms output=${researchRefreshed ? 'new' : 'cached'}`
+    })
 
-  if (lastProposal !== null && lastResearchAt > lastAnalysisAt) {
-    lastAnalysisAt = Date.now()
-    await runScribeAnalysis(lastProposal, { targetNotionalUsd: computeMaxBudgetUsd() })
+    if (!researchRefreshed && !lastResearchReport) {
+      pipelineOutcome = 'skipped'
+      pipelineNote = 'research produced no output; risk+strategist skipped'
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: 'pipeline: research produced no output this cycle; skipping risk + strategist this cycle'
+      })
+      return
+    }
+    if (!researchRefreshed && lastResearchReport) {
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'WARN',
+        line: 'pipeline: research produced no output this cycle; continuing with prior research report'
+      })
+    }
+
+    const newRecommendation = lastResearchReport?.recommendation ?? null
+    if (prevRecommendation !== null && newRecommendation !== null && prevRecommendation !== newRecommendation) {
+      lastPipelineAt = now - env.AGENT_PIPELINE_BASE_MS + 5 * 60_000
+      await publishTape({
+        correlationId: ulid(),
+        role: 'ops',
+        level: 'INFO',
+        line: `research recommendation shifted: [${prevRecommendation}] → [${newRecommendation}]; next pipeline cycle in 5min`
+      })
+    }
+
+    // Compute technical signals (RSI, trend, ATR) — throttled to every 5 minutes
+    const techSignalNow = Date.now()
+    if (techSignalNow - lastTechnicalSignalsAt >= 5 * 60_000 && activeBasket.symbols.length > 0) {
+      try {
+        const fundingBySymbol: Record<string, number> = {}
+        for (const asset of cachedUniverse.assets) {
+          if (activeBasket.symbols.includes(asset.symbol)) {
+            fundingBySymbol[asset.symbol] = asset.funding
+          }
+        }
+        lastTechnicalSignals = await computeTechnicalSignals({
+          symbols: activeBasket.symbols,
+          postInfo: hlClient.postInfo,
+          fundingBySymbol,
+          concurrency: 4
+        })
+        lastTechnicalSignalsAt = techSignalNow
+      } catch {
+        // non-critical — continue without tech signals
+      }
+    }
+
+    const riskStartedAt = Date.now()
+    await runRiskAgent()
+    await publishTape({
+      correlationId: cycleId,
+      role: 'risk',
+      level: 'INFO',
+      line: `pipeline: risk completed in ${Date.now() - riskStartedAt}ms`
+    })
+
+    const strategistStartedAt = Date.now()
+    await runStrategistCycle()
+    await publishTape({
+      correlationId: cycleId,
+      role: 'strategist',
+      level: 'INFO',
+      line: `pipeline: strategist completed in ${Date.now() - strategistStartedAt}ms`
+    })
+
+    if (lastProposal !== null && lastResearchAt > lastAnalysisAt) {
+      lastAnalysisAt = Date.now()
+      await runScribeAnalysis(lastProposal, { targetNotionalUsd: computeMaxBudgetUsd() })
+    }
+
+    await publishTape({
+      correlationId: cycleId,
+      role: 'ops',
+      level: 'INFO',
+      line: `pipeline: done duration=${Date.now() - pipelineStartedAt}ms`
+    })
+  } catch (error) {
+    pipelineOutcome = 'error'
+    pipelineNote = sanitizeLine(String(error), 200)
+    throw error
+  } finally {
+    activeDiscordRunSummary = null
+    await notifyDiscordRunSummary({
+      state: runSummaryState,
+      outcome: pipelineOutcome,
+      durationMs: Date.now() - pipelineStartedAt,
+      note: pipelineNote,
+      modeEnd: lastMode,
+      symbolCountEnd: activeBasket.symbols.length,
+      recommendationEnd: String(lastResearchReport?.recommendation ?? 'none')
+    })
   }
 }
 
@@ -3998,99 +4217,8 @@ async function runResearchAgent(): Promise<boolean> {
         ? 'correlation break risk'
         : 'stable'
 
-  let intelSummary: Record<string, unknown> | null = null
-  let intelTrendMetrics: IntelTrendMetrics | null = null
-  if (env.AGENT_INTEL_ENABLED) {
-    try {
-      const refreshIntel = shouldRefreshExternalIntel(now, activeBasket.symbols)
-      if (refreshIntel) {
-        lastExternalIntel = await buildExternalIntelPack({
-          symbols: activeBasket.symbols,
-          twitterCredsPath: env.OPENCLAW_TWITTER_CREDS_PATH,
-          twitterBearerToken: env.TWITTER_BEARER_TOKEN || undefined,
-          twitterEnabled: env.AGENT_INTEL_TWITTER_ENABLED,
-          twitterMaxResults: env.AGENT_INTEL_TWITTER_MAX_RESULTS,
-          twitterMaxQueries: env.AGENT_INTEL_TWITTER_MAX_QUERIES,
-          twitterCacheTtlMs: env.AGENT_INTEL_TWITTER_CACHE_TTL_MS,
-          twitterMinLikes: env.AGENT_INTEL_TWITTER_MIN_LIKES,
-          cachedTwitter: cachedTwitterIntel,
-          twitterCooldownMs: env.AGENT_INTEL_TWITTER_COOLDOWN_MS,
-          timeoutMs: env.AGENT_INTEL_TIMEOUT_MS,
-          customQueries: agentSuggestedTwitterQueries.length > 0 ? agentSuggestedTwitterQueries : undefined,
-          aixbtApiKey: env.AIXBT_API_KEY || undefined,
-          aixbtEnabled: env.AIXBT_ENABLED,
-          aixbtIndigoEnabled: env.AIXBT_INDIGO_ENABLED,
-          aixbtIndigoMinIntervalMs: env.AIXBT_INDIGO_MIN_INTERVAL_MS,
-          aixbtTimeoutMs: env.AIXBT_TIMEOUT_MS,
-          aixbtCacheTtlMs: env.AIXBT_CACHE_TTL_MS,
-          aixbtMomentumProjectLimit: env.AIXBT_MOMENTUM_PROJECT_LIMIT,
-          defiLlamaEnabled: env.DEFI_LLAMA_ENABLED,
-          defiLlamaTimeoutMs: env.DEFI_LLAMA_TIMEOUT_MS,
-          defiLlamaCacheTtlMs: env.DEFI_LLAMA_CACHE_TTL_MS
-        })
-
-        cachedTwitterIntel = lastExternalIntel.twitter.enabled
-          ? { data: lastExternalIntel.twitter, fetchedAtMs: now }
-          : undefined
-
-        // Critical alert: cookie auth missing means we'll fall back to paid X API.
-        if (lastExternalIntel.twitter.cookieAuthMissing) {
-          const alertId = ulid()
-          void publishAudit({
-            id: alertId,
-            ts: new Date().toISOString(),
-            actorType: 'system',
-            actorId: roleActorId('research'),
-            action: 'agent.error',
-            resource: 'agent.intel.twitter',
-            correlationId: alertId,
-            details: {
-              severity: 'CRITICAL',
-              message: 'Twitter cookie auth (auth_token + ct0) is missing or expired. Update credentials at OPENCLAW_TWITTER_CREDS_PATH to avoid paid X API charges.',
-              credsPath: env.OPENCLAW_TWITTER_CREDS_PATH
-            }
-          }).catch(() => undefined)
-          void publishTape({
-            correlationId: alertId,
-            role: 'ops',
-            level: 'ERROR',
-            line: 'CRITICAL: Twitter cookie auth missing — update ct0/auth_token to avoid paid X API charges'
-          }).catch(() => undefined)
-        }
-
-        intelSummary = summarizeExternalIntel(lastExternalIntel)
-        await publishAudit({
-          id: ulid(),
-          ts: new Date().toISOString(),
-          actorType: 'internal_agent',
-          actorId: roleActorId('research'),
-          action: 'intel.refresh',
-          resource: 'agent.intel',
-          correlationId: ulid(),
-          details: {
-            ...intelSummary,
-            fetchPolicy: {
-              refreshed: true,
-              minRefreshMs: env.AGENT_INTEL_MIN_REFRESH_MS
-            }
-          }
-        })
-      } else if (lastExternalIntel) {
-        intelSummary = summarizeExternalIntel(lastExternalIntel)
-      }
-
-      if (lastExternalIntel) {
-        intelTrendMetrics = computeIntelTrendMetrics(lastExternalIntel)
-      }
-    } catch (error) {
-      await publishTape({
-        correlationId: ulid(),
-        role: 'ops',
-        level: 'WARN',
-        line: `intel refresh failed: ${String(error).slice(0, 140)}`
-      })
-    }
-  }
+  const intelSummary: Record<string, unknown> | null = null
+  const intelTrendMetrics: IntelTrendMetrics | null = null
 
   const input = {
     ts: new Date().toISOString(),

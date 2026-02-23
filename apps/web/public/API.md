@@ -84,40 +84,9 @@ Deprecated compatibility aliases:
 - `GET /healthz`
 - `GET /metrics`
 
-Required x402 capability (minimum tier) examples:
-- `stream.read.public`: `/v1/agent/stream/snapshot`
-- `analysis.read`: `/v1/agent/analysis` (`latest=true` for latest, otherwise paged history)
-- `market.data.read`: `/v1/agent/insights?scope=market`
-- `agent.insights.read`: `/v1/agent/insights?scope=ai`
-- `copy.signals.read`: `/v1/agent/copy/trade?kind=signals`
-- `copy.positions.read`: `/v1/agent/copy/trade?kind=positions`
-- `command.positions`: `/v1/agent/positions`, `/v1/agent/orders`
-
 ## x402 behavior
-- This repo supports two x402 modes (configured via `X402_PROVIDER`):
-- `X402_PROVIDER=mock`:
-  - A local deterministic “x402-like” payment gate for agent routes.
-  - On insufficient entitlement, API returns `402 Payment Required` plus a `PAYMENT-REQUIRED` header (Base64 JSON payload).
-  - Client retries with payment proof in `PAYMENT-SIGNATURE` (or `x402-payment` for dev clients).
-  - On success, response includes `PAYMENT-RESPONSE` (Base64 JSON payload) with an `entitlementId`.
-    - Subsequent requests can send `x-agent-entitlement: <entitlementId>` without re-sending the payment proof until the entitlement expires or quota is exhausted.
-  - Local demo (runs against `http://127.0.0.1:4000` by default): `bun scripts/x402/demo.ts`
-- `X402_PROVIDER=facilitator`:
-  - Canonical x402 v2 seller flow with facilitator-backed settlement (per x402 docs).
-  - `402` returns `PAYMENT-REQUIRED` (PaymentRequired payload) and paid retries use `PAYMENT-SIGNATURE`.
-  - Successful responses include `PAYMENT-RESPONSE` (settlement response).
-  - Demo client: `bun scripts/x402/facilitator-demo.ts`
-- Route price configuration (override via env):
-- `X402_PRICE_STREAM_SNAPSHOT` (default `$0.01`)
-- `X402_PRICE_ANALYSIS_LATEST` (default `$0.01`, `/v1/agent/analysis?latest=true`)
-- `X402_PRICE_ANALYSIS_HISTORY` (default `$0.01`, `/v1/agent/analysis`)
-  - `X402_PRICE_POSITIONS` (default `$0.01`)
-  - `X402_PRICE_ORDERS` (default `$0.01`)
-- `X402_PRICE_MARKET_DATA` (default `$0.02`, `/v1/agent/insights?scope=market`)
-- `X402_PRICE_AGENT_INSIGHTS` (default `$0.02`, `/v1/agent/insights?scope=ai`)
-- `X402_PRICE_COPY_TRADE_SIGNALS` (default `$0.03`, `/v1/agent/copy/trade?kind=signals`)
-- `X402_PRICE_COPY_TRADE_POSITIONS` (default `$0.03`, `/v1/agent/copy/trade?kind=positions`)
-- Notes + seller quickstart reference: `docs/X402_SELLER_QUICKSTART.md`.
+- x402 payment gating is disabled by default in the simplified core runtime path.
+- Agent routes are directly readable/writable with existing API authentication/rate limiting.
 
 ## Websocket protocol
 
