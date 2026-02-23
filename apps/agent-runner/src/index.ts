@@ -1221,28 +1221,15 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
 ]
 
 const AGENT_DATA_SOURCES_PRESET: string[] = [
-  'Available data sources (use what is relevant to current conditions):',
-  '1) Hyperliquid market + account microstructure.',
-  '   - https://api.hyperliquid.xyz/info',
-  '   - https://api.hyperliquid.xyz/exchange',
-  '   - https://api.hyperliquid.xyz/ws',
-  '   - Runtime normalized feeds + risk outputs from /apps/runtime',
-  '2) aixbt signal intelligence.',
-  `   - https://api.aixbt.tech/v2 (${env.AIXBT_ENABLED && env.AIXBT_API_KEY ? 'configured' : 'missing'})`,
-  '   - Provides: momentum scores, cross-source signal detection, project-level intelligence.',
-  '3) Social/narrative intelligence via Twitter/X (bird CLI with cookie auth).',
-  '   - Uses internal GraphQL search via bird CLI (not v2 REST API).',
-  '   - Cookie auth required (auth_token + ct0); no paid API keys consumed.',
-  '4) CoinGecko Pro market/sector context.',
-  `   - base URL: ${env.COINGECKO_BASE_URL}`,
-  `   - auth: X-Cg-Pro-Api-Key via COINGECKO_API_KEY (${env.COINGECKO_API_KEY ? 'configured' : 'missing'})`,
-  '   - preferred endpoints: /coins/markets, /coins/categories, /global',
-  '5) Enrichment sources.',
-  `   - Brave Search API: ${env.BRAVE_API_URL}`,
-  `   - DefiLlama: https://api.llama.fi, https://coins.llama.fi, https://stablecoins.llama.fi (${env.DEFI_LLAMA_ENABLED ? 'enabled' : 'disabled'})`,
-  '   - https://api.alternative.me/fng/',
-  '   - https://data-api.binance.com',
-  'Weight all sources dynamically based on current regime and relevance. No fixed priority ordering.'
+  'Available data sources (injected into context when available):',
+  '1) Hyperliquid: market microstructure, funding rates, open interest, orderbook depth, account state.',
+  '2) aixbt: momentum scores, cross-source signal detection, project-level intelligence.',
+  '3) Twitter/X: social sentiment, narrative tracking, catalyst detection.',
+  '4) CoinGecko: sector breadth, category performance, global market cap, volume.',
+  '5) DefiLlama: TVL flows, protocol metrics, stablecoin supply changes.',
+  '6) Fear & Greed Index: crowd sentiment gauge (contrarian indicator).',
+  '7) Technical signals: RSI, trend (1h/4h/1d), ATR, volume ratios.',
+  'All data is fetched programmatically and included in your context. Weight sources dynamically based on current regime. No fixed priority.'
 ]
 
 function buildAgentSourceAppendix(): string[] {
@@ -2242,10 +2229,11 @@ async function generateBasketSelection(params: {
       mission: 'Select a high-quality discretionary opportunity set for the next strategy cycle.',
       rules: [
         'Choose ONLY from the provided candidate symbols.',
-        'Prefer high liquidity (day notional volume + open interest).',
-        'Prefer symbols with clear and recent signal clarity, but avoid crowded or unstable conditions.',
-        'Favor diversified, liquid selections over concentrated micro-cap names.',
-        'If context is weak, keep the opportunity set smaller and more conservative.'
+        'Prefer high liquidity (day notional volume + open interest) as a baseline, but liquidity alone is not enough.',
+        'Favor assets with active catalysts, momentum shifts, or narrative tailwinds — a liquid but stale asset is less useful than a liquid asset with a developing setup.',
+        'Consider funding rate extremes, OI changes, and sector rotation as opportunity signals when selecting.',
+        'Favor diversified selections across sectors/narratives over concentrated bets on correlated assets.',
+        'If context is weak or intel is degraded, keep the opportunity set smaller and more conservative.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: {
@@ -3127,14 +3115,16 @@ async function generateAnalysis(params: {
 
   const prompt = [
     buildAgentPrompt({
-      role: 'scribe',
-      mission: 'Write concise post-decision floor analysis tied to execution rationale and current risk posture.',
+      role: 'scribe (devil\'s advocate)',
+      mission: 'Challenge the current thesis. Your job is NOT to summarize what happened — the other agents already did that. Instead, identify what could go wrong that the strategist missed, flag hidden assumptions, and stress-test the rationale.',
       rules: [
-        'Use the latest floor context before writing interpretation.',
-        'Keep output tight and concrete.',
-        'If confidence is low, reflect uncertainty explicitly.',
-        'Do not include raw order tickets, signatures, or venue credentials.',
-        'Each risk item should be specific and observable.'
+        'Focus on what the strategist and research agent DIDN\'T consider or underweighted.',
+        'Identify the single biggest risk to the current position or directive that isn\'t already in the risk report.',
+        'If the thesis relies on momentum continuing, flag the reversal scenario. If it relies on mean reversion, flag the breakout scenario.',
+        'Headline should be the contrarian take — what the bear case is if we\'re long, or the bull case if we\'re short.',
+        'Keep output tight and concrete. Each risk item should be specific, observable, and actionable.',
+        'Confidence reflects how vulnerable the current thesis is to the risks you identify (low = thesis is fragile, high = thesis is robust despite risks).',
+        'Do not include raw order tickets, signatures, or venue credentials.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -3187,7 +3177,7 @@ async function generateResearchReport(params: {
     additionalProperties: false,
     properties: {
       headline: { type: 'string' },
-      regime: { type: 'string' },
+      regime: { type: 'string', enum: ['RISK_ON', 'RISK_OFF', 'TRENDING', 'MEAN_REVERTING', 'VOLATILE', 'CALM', 'TRANSITIONING'] },
       recommendation: { type: 'string' },
       confidence: { type: 'number' },
       suggestedTwitterQueries: {
@@ -3216,7 +3206,7 @@ async function generateResearchReport(params: {
       rules: [
       'Use only context and observed signals; do not speculate on external events.',
       'Output one actionable recommendation — name the specific asset(s) and direction. Not a portfolio plan, not a vague "monitor" statement.',
-      'If data indicates regime shift, indicate it explicitly in regime.',
+      'REGIME must be one of: RISK_ON (broad strength, expanding breadth), RISK_OFF (broad weakness, contracting breadth), TRENDING (directional momentum in majors), MEAN_REVERTING (range-bound, fading moves), VOLATILE (elevated vol, wide ranges), CALM (low vol, compressed ranges), TRANSITIONING (regime shifting, signals mixed). Pick the single best fit.',
       'Synthesize all available context holistically. Confidence reflects the overall quality and coherence of the thesis, not how many data sources agree.',
       'Degraded or missing data sources reduce certainty but do not change regime classification. Classify from what you have.',
       'When historical context shows regime persistence across cycles, factor that into your assessment.',
@@ -3325,8 +3315,9 @@ async function generateRiskReport(params: {
         'POSTURE DEFINITIONS:',
         '  GREEN = normal tradeable state.',
         '  AMBER = elevated but tradeable. Reduce sizing, not frequency.',
-        '  RED = extreme risk only. Active liquidation cascades, exchange outages, or price feed failures. Very rare.',
+        '  RED = infrastructure failure only. Reserved for: exchange API outages, price feed failures, active liquidation cascades with halted orderbooks. Macro sentiment (fear & greed, bearish narratives, drawdowns) is NEVER grounds for RED — use AMBER with tighter policy instead.',
         'Tie each risk item to specific observable context. Posture should reflect CURRENT conditions, not residual concern from resolved issues.',
+        'HEADLINE SAFETY: Your headline is parsed for trigger words. The following words cause a hard trading block if they appear: HOLD FLAT, FLATTEN, BLOCK, BLOCKED, CLEAN, CONSERVATIVE. Never use these words in your headline unless you intend to halt ALL trading. Express caution through posture (AMBER) and policyRecommendations, not headline language.',
         'Do not output execution mechanics.',
         'POLICY MANAGEMENT: You control the live risk policy parameters. The current policy is included in context under "currentRiskPolicy".',
         'Set policyRecommendations to an object with any parameters you want to change, or null to keep current policy.',
@@ -3456,6 +3447,7 @@ async function generateStrategistDirective(params: {
         'thesisNote per leg: explain the setup and what would invalidate it (max 500 chars).',
         'Existing positions have active TP/SL on the exchange. Only include a REBALANCE leg for an existing symbol if the thesis is invalidated or you are rotating.',
         'Do not oversize to recover losses. pnlPct is historical — each trade stands on its own merit.',
+        'HOLD DECAY: Check historicalContext.consecutiveHolds. After 3+ consecutive HOLDs when flat, lower your conviction threshold — the cost of inaction compounds. After 5+, actively seek asymmetric setups you might otherwise skip. Persistent HOLDs while flat means the system is idle and earning nothing. If you still HOLD, your rationale must explicitly address why every universe asset is unattractive right now.',
         'Scan the full universe. The best opportunity may be anywhere.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
         'All context (technicals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
