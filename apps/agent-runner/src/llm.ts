@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { ulid } from 'ulid'
+import { env } from './config'
 
 async function runCommand(
   cmd: string,
@@ -483,7 +484,7 @@ export async function runClaudeStructured<T>(params: {
 
   const settingsPath = await writeSafeClaudeSettings()
 
-  const timeoutMs = params.timeoutMs ?? 120_000
+  const timeoutMs = params.timeoutMs ?? env.AGENT_LLM_TIMEOUT_MS
   const useThinking = params.reasoningEffort === 'high' || params.reasoningEffort === 'xhigh'
 
   const buildArgs = (): string[] => {
@@ -553,7 +554,7 @@ export async function runCodexStructured<T>(params: {
     throw new Error('Executable not found in $PATH: "codex". Set CODEX_CLI_PATH or install CLI for this container.')
   }
 
-  const timeoutMs = params.timeoutMs ?? 120_000
+  const timeoutMs = params.timeoutMs ?? env.AGENT_LLM_TIMEOUT_MS
   const runId = ulid()
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hlp-codex-'))
   const schemaPath = path.join(tmpDir, `schema-${runId}.json`)

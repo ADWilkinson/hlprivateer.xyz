@@ -956,6 +956,7 @@ interface LlmRoleConfig {
   model: string
   reasoningEffort: ReasoningEffort
   claudeFallbackModel: string
+  timeoutMs: number
 }
 
 function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
@@ -963,27 +964,32 @@ function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
   let claudeModel: string | undefined
   let codexModel: string | undefined
   let reasoning: ReasoningEffort | undefined
+  let timeoutMs: number | undefined
 
   if (role === 'research') {
     provider = env.AGENT_RESEARCH_LLM ?? provider
     claudeModel = env.AGENT_RESEARCH_CLAUDE_MODEL
     codexModel = env.AGENT_RESEARCH_CODEX_MODEL
     reasoning = env.AGENT_RESEARCH_REASONING_EFFORT
+    timeoutMs = env.AGENT_RESEARCH_LLM_TIMEOUT_MS
   } else if (role === 'risk') {
     provider = env.AGENT_RISK_LLM ?? provider
     claudeModel = env.AGENT_RISK_CLAUDE_MODEL
     codexModel = env.AGENT_RISK_CODEX_MODEL
     reasoning = env.AGENT_RISK_REASONING_EFFORT
+    timeoutMs = env.AGENT_RISK_LLM_TIMEOUT_MS
   } else if (role === 'strategist' || role === 'execution') {
     provider = env.AGENT_STRATEGIST_LLM ?? provider
     claudeModel = env.AGENT_STRATEGIST_CLAUDE_MODEL
     codexModel = env.AGENT_STRATEGIST_CODEX_MODEL
     reasoning = env.AGENT_STRATEGIST_REASONING_EFFORT
+    timeoutMs = env.AGENT_STRATEGIST_LLM_TIMEOUT_MS
   } else if (role === 'scribe') {
     provider = env.AGENT_SCRIBE_LLM ?? provider
     claudeModel = env.AGENT_SCRIBE_CLAUDE_MODEL
     codexModel = env.AGENT_SCRIBE_CODEX_MODEL
     reasoning = env.AGENT_SCRIBE_REASONING_EFFORT
+    timeoutMs = env.AGENT_SCRIBE_LLM_TIMEOUT_MS
   }
 
   if (provider === 'codex' && codexDisabledUntilMs > nowMs) {
@@ -991,11 +997,13 @@ function llmConfigForRole(role: FloorRole, nowMs = Date.now()): LlmRoleConfig {
   }
 
   const resolvedClaudeModel = claudeModel ?? env.CLAUDE_MODEL
+  const resolvedTimeoutMs = timeoutMs ?? env.AGENT_LLM_TIMEOUT_MS
   return {
     provider,
     model: provider === 'claude' ? resolvedClaudeModel : (codexModel ?? env.CODEX_MODEL),
     reasoningEffort: reasoning ?? env.CODEX_REASONING_EFFORT,
-    claudeFallbackModel: resolvedClaudeModel
+    claudeFallbackModel: resolvedClaudeModel,
+    timeoutMs: resolvedTimeoutMs
   }
 }
 
@@ -2063,6 +2071,7 @@ async function generateBasketSelection(params: {
   model: string
   reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
+  timeoutMs?: number
 }): Promise<{ basketSymbols: string[]; rationale: string }> {
   const schema = {
     type: 'object',
@@ -2106,13 +2115,15 @@ async function generateBasketSelection(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
       : await runCodexStructured<{ basketSymbols: string[]; rationale: string }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
 
   return {
@@ -2416,13 +2427,24 @@ async function maybeSelectBasket(params: {
 
     let chosen: { basketSymbols: string[]; rationale: string } | null = null
     try {
-      chosen = await generateBasketSelection({ llm: basketConfig.provider, model: basketConfig.model, reasoningEffort: basketConfig.reasoningEffort, input })
+      chosen = await generateBasketSelection({
+        llm: basketConfig.provider,
+        model: basketConfig.model,
+        reasoningEffort: basketConfig.reasoningEffort,
+        input,
+        timeoutMs: basketConfig.timeoutMs
+      })
     } catch (primaryError) {
       if (basketConfig.provider === 'codex') {
         const canUseClaude = await isClaudeAvailable()
         if (canUseClaude) {
           try {
-            chosen = await generateBasketSelection({ llm: 'claude', model: basketConfig.claudeFallbackModel, input })
+            chosen = await generateBasketSelection({
+              llm: 'claude',
+              model: basketConfig.claudeFallbackModel,
+              input,
+              timeoutMs: basketConfig.timeoutMs
+            })
             const disabled = maybeDisableCodexFromError(primaryError, nowMs)
             const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
             await publishTape({
@@ -2453,7 +2475,12 @@ async function maybeSelectBasket(params: {
         const canUseCodexLlm = await isCodexAvailable()
         if (canUseCodexLlm) {
           try {
-            chosen = await generateBasketSelection({ llm: 'codex', model: env.CODEX_MODEL, input })
+            chosen = await generateBasketSelection({
+              llm: 'codex',
+              model: env.CODEX_MODEL,
+              input,
+              timeoutMs: basketConfig.timeoutMs
+            })
             await publishTape({
               correlationId: ulid(),
               role: 'ops',
@@ -2929,6 +2956,7 @@ async function generateAnalysis(params: {
   model: string
   reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
+  timeoutMs?: number
 }): Promise<{ headline: string; thesis: string; risks: string[]; confidence: number }> {
   const schema = {
     type: 'object',
@@ -2973,13 +3001,15 @@ async function generateAnalysis(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
       : await runCodexStructured<{ headline: string; thesis: string; risks: string[]; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
 
   const confidence = clamp(Number(raw.confidence), 0, 1)
@@ -3004,6 +3034,7 @@ async function generateResearchReport(params: {
   model: string
   reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
+  timeoutMs?: number
 }): Promise<ResearchReportResult> {
   const schema = {
     type: 'object',
@@ -3058,13 +3089,15 @@ async function generateResearchReport(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
       : await runCodexStructured<ResearchReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
 
   const suggestedQueries = Array.isArray(raw.suggestedTwitterQueries)
@@ -3103,6 +3136,7 @@ async function generateRiskReport(params: {
   model: string
   reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
+  timeoutMs?: number
 }): Promise<RiskReportResult> {
   const schema = {
     type: 'object',
@@ -3167,13 +3201,15 @@ async function generateRiskReport(params: {
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
       : await runCodexStructured<RiskReportResult>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
-        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT
+        reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
+        timeoutMs: params.timeoutMs
       })
 
   const posture = raw.posture === 'GREEN' || raw.posture === 'AMBER' || raw.posture === 'RED' ? raw.posture : 'AMBER'
@@ -3197,6 +3233,7 @@ async function generateStrategistDirective(params: {
   reasoningEffort?: ReasoningEffort
   input: Record<string, unknown>
   markPrices?: Record<string, number>
+  timeoutMs?: number
 }): Promise<{ decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }> {
   const planSchema = {
     type: 'object',
@@ -3292,14 +3329,14 @@ async function generateStrategistDirective(params: {
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
         reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
-        timeoutMs: 600_000
+        timeoutMs: params.timeoutMs ?? env.AGENT_LLM_TIMEOUT_MS
       })
       : await runCodexStructured<{ decision: StrategistDirectiveDecision; plan?: DirectivePlan; rationale: string; confidence: number }>({
         prompt,
         jsonSchema: schema as unknown as Record<string, unknown>,
         model: params.model,
         reasoningEffort: params.reasoningEffort ?? env.CODEX_REASONING_EFFORT,
-        timeoutMs: 600_000
+        timeoutMs: params.timeoutMs ?? env.AGENT_LLM_TIMEOUT_MS
       })
 
   const decision: StrategistDirectiveDecision =
@@ -3887,7 +3924,7 @@ async function runStrategyPipeline(): Promise<void> {
 
   const prevRecommendation = lastResearchReport?.recommendation ?? null
   const researchRefreshed = await runResearchAgent()
-  if (!researchRefreshed) {
+  if (!researchRefreshed && !lastResearchReport) {
     await publishTape({
       correlationId: ulid(),
       role: 'ops',
@@ -3895,6 +3932,14 @@ async function runStrategyPipeline(): Promise<void> {
       line: 'pipeline: research produced no output this cycle; skipping risk + strategist this cycle'
     })
     return
+  }
+  if (!researchRefreshed && lastResearchReport) {
+    await publishTape({
+      correlationId: ulid(),
+      role: 'ops',
+      level: 'WARN',
+      line: 'pipeline: research produced no output this cycle; continuing with prior research report'
+    })
   }
 
   const newRecommendation = lastResearchReport?.recommendation ?? null
@@ -4082,13 +4127,24 @@ async function runResearchAgent(): Promise<boolean> {
 
   let report: ResearchReportResult | null = null
   try {
-    report = await generateResearchReport({ llm: researchConfig.provider, model: researchConfig.model, reasoningEffort: researchConfig.reasoningEffort, input })
+    report = await generateResearchReport({
+      llm: researchConfig.provider,
+      model: researchConfig.model,
+      reasoningEffort: researchConfig.reasoningEffort,
+      input,
+      timeoutMs: researchConfig.timeoutMs
+    })
   } catch (primaryError) {
     if (researchConfig.provider === 'codex') {
       const canUseClaude = await isClaudeAvailable()
       if (canUseClaude) {
         try {
-          report = await generateResearchReport({ llm: 'claude', model: researchConfig.claudeFallbackModel, input })
+          report = await generateResearchReport({
+            llm: 'claude',
+            model: researchConfig.claudeFallbackModel,
+            input,
+            timeoutMs: researchConfig.timeoutMs
+          })
           const disabled = maybeDisableCodexFromError(primaryError, now)
           const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
@@ -4119,7 +4175,12 @@ async function runResearchAgent(): Promise<boolean> {
       const canUseCodexLlm = await isCodexAvailable()
       if (canUseCodexLlm) {
         try {
-          report = await generateResearchReport({ llm: 'codex', model: env.CODEX_MODEL, input })
+          report = await generateResearchReport({
+            llm: 'codex',
+            model: env.CODEX_MODEL,
+            input,
+            timeoutMs: researchConfig.timeoutMs
+          })
           await publishTape({
             correlationId: ulid(),
             role: 'ops',
@@ -4259,13 +4320,24 @@ async function runRiskAgent(): Promise<void> {
 
   let report: RiskReportResult | null = null
   try {
-    report = await generateRiskReport({ llm: riskConfig.provider, model: riskConfig.model, reasoningEffort: riskConfig.reasoningEffort, input })
+    report = await generateRiskReport({
+      llm: riskConfig.provider,
+      model: riskConfig.model,
+      reasoningEffort: riskConfig.reasoningEffort,
+      input,
+      timeoutMs: riskConfig.timeoutMs
+    })
   } catch (primaryError) {
     if (riskConfig.provider === 'codex') {
       const canUseClaude = await isClaudeAvailable()
       if (canUseClaude) {
         try {
-          report = await generateRiskReport({ llm: 'claude', model: riskConfig.claudeFallbackModel, input })
+          report = await generateRiskReport({
+            llm: 'claude',
+            model: riskConfig.claudeFallbackModel,
+            input,
+            timeoutMs: riskConfig.timeoutMs
+          })
           const disabled = maybeDisableCodexFromError(primaryError, now)
           const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
@@ -4296,7 +4368,12 @@ async function runRiskAgent(): Promise<void> {
       const canUseCodexLlm = await isCodexAvailable()
       if (canUseCodexLlm) {
         try {
-          report = await generateRiskReport({ llm: 'codex', model: env.CODEX_MODEL, input })
+          report = await generateRiskReport({
+            llm: 'codex',
+            model: env.CODEX_MODEL,
+            input,
+            timeoutMs: riskConfig.timeoutMs
+          })
           await publishTape({
             correlationId: ulid(),
             role: 'ops',
@@ -4480,13 +4557,26 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 
     let raw: { decision: StrategistDirectiveDecision; plan: DirectivePlan | null; rationale: string; confidence: number }
     try {
-      raw = await generateStrategistDirective({ llm: stratConfig.provider, model: stratConfig.model, reasoningEffort: stratConfig.reasoningEffort, input, markPrices: stratMarkPrices })
+      raw = await generateStrategistDirective({
+        llm: stratConfig.provider,
+        model: stratConfig.model,
+        reasoningEffort: stratConfig.reasoningEffort,
+        input,
+        markPrices: stratMarkPrices,
+        timeoutMs: stratConfig.timeoutMs
+      })
     } catch (primaryError) {
       if (stratConfig.provider === 'codex') {
         const canUseClaude = await isClaudeAvailable()
         if (canUseClaude) {
           try {
-            raw = await generateStrategistDirective({ llm: 'claude', model: stratConfig.claudeFallbackModel, input, markPrices: stratMarkPrices })
+            raw = await generateStrategistDirective({
+              llm: 'claude',
+              model: stratConfig.claudeFallbackModel,
+              input,
+              markPrices: stratMarkPrices,
+              timeoutMs: stratConfig.timeoutMs
+            })
             const disabled = maybeDisableCodexFromError(primaryError, nowMs)
             const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
             await publishTape({
@@ -4517,7 +4607,13 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
         const canUseCodexLlm = await isCodexAvailable()
         if (canUseCodexLlm) {
           try {
-            raw = await generateStrategistDirective({ llm: 'codex', model: env.CODEX_MODEL, input, markPrices: stratMarkPrices })
+            raw = await generateStrategistDirective({
+              llm: 'codex',
+              model: env.CODEX_MODEL,
+              input,
+              markPrices: stratMarkPrices,
+              timeoutMs: stratConfig.timeoutMs
+            })
             await publishTape({
               correlationId: ulid(),
               role: 'ops',
@@ -4936,13 +5032,24 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
   const scribeConfig = llmConfigForRole('scribe', nowMs)
   let analysis: { headline: string; thesis: string; risks: string[]; confidence: number } | null = null
   try {
-    analysis = await generateAnalysis({ llm: scribeConfig.provider, model: scribeConfig.model, reasoningEffort: scribeConfig.reasoningEffort, input: analysisInput })
+    analysis = await generateAnalysis({
+      llm: scribeConfig.provider,
+      model: scribeConfig.model,
+      reasoningEffort: scribeConfig.reasoningEffort,
+      input: analysisInput,
+      timeoutMs: scribeConfig.timeoutMs
+    })
   } catch (primaryError) {
     if (scribeConfig.provider === 'codex') {
       const canUseClaude = await isClaudeAvailable()
       if (canUseClaude) {
         try {
-          analysis = await generateAnalysis({ llm: 'claude', model: scribeConfig.claudeFallbackModel, input: analysisInput })
+          analysis = await generateAnalysis({
+            llm: 'claude',
+            model: scribeConfig.claudeFallbackModel,
+            input: analysisInput,
+            timeoutMs: scribeConfig.timeoutMs
+          })
           const disabled = maybeDisableCodexFromError(primaryError, nowMs)
           const untilNote = disabled ? ` (codex disabled until ${new Date(disabled.untilMs).toISOString()})` : ''
           await publishTape({
@@ -4973,7 +5080,12 @@ async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNo
       const canUseCodexLlm = await isCodexAvailable()
       if (canUseCodexLlm) {
         try {
-          analysis = await generateAnalysis({ llm: 'codex', model: env.CODEX_MODEL, input: analysisInput })
+          analysis = await generateAnalysis({
+            llm: 'codex',
+            model: env.CODEX_MODEL,
+            input: analysisInput,
+            timeoutMs: scribeConfig.timeoutMs
+          })
           await publishTape({
             correlationId: proposal.proposalId,
             role: 'ops',

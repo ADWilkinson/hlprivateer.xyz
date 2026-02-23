@@ -68,6 +68,12 @@ export const env = z
     AGENT_RISK_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
     AGENT_STRATEGIST_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
     AGENT_SCRIBE_REASONING_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+    // Per-role LLM command timeouts (ms) for each internal agent invocation.
+    AGENT_LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
+    AGENT_RESEARCH_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    AGENT_RISK_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    AGENT_STRATEGIST_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    AGENT_SCRIBE_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
     AGENT_PIPELINE_BASE_MS: z.coerce
       .number()
       .int()
