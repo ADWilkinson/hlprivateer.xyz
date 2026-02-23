@@ -53,7 +53,7 @@ export const env = z
       .number()
       .int()
       .positive()
-      .default(15 * 60_000)
+      .default(30 * 60_000)
       .transform((value) => clamp(Math.trunc(value), 300_000, 3_600_000)),
     AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(3000),
     OPS_AUTO_HALT: booleanFromEnv.default(false),

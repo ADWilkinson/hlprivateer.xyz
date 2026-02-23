@@ -1470,8 +1470,6 @@ function summarizePositionsForPrompt(positions: OperatorPosition[]): {
   shortNotionalUsd: number
   grossNotionalUsd: number
   netNotionalUsd: number
-  drift: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'
-  posture: 'GREEN' | 'AMBER' | 'RED'
   topPositions: Array<{
     symbol: string
     side: 'LONG' | 'SHORT'
@@ -1479,7 +1477,6 @@ function summarizePositionsForPrompt(positions: OperatorPosition[]): {
     absNotionalUsd: number
   }>
 } {
-  const drift = summarizePositionsForAgents(positions)
   let longNotionalUsd = 0
   let shortNotionalUsd = 0
 
@@ -1511,8 +1508,6 @@ function summarizePositionsForPrompt(positions: OperatorPosition[]): {
     shortNotionalUsd: Number(shortNotionalUsd.toFixed(2)),
     grossNotionalUsd: Number((longNotionalUsd + shortNotionalUsd).toFixed(2)),
     netNotionalUsd: Number((longNotionalUsd - shortNotionalUsd).toFixed(2)),
-    drift: drift.drift,
-    posture: drift.posture,
     topPositions
   }
 }
@@ -2939,7 +2934,7 @@ function buildDiscretionaryProposal(params: {
     desiredBySymbol.set(symbol, previous + signedNotional)
   }
 
-  // Close unmentioned current symbols to avoid stale drift.
+  // Close unmentioned current symbols so stale positions don't linger.
   for (const position of params.positions) {
     const symbol = String(position.symbol).trim().toUpperCase()
     if (symbol && !desiredBySymbol.has(symbol)) {
@@ -3724,10 +3719,6 @@ function requestedModeFromEnv(): 'SIM' | 'LIVE' {
   return 'SIM'
 }
 
-function summarizePositionsForAgents(_positions: OperatorPosition[]): { drift: 'IN_TOLERANCE' | 'POTENTIAL_DRIFT' | 'BREACH'; posture: 'GREEN' | 'AMBER' | 'RED' } {
-  return { drift: 'IN_TOLERANCE', posture: 'GREEN' }
-}
-
 function computePortfolioBtcBeta(positions: OperatorPosition[]): Record<string, unknown> | null {
   if (positions.length === 0) return null
   const context = activeBasket.context as { priceBySymbol?: Record<string, PriceFeature> } | undefined
@@ -4405,7 +4396,6 @@ async function runResearchAgent(): Promise<boolean> {
 async function runRiskAgent(): Promise<void> {
   const now = Date.now()
 
-  const summary = summarizePositionsForAgents(lastPositions)
   const signalPack = summarizeLatestSignals(now)
   const latestVol = latestSignalFromPack(signalPack, 'volatility')
 
@@ -4413,8 +4403,6 @@ async function runRiskAgent(): Promise<void> {
 	  const input = {
 	    ts: new Date().toISOString(),
 	    mode: lastMode,
-	    drift: summary.drift,
-	    postureHint: summary.posture,
 	    pnlPct: lastStateUpdate?.pnlPct ?? null,
 	    accountValueUsd: lastStateUpdate?.accountValueUsd ?? null,
 	    vol1hPct: latestVol?.value ?? null,
@@ -4549,7 +4537,7 @@ async function runRiskAgent(): Promise<void> {
   await publishTape({
     correlationId: ulid(),
     role: 'risk',
-    line: `${report.headline}: ${report.posture} drift=${summary.drift}`
+    line: `${report.headline}: ${report.posture}`
   })
 
   await publishAudit({
@@ -4562,7 +4550,6 @@ async function runRiskAgent(): Promise<void> {
     correlationId: ulid(),
     details: {
       ...report,
-      derived: summary,
       input
     }
   })
@@ -4606,7 +4593,6 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
   directiveInFlight = true
   directiveInFlightSinceMs = nowMs
   try {
-    const summary = summarizePositionsForAgents(params.positions)
     const heldSymbols = basketFromPositions(params.positions)
     const signalPack = summarizeLatestSignals(nowMs)
     const latestVol = latestSignalFromPack(signalPack, 'volatility')
@@ -4617,8 +4603,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       ts: new Date().toISOString(),
       mode: lastMode,
       state: lastStateUpdate ?? null,
-      drift: summary.drift,
-      postureHint: lastRiskReport?.posture ?? summary.posture,
+      postureHint: lastRiskReport?.posture ?? 'GREEN',
       buyingPowerUsd: params.targetNotionalUsd,
       minLegNotionalUsd: env.AGENT_MIN_REBALANCE_LEG_USD,
       heldSymbols,

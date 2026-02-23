@@ -6,14 +6,14 @@
 - One-liner: HL Privateer is a self-hosted, agentic Hyperliquid trading platform with discretionary long/short strategy selection, deterministic risk gates, and a real-time ASCII trade floor.
 - Elevator pitch: You run one Linux home server, connect it through Cloudflare Tunnel, and get a full autonomous trading desk: market data, strategy agents, execution, risk hard-gates, audit replay, and a monetizable external agent interface via x402 access tiers.
 - Why now:
-  - Hyperliquid latency/liquidity is now sufficient for systematic pair-trading loops.
+  - Hyperliquid latency/liquidity is now sufficient for systematic directional trading.
   - LLM agents are useful for hypothesis generation and adaptation, but only safe when hard-gated by deterministic controls.
   - x402-style machine payments unlock bot-to-bot markets where external agents can buy streams/insights programmatically.
 
 ### 1.2 Target users/personas
 - Human operator (primary): owns risk budget, config, kill-switch authority, and incident response.
 - Internal agents:
-  - `research-agent`: synthesizes new market context and pair-leg hypotheses.
+  - `research-agent`: synthesizes new market context and trade hypotheses.
   - `risk-agent`: explains risk posture, but cannot bypass hard-gates.
   - `execution-agent`: proposes execution tactics under slippage/liquidity constraints.
   - `ops-agent`: monitors service health, replay, and anomaly alerts.
@@ -24,13 +24,13 @@
   - `integration-agent`: provides plugins (new feeds/skills/tools).
 
 ### 1.3 Jobs-to-be-done and key user stories
-- JTBD: “Run a continuously trading, market-neutral-ish pair framework with bounded downside and full auditability from my own server.”
+- JTBD: “Run a continuously trading, directional long/short fund with bounded downside and full auditability from my own server.”
 - Human stories:
   - As operator, I can set hard risk limits and know no trade can bypass them.
   - As operator, I can halt all trading within one command and force safe mode.
   - As operator, I can replay any incident session and see every AI proposal and risk decision.
 - Agent stories:
-  - As research-agent, I can propose long/short pair-leg composition changes with rationale and confidence.
+  - As research-agent, I can propose trade hypotheses with rationale and confidence.
   - As execution-agent, I can request child-order slicing but only within deterministic slippage caps.
   - As external agent, I can authenticate, pay via x402, negotiate capabilities, and receive only tier-allowed data.
 
@@ -86,7 +86,7 @@
   - 100% executed orders have linked audit trail.
   - Mean time to incident root cause < 20 minutes via replay.
 - Trading:
-  - Equal-notional drift between legs < 1.5% during `IN_TRADE`.
+  - Max configured drawdown never exceeded during `IN_TRADE`.
   - Slippage breaches < 0.5% of fills.
   - Max configured drawdown never exceeded in live mode.
 - Ecosystem:
@@ -316,7 +316,7 @@ export interface StrategyProposal {
 Risk checks (all must pass):
 - Position and leverage limits.
 - Max account drawdown.
-- Equal-notional enforcement between long and short legs.
+- Gross and per-symbol exposure caps.
 - Slippage cap, volatility circuit breaker, stale data, liquidity floor.
 - Exposure caps per symbol and total gross exposure.
 
@@ -433,8 +433,8 @@ ASCII mockup:
 +--------------------------------------------------------------------------------+
 | HL PRIVATEER FLOOR | MODE: READY | PNL: +2.84% | DD: 1.2% | LAT: 142ms        |
 +--------------------------------------------------------------------------------+
-| RCH [^]  "Pair spread widening vs SOL beta"                                  |
-| RSK [!]  "Imbalance 0.8%, within threshold"                                  |
+| RCH [^]  "SOL momentum weakening, funding negative"                           |
+| RSK [!]  "Exposure within limits, drawdown 1.2%"                              |
 | EXE [>]  "Placed BUY BTC 4.32 @ 23.14"                                       |
 | MKT [~]  "Funding divergence +12 bps"                                        |
 | OPS [#]  "Redis lag 8ms | WS clients 42"                                     |
@@ -579,7 +579,7 @@ External agents:
 - `GET /v1/agent/stream/snapshot`
 - `GET /v1/agent/analysis`
 - `GET /v1/agent/insights`
-- `GET /v1/agent/copy/trade`
+- `GET /v1/agent/copy-trade/signals`
 - `GET /v1/agent/positions`
 - `GET /v1/agent/orders`
 - `POST /v1/agent/command`
@@ -606,7 +606,7 @@ Example public response:
 Connection/auth handshake:
 - Public: no token, receives limited topics.
 - Operator: JWT with role claims (`operator_view`, `operator_admin`).
-- External agent: API key + entitlement token or x402 proof session.
+- External agent: x402 entitlement flow (handshake -> verify -> x-agent-entitlement).
 
 Message envelope:
 
@@ -734,7 +734,7 @@ Network security:
 AuthN/AuthZ:
 - Operator: OIDC + MFA + short JWT (15m) and refresh flow.
 - Services: mTLS or signed service tokens.
-- External agents: API key + entitlement token + optional x402 proof binding.
+- External agents: x402 entitlement flow with verified entitlement tokens.
 - Rotation:
   - API keys: manual + automatic expiration.
   - JWT keys: 30-day rotation.
@@ -824,7 +824,7 @@ State machine:
 - `WARMUP` -> collect minimum market windows.
 - `READY` -> eligible for entries.
 - `IN_TRADE` -> active long/short exposure.
-- `REBALANCE` -> restore equal-notional parity.
+- `REBALANCE` -> adjusting existing position (add/trim/rotate).
 - `HALT` -> human/system forced stop.
 - `SAFE_MODE` -> only risk-reducing actions.
 
@@ -832,7 +832,7 @@ Transition rules:
 - `INIT -> WARMUP` when services healthy.
 - `WARMUP -> READY` after N ticks and freshness checks pass.
 - `READY -> IN_TRADE` when strategy proposal passes risk.
-- `IN_TRADE -> REBALANCE` when imbalance > threshold.
+- `IN_TRADE -> REBALANCE` when adjusting existing exposure.
 - `* -> SAFE_MODE` on stale data/high volatility/liquidity breach.
 - `* -> HALT` on kill-switch/manual critical incident.
 
@@ -938,7 +938,7 @@ Full details are in `docs/GITHUB_ISSUES.md`. Summary IDs:
 - `HLP-005` OMS order lifecycle engine
 - `HLP-006` Fill reconciliation worker
 - `HLP-007` Deterministic risk engine package
-- `HLP-008` Pair-trade state machine
+- `HLP-008` Trading state machine
 - `HLP-009` Strategy proposal schema and parser
 - `HLP-010` Execution adapter parity and dry-run safeguards
 - `HLP-011` Runtime orchestrator loop

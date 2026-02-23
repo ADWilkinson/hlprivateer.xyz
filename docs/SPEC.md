@@ -6,7 +6,7 @@
 - One-liner: HL Privateer is a self-hosted, agentic Hyperliquid trading platform with discretionary long/short strategy selection, deterministic risk gates, and a real-time ASCII trade floor.
 - Elevator pitch: You run one Linux home server, connect it through Cloudflare Tunnel, and get a full autonomous trading desk: market data, strategy agents, execution, risk hard-gates, audit replay, and a monetizable external agent interface via x402 access tiers.
 - Why now:
-  - Hyperliquid latency/liquidity is now sufficient for systematic pair-trading loops.
+  - Hyperliquid latency/liquidity is now sufficient for systematic directional trading.
   - LLM agents are useful for hypothesis generation and adaptation, but only safe when hard-gated by deterministic controls.
   - x402-style machine payments unlock bot-to-bot markets where external agents can buy streams/insights programmatically.
 
@@ -14,9 +14,9 @@
 - Human operator (primary): owns risk budget, config, kill-switch authority, and incident response.
 - Internal agents (7 roles):
   - `scout`: tick collection, feed freshness monitoring, watchlist management.
-  - `research`: synthesizes new market context, regime analysis, and pair-leg hypotheses.
+  - `research`: synthesizes new market context, regime analysis, and trade hypotheses.
   - `risk`: explains risk posture (GREEN/YELLOW/RED), but cannot bypass hard-gates.
-  - `strategist`: proposes long/short/pair directives with sizing and horizon.
+  - `strategist`: proposes long/short directives with sizing, stop-loss, and take-profit levels.
   - `execution`: transforms strategy plans into structured `StrategyProposal` orders.
   - `scribe`: audit narrative synthesis, rationale documentation per proposal.
   - `ops`: monitors service health, floor stability, auto-halt watchdog.
@@ -26,13 +26,13 @@
   - `integration-agent`: provides plugins (new feeds/skills/tools).
 
 ### 1.3 Jobs-to-be-done and key user stories
-- JTBD: “Run a continuously trading, market-neutral-ish pair framework with bounded downside and full auditability from my own server.”
+- JTBD: “Run a continuously trading, directional long/short fund with bounded downside and full auditability from my own server.”
 - Human stories:
   - As operator, I can set hard risk limits and know no trade can bypass them.
   - As operator, I can halt all trading within one command and force safe mode.
   - As operator, I can replay any incident session and see every AI proposal and risk decision.
  - Agent stories:
-  - As research-agent, I can propose long/short pair-leg composition changes with rationale and confidence.
+  - As research-agent, I can propose trade hypotheses with rationale and confidence.
   - As execution-agent, I can request child-order slicing but only within deterministic slippage caps.
   - As external agent, I can authenticate, pay via x402, negotiate capabilities, and receive only tier-allowed data.
 
@@ -88,7 +88,7 @@
   - 100% executed orders have linked audit trail.
   - Mean time to incident root cause < 20 minutes via replay.
 - Trading:
-  - Equal-notional drift between legs < 1.5% during `IN_TRADE`.
+  - Max configured drawdown never exceeded during `IN_TRADE`.
   - Slippage breaches < 0.5% of fills.
   - Max configured drawdown never exceeded in live mode.
 - Ecosystem:
@@ -333,15 +333,14 @@ Risk checks (sequential, all run unconditionally):
 1. **DEPENDENCY_FAILURE**: external dependencies unavailable and `failClosedOnDependencyError` enabled.
 2. **SYSTEM_GATED**: system is in HALT state.
 3. **ACTOR_NOT_ALLOWED**: external agents blocked from direct execution.
-4. **INVALID_PROPOSAL**: proposal has no actionable legs.
-5. **NOTIONAL_PARITY**: long/short imbalance exceeds `notionalParityTolerance`.
-6. **SLIPPAGE_BREACH**: expected/max slippage exceeds `maxSlippageBps`.
-7. **LEVERAGE**: projected gross/accountValue exceeds `maxLeverage`.
-8. **DRAWDOWN**: projected drawdown% exceeds `maxDrawdownPct`.
-9. **EXPOSURE**: projected gross exposure exceeds `maxExposureUsd`.
-10. **LIQUIDITY**: leg notional * `liquidityBufferPct` exceeds L2 book depth.
-11. **SAFE_MODE**: proposal would increase gross notional (only risk-reducing allowed).
-12. **STALE_DATA**: tick age exceeds `staleDataMs`.
+4. **INVALID_PROPOSAL**: proposal has no actionable orders.
+5. **SLIPPAGE_BREACH**: expected/max slippage exceeds `maxSlippageBps`.
+6. **LEVERAGE**: projected gross/accountValue exceeds `maxLeverage`.
+7. **DRAWDOWN**: projected drawdown% exceeds `maxDrawdownPct`.
+8. **EXPOSURE**: projected gross exposure exceeds `maxExposureUsd`.
+9. **LIQUIDITY**: order notional * `liquidityBufferPct` exceeds L2 book depth.
+10. **SAFE_MODE**: proposal would increase gross notional (only risk-reducing allowed).
+11. **STALE_DATA**: tick age exceeds `staleDataMs`.
 
 Decision contract:
 
@@ -371,17 +370,16 @@ export function evaluateRisk(config: RiskConfig, context: RiskContext): RiskDeci
     reasons.push("DEPENDENCY_FAILURE");
   if (context.state === "HALT") reasons.push("SYSTEM_GATED");
   if (context.actorType === "external_agent") reasons.push("ACTOR_NOT_ALLOWED");
-  if (noActionableLegs(context.proposal)) reasons.push("INVALID_PROPOSAL");
-  if (notionalImbalance > config.notionalParityTolerance) reasons.push("NOTIONAL_PARITY");
+  if (noActionableOrders(context.proposal)) reasons.push("INVALID_PROPOSAL");
   if (slippage > config.maxSlippageBps) reasons.push("SLIPPAGE_BREACH");
   if (projectedLeverage > config.maxLeverage) reasons.push("LEVERAGE");
   if (projectedDrawdown > config.maxDrawdownPct) reasons.push("DRAWDOWN");
   if (grossExposure > config.maxExposureUsd) reasons.push("EXPOSURE");
-  if (bookDepth < legNotional * config.liquidityBufferPct) reasons.push("LIQUIDITY");
+  if (bookDepth < orderNotional * config.liquidityBufferPct) reasons.push("LIQUIDITY");
   if (state === "SAFE_MODE" && wouldIncreaseExposure) reasons.push("SAFE_MODE");
   if (tickAge > config.staleDataMs) reasons.push("STALE_DATA");
 
-  // Exit proposals exempt from DRAWDOWN + NOTIONAL_PARITY if reducing exposure
+  // Exit proposals exempt from DRAWDOWN if reducing exposure
   return hasBlockers ? "DENY" : state === "SAFE_MODE" ? "ALLOW_REDUCE_ONLY" : "ALLOW";
 }
 ```
@@ -397,14 +395,13 @@ interface RiskConfig {
   maxSlippageBps: number;           // e.g. 20
   staleDataMs: number;              // e.g. 3000
   liquidityBufferPct: number;       // e.g. 1.1
-  notionalParityTolerance: number;  // e.g. 0.015
   failClosedOnDependencyError: boolean;
 }
 ```
 
 - Kill switch and safe mode:
   - `HALT`: reject all new orders; allow cancel/flatten only.
-  - `SAFE_MODE`: deny new entries, allow rebalances that reduce risk. Exit proposals that reduce gross notional are exempted from DRAWDOWN and NOTIONAL_PARITY checks.
+  - `SAFE_MODE`: deny new entries, allow rebalances that reduce risk. Exit proposals that reduce gross notional are exempted from DRAWDOWN checks.
 - Human override controls:
   - AuthZ role `operator_admin` required.
   - All overrides require reason code and expire automatically.
@@ -476,8 +473,8 @@ ASCII mockup:
 +--------------------------------------------------------------------------------+
 | HL PRIVATEER FLOOR | MODE: READY | PNL: +2.84% | DD: 1.2% | LAT: 142ms        |
 +--------------------------------------------------------------------------------+
-| RCH [^]  "Pair spread widening vs SOL beta"                                  |
-| RSK [!]  "Imbalance 0.8%, within threshold"                                  |
+| RCH [^]  "SOL momentum weakening, funding negative"                           |
+| RSK [!]  "Exposure within limits, drawdown 1.2%"                              |
 | EXE [>]  "Placed BUY BTC 4.32 @ 23.14"                                       |
 | MKT [~]  "Funding divergence +12 bps"                                        |
 | OPS [#]  "Redis lag 8ms | WS clients 42"                                     |
@@ -883,7 +880,7 @@ State machine:
 - `WARMUP` -> collect minimum market windows.
 - `READY` -> eligible for entries.
 - `IN_TRADE` -> active long/short exposure.
-- `REBALANCE` -> restore equal-notional parity.
+- `REBALANCE` -> adjusting existing position (add/trim/rotate).
 - `HALT` -> human/system forced stop.
 - `SAFE_MODE` -> only risk-reducing actions.
 
@@ -891,7 +888,7 @@ Transition rules:
 - `INIT -> WARMUP` when services healthy.
 - `WARMUP -> READY` after N ticks and freshness checks pass.
 - `READY -> IN_TRADE` when strategy proposal passes risk.
-- `IN_TRADE -> REBALANCE` when imbalance > threshold.
+- `IN_TRADE -> REBALANCE` when adjusting existing exposure.
 - `* -> SAFE_MODE` on stale data/high volatility/liquidity breach.
 - `* -> HALT` on kill-switch/manual critical incident.
 
@@ -999,7 +996,7 @@ Full details are in `docs/GITHUB_ISSUES.md`. Summary IDs:
 - `HLP-005` OMS order lifecycle engine
 - `HLP-006` Fill reconciliation worker
 - `HLP-007` Deterministic risk engine package
-- `HLP-008` Pair-trade state machine
+- `HLP-008` Trading state machine
 - `HLP-009` Strategy proposal schema and parser
 - `HLP-010` Execution adapter parity and dry-run safeguards
 - `HLP-011` Runtime orchestrator loop

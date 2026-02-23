@@ -40,7 +40,7 @@ INIT → WARMUP → READY ⇄ IN_TRADE ⇄ REBALANCE → READY
 ```
 - SAFE_MODE: reduce-only (gross notional must decrease)
 - HALT: blocks all proposals until `/resume`
-- Dependency failure or drift breach (>20%) → SAFE_MODE
+- Dependency failure → SAFE_MODE
 
 ## Runtime Cycle (`orchestrator/state.ts`)
 1. Live account value refresh (if ENABLE_LIVE_OMS)
@@ -75,7 +75,7 @@ Loads `PluginRuntime` implementations from `plugins/`. Poll interval per `manife
 | `/flatten` | admin | Cancel orders, close positions, → SAFE_MODE if residual |
 | `/risk-policy` | admin | Update risk params (validates bounds) |
 | `/status` | any | Return state/pnl/cycle |
-| `/explain` | any | Detailed state/drift/positions summary |
+| `/explain` | any | Detailed state/positions summary |
 | `/positions` | any | Position symbols/sides |
 
 ## Auto-Mitigation

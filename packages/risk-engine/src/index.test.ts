@@ -12,7 +12,7 @@ const baseConfig = {
 }
 
 describe('risk-engine', () => {
-  it('allows a valid proposal with equal notional', () => {
+  it('allows a valid proposal within risk limits', () => {
     const decision = evaluateRisk(baseConfig, {
       state: 'READY',
       actorType: 'internal_agent',
@@ -43,7 +43,7 @@ describe('risk-engine', () => {
       proposal: {
         proposalId: 'p1',
         cycleId: 'c1',
-        summary: 'pair trade',
+        summary: 'directional trade',
         confidence: 0.8,
         requestedMode: 'SIM',
         createdBy: 'agent',
@@ -140,7 +140,7 @@ describe('risk-engine', () => {
       proposal: {
         proposalId: 'p2',
         cycleId: 'c1',
-        summary: 'pair trade',
+        summary: 'directional trade',
         confidence: 0.8,
         requestedMode: 'SIM',
         createdBy: 'agent',

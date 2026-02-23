@@ -16,15 +16,14 @@ src/
 1. **DEPENDENCY_FAILURE**: `!dependenciesHealthy && failClosedOnDependencyError`
 2. **SYSTEM_GATED**: state === HALT
 3. **ACTOR_NOT_ALLOWED**: external_agent blocked
-4. **INVALID_PROPOSAL**: no actionable legs
-5. **NOTIONAL_PARITY**: long/short imbalance > tolerance (exempted for SAFE_MODE exit)
-6. **SLIPPAGE_BREACH**: max slippage > `maxSlippageBps`
-7. **LEVERAGE**: gross/accountValue > `maxLeverage`
-8. **DRAWDOWN**: projected drawdown% > `maxDrawdownPct`
-9. **EXPOSURE**: gross > `maxExposureUsd`
-10. **LIQUIDITY**: leg notional * buffer > L2 book depth
-11. **SAFE_MODE**: would increase gross notional
-12. **STALE_DATA**: tick age > `staleDataMs`
+4. **INVALID_PROPOSAL**: no actionable orders
+5. **SLIPPAGE_BREACH**: max slippage > `maxSlippageBps`
+6. **LEVERAGE**: gross/accountValue > `maxLeverage`
+7. **DRAWDOWN**: projected drawdown% > `maxDrawdownPct`
+8. **EXPOSURE**: gross > `maxExposureUsd`
+9. **LIQUIDITY**: order notional * buffer > L2 book depth
+10. **SAFE_MODE**: would increase gross notional
+11. **STALE_DATA**: tick age > `staleDataMs`
 
 ## Decision Logic
 ```
@@ -42,7 +41,6 @@ interface RiskConfig {
   maxSlippageBps: number           // Default 20
   staleDataMs: number              // Default 3000
   liquidityBufferPct: number       // Default 1.1
-  notionalParityTolerance: number  // Default 0.015
   failClosedOnDependencyError: boolean
 }
 ```
@@ -51,7 +49,6 @@ interface RiskConfig {
 - **Gross**: sum of absolute notional (|long| + |short|)
 - **Net**: signed sum (longs - shorts)
 - **Projected drawdown**: |net| / gross * 100
-- **Notional imbalance**: |longUsd - shortUsd| / (grossUsd / 2)
 
 ## Invariants
 - Pure functions, no side effects, no I/O

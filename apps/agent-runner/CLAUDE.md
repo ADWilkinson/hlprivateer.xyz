@@ -34,7 +34,7 @@ The strategy pipeline (`runStrategyPipeline`) chains Research → Risk → Strat
 | Level | Interval | Trigger |
 |-------|----------|---------|
 | CRITICAL | 60s | Risk DENY, posture RED, SAFE_MODE with open positions |
-| ELEVATED | 5min (fixed) | In position + high vol / drift / loss > 5% |
+| ELEVATED | 5min (fixed) | In position + high vol / loss > 5% |
 | ACTIVE | 15min | In position, normal conditions |
 | WATCHING | 20min | No position + elevated vol or ALLOW_REDUCE_ONLY |
 | IDLE | `AGENT_PIPELINE_BASE_MS` (30min) | No position, calm market |

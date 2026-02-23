@@ -36,7 +36,7 @@ Shared Zod schemas and TypeScript types for type-safe communication across all a
 - **Tier capabilities**: tier0 (public read) → tier3 (full access + audit)
 
 ### Public API
-- **PublicSnapshot**: mode, pnlPct, healthCode, driftState, positions, tape
+- **PublicSnapshot**: mode, pnlPct, healthCode, positions, tape
 - **FloorTapeLine**: ts, role?, level (INFO/WARN/ERROR), line
 
 ### Audit

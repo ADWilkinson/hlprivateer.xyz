@@ -25,7 +25,7 @@ Reference documents (read first, then execute):
 
 Non-negotiable invariants:
 - Strategy invariant: discretionary long/short structures with explicit directional thesis and risk-aware timing, not fixed symbols.
-- Equal-notional between long and short legs is mandatory at entry and rebalance.
+- Positions have defined stop-loss and take-profit levels enforced at the exchange.
 - AI can propose actions, but cannot execute directly.
 - Every execution path must pass deterministic risk validation.
 - Public surface may only expose PnL percent + obfuscated status fields.
