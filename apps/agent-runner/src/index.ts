@@ -1205,6 +1205,7 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   'DATA SOURCES:',
   '- All sources are context. Their relevance varies by regime. Price, funding, OI, aixbt, social, macro — weight them based on what matters NOW, not a fixed hierarchy.',
   '- If some sources are degraded or unavailable, reflect that as reduced certainty — not as a reason to stop trading.',
+  '- FEAR & GREED INDEX: Interpret as a contrarian indicator. Extreme fear (low values) historically marks buying opportunities — panic selling creates dislocated entries and favorable risk/reward. Extreme greed (high values) signals euphoria, crowded positioning, and over-extension where de-risking is prudent. Do not treat extreme fear as a reason to block trading or flatten.',
   'DECISION PHILOSOPHY:',
   '- The risk engine provides hard backstops. Your job is to find the best risk-adjusted opportunity and express it clearly.',
   '- Every decision (OPEN, HOLD, EXIT, REBALANCE) is valid when the data supports it. No decision is a "default."',
