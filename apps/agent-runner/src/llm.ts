@@ -19,13 +19,31 @@ async function runCommand(
 
     const child = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: processEnv
+      env: processEnv,
+      detached: process.platform !== 'win32'
     })
     let stdout = ''
     let stderr = ''
 
     const timeout = setTimeout(() => {
-      child.kill('SIGKILL')
+      const pid = child.pid
+      if (pid) {
+        try {
+          if (process.platform === 'win32') {
+            child.kill('SIGKILL')
+          } else {
+            process.kill(-pid, 'SIGKILL')
+          }
+        } catch {
+          try {
+            child.kill('SIGKILL')
+          } catch {
+            // ignore
+          }
+        }
+      } else {
+        child.kill('SIGKILL')
+      }
       reject(new Error(`${cmd} timed out after ${timeoutMs}ms`))
     }, timeoutMs)
 
