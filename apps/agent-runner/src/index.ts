@@ -3019,7 +3019,7 @@ async function generateResearchReport(params: {
         description: 'Up to 8 Twitter/X search queries to run next cycle. Use Twitter v2 search operators: OR, AND, -is:retweet, lang:en, $cashtag. Focus on narratives, catalysts, liquidation events, or sentiment shifts relevant to current regime and watchlist.'
       }
     },
-    required: ['headline', 'regime', 'recommendation', 'confidence']
+    required: ['headline', 'regime', 'recommendation', 'confidence', 'suggestedTwitterQueries']
   } as const
 
   if (params.llm === 'none') {
