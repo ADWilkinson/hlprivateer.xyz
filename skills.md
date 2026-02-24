@@ -161,8 +161,7 @@ All proposals pass through a deterministic risk engine (fail-closed) before exec
 | `INIT` | Starting up |
 | `WARMUP` | Collecting initial market data |
 | `READY` | Flat, watching for opportunities |
-| `IN_TRADE` | Active positions |
-| `REBALANCE` | Adjusting position weights |
+| `IN_TRADE` | Active positions with SL/TP on exchange |
 | `HALT` | Operator-initiated stop |
 | `SAFE_MODE` | Automatic safety stop (dependency failure) |
 

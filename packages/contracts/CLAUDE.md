@@ -6,14 +6,14 @@ Shared Zod schemas and TypeScript types for type-safe communication across all a
 ## Schema Catalog
 
 ### Core Types
-- **TradeState**: `INIT | WARMUP | READY | IN_TRADE | REBALANCE | HALT | SAFE_MODE`
+- **TradeState**: `INIT | WARMUP | READY | IN_TRADE | HALT | SAFE_MODE`
 - **ActorType**: `human | internal_agent | external_agent | system`
 - **Channel**: `public | operator | agent | replay | audit`
 - **StreamName**: `hlp.market.raw`, `hlp.market.normalized`, `hlp.market.watchlist`, `hlp.strategy.proposals`, `hlp.plugin.signals`, `hlp.risk.decisions`, `hlp.execution.commands`, `hlp.execution.fills`, `hlp.audit.events`, `hlp.ui.events`, `hlp.payments.events`, `hlp.commands`
 
 ### Strategy
 - **StrategyProposal**: `proposalId`, `cycleId`, `summary`, `confidence` (0-1), `actions[]`, `createdBy`, `requestedMode` (SIM/LIVE)
-- **StrategyAction**: `type` (ENTER/EXIT/REBALANCE/HOLD), `rationale`, `notionalUsd`, `legs[]`, slippage
+- **StrategyAction**: `type` (ENTER/EXIT/HOLD), `rationale`, `notionalUsd`, `legs[]`, slippage
 - **StrategyLeg**: `symbol`, `side` (BUY/SELL), `notionalUsd`, `targetRatio?`
 
 ### Risk

@@ -86,7 +86,7 @@ export class ConvictionBoard {
   /** Update from strategist decisions — boost symbols the LLM traded, decay others */
   updateFromDirective(decision: string, legSymbols: string[]): void {
     for (const symbol of legSymbols) {
-      const boost = decision === 'OPEN' || decision === 'REBALANCE' ? 15 : -10
+      const boost = decision === 'OPEN' ? 15 : -10
       this.update(symbol, { scoreDelta: boost, triggerDistance: boost > 0 ? 0.8 : undefined })
     }
   }

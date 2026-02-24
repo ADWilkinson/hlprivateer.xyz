@@ -1,7 +1,7 @@
 # Agent Runner - Development Context
 
 ## Overview
-LLM orchestration service running multi-agent strategy loops. 7 agent roles produce structured proposals published to Redis event bus for runtime consumption. Agents run in a chained pipeline (Research → Risk → Strategist) with adaptive urgency-based scheduling.
+LLM orchestration service running a multi-agent strategy pipeline with hourly fire-and-forget cadence. Agents produce structured proposals published to Redis event bus for runtime consumption. Pipeline chains Research → Risk → Strategist once per hour.
 
 ## Key Files
 ```
@@ -19,25 +19,15 @@ src/
 
 | Role | Scheduling | Purpose | LLM |
 |------|------------|---------|-----|
-| Scout | 1s heartbeat | Tick collection, feed freshness, watchlist | No |
-| Research | Pipeline (urgency-driven) | Regime, funding, correlation, social, macro | Yes |
-| Risk | Pipeline (urgency-driven) | Posture (GREEN/YELLOW/RED), policy recommendations | Optional |
-| Strategist | Pipeline (urgency-driven) | Long/short/pair directives, sizing, horizon | Yes |
+| Research | Hourly pipeline | Regime, funding, correlation, social, macro | Yes |
+| Risk | Hourly pipeline | Posture (GREEN/YELLOW/RED), policy recommendations | Optional |
+| Strategist | Hourly pipeline | Long/short directives, sizing, SL/TP levels | Yes |
 | Execution | Event-driven | Transform plans into `StrategyProposal` | Optional |
 | Scribe | Event-driven (on new proposal) | Audit narrative, rationale synthesis | Yes |
-| Ops | Continuous (3s) | Floor stability, auto-halt, watchdog | No |
 
-## Adaptive Pipeline Scheduling
+## Pipeline Scheduling
 
-The strategy pipeline (`runStrategyPipeline`) chains Research → Risk → Strategist in a single pass. A pure-function urgency classifier (`classifyUrgency`) determines the pipeline cadence:
-
-| Level | Interval | Trigger |
-|-------|----------|---------|
-| CRITICAL | 60s | Risk DENY, posture RED, SAFE_MODE with open positions |
-| ELEVATED | 5min (fixed) | In position + high vol / loss > 5% |
-| ACTIVE | 15min | In position, normal conditions |
-| WATCHING | 20min | No position + elevated vol or ALLOW_REDUCE_ONLY |
-| IDLE | `AGENT_PIPELINE_BASE_MS` (30min) | No position, calm market |
+Pipeline runs once per hour (configurable via `AGENT_PIPELINE_BASE_MS`). Between cycles, the system sleeps. No adaptive urgency, no ops agent, no idle heartbeats.
 
 ## LLM Integration (`llm.ts`)
 Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structured output. Multi-strategy JSON extraction from stdout (handles ANSI, markdown fences, nested JSON). Timeouts: 90s claude, 120s codex. Temporary settings isolation (disables hooks).
@@ -69,8 +59,7 @@ Spawns `claude` or `codex` CLI as child process. Passes JSON schema for structur
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AGENT_LLM` | codex | Global LLM ('claude'/'codex'/'none') |
-| `AGENT_PIPELINE_BASE_MS` | 1800000 | IDLE cadence (30min) |
-| `AGENT_OPS_INTERVAL_MS` | 3000 | Ops heartbeat (3s) |
+| `AGENT_PIPELINE_BASE_MS` | 3600000 | Pipeline cadence (1h) |
 | `AGENT_UNIVERSE_SIZE` | 6 | Top N assets |
 | `AGENT_UNIVERSE_CANDIDATE_LIMIT` | 240 | Broad pool |
 | `AGENT_UNIVERSE_REFRESH_MS` | 10800000 | Universe refresh (3h) |

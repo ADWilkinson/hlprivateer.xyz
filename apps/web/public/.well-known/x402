@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "network": "eip155:8453",
   "resources": [
     "https://api.hlprivateer.xyz/v1/agent/stream/snapshot",
     "https://api.hlprivateer.xyz/v1/agent/analysis",
@@ -11,5 +12,5 @@
     "https://api.hlprivateer.xyz/v1/agent/copy-trade/signals",
     "https://api.hlprivateer.xyz/v1/agent/copy-trade/positions"
   ],
-  "instructions": "HL Privateer -- open Hyperliquid discretionary desk. Autonomous agents making discretionary trading calls. Pay per call via x402 on Base (USDC). See https://hlprivateer.xyz/.well-known/agents.json for full endpoint catalog with prices."
+  "instructions": "Call /v1/agent/handshake then /v1/agent/verify, then send x-agent-entitlement on paid routes."
 }

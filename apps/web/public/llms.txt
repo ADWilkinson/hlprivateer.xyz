@@ -1,70 +1,40 @@
-# HL Privateer — Open Hyperliquid Discretionary Desk
+# HL Privateer - LLM Agent Quick Start
 # https://hlprivateer.xyz
 
-## What is this?
-HL Privateer is an open, agentic discretionary trading desk on Hyperliquid.
-A fund of autonomous agents making discretionary calls based on live data —
-positions, analysis, signals, and risk state — all accessible to any inbound
-agent via paid x402 endpoints.
+## Service Summary
+HL Privateer is an open agentic Hyperliquid discretionary desk.
+Use x402 entitlement flow for paid agent routes.
 
-You are an agent. You can follow our trades, read our analysis, copy our
-positions, or integrate our signals into your own strategy. Pay per call.
-No API keys. No sign-ups. Just x402.
+## Base URLs
+- REST API: https://api.hlprivateer.xyz
+- WebSocket: wss://ws.hlprivateer.xyz
+- Discovery: https://hlprivateer.xyz/.well-known/agents.json
 
-## Quick Start (for agents)
-1. Discover endpoints: `GET https://api.hlprivateer.xyz/v1/agent/stream/snapshot` → returns 402 with payment challenge
-2. Pay the challenge using x402 (USDC on Base, network eip155:8453)
-3. Receive live data in the 200 response
+## Agent Access (x402)
+1. POST https://api.hlprivateer.xyz/v1/agent/handshake
+2. POST https://api.hlprivateer.xyz/v1/agent/verify
+3. Call paid routes with header: x-agent-entitlement: <challengeId>
 
-## x402 Endpoints (all GET, all pay-per-call)
+## Core paid routes
+- GET /v1/agent/stream/snapshot ($0.01)
+- GET /v1/agent/analysis ($0.01)
+- GET /v1/agent/positions ($0.01)
+- GET /v1/agent/orders ($0.01)
+- GET /v1/agent/insights ($0.02)
+- GET /v1/agent/copy-trade/signals ($0.03)
+- GET /v1/agent/copy-trade/positions ($0.03)
 
-| Endpoint | Price | What you get |
-|----------|-------|-------------|
-| `/v1/agent/stream/snapshot` | $0.01 | Mode, PnL%, health, open positions, recent ops tape |
-| `/v1/agent/positions` | $0.01 | Full position array — symbols, sides, sizes, entries, PnL |
-| `/v1/agent/orders` | $0.01 | Open orders on the book |
-| `/v1/agent/analysis?latest=true` | $0.01 | Latest AI strategist analysis with thesis + signals |
-| `/v1/agent/analysis` | $0.01 | Analysis history (filterable by correlationId, limit) |
-| `/v1/agent/insights?scope=market` | $0.02 | Risk config + signal timeline + account snapshot |
-| `/v1/agent/insights?scope=ai` | $0.02 | Full dashboard: floor state + risk + analysis + copy summary |
-| `/v1/agent/copy/trade?kind=signals` | $0.03 | Audit trail of proposals, analysis, risk, basket events |
-| `/v1/agent/copy/trade?kind=positions` | $0.03 | Position data formatted for copy-trading |
+## Free routes
+- GET /v1/public/pnl
+- GET /v1/public/floor-snapshot
+- GET /v1/public/floor-tape
+- GET /v1/public/identity
+- GET /healthz
 
-## Free Endpoints (no payment required)
+## Identity
+- ERC-8004 chain: 8453
+- Registration: https://hlprivateer.xyz/.well-known/agent-registration.json
 
-| Endpoint | What you get |
-|----------|-------------|
-| `/v1/public/pnl` | Current PnL% and mode |
-| `/v1/public/floor-snapshot` | Mode, PnL%, health, account value, positions, ops tape |
-| `/v1/public/floor-tape` | Recent ops log lines |
-| `/healthz` | Service health check |
-
-## Payment Details
-- Network: Base (eip155:8453)
-- Asset: USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)
-- Facilitator: https://facilitator.payai.network
-- Protocol: x402 v2 (exact scheme)
-
-## How It Works
-HL Privateer runs a fund of agents on a single Hyperliquid account:
-- **Strategist agent**: scans markets, generates trade proposals with thesis
-- **Research agent**: regime hypotheses and macro context
-- **Risk agent**: explains risk posture (hard-gated by deterministic engine)
-- **Execution agent**: suggests tactics, annotates slippage
-- **Ops agent**: monitors feeds, service health, circuit breakers
-
-All agent proposals pass through a deterministic risk engine before execution.
-No agent can bypass risk limits. The human operator holds kill-switch authority.
-
-## Agent Resources
-- Agent skill (agentskills.io): https://hlprivateer.xyz/skills.md
-- Agent skill (ClawHub): https://hlprivateer.xyz/skills/hl-privateer.md
-- Full API docs: https://hlprivateer.xyz/API.md
-- x402 seller guide: https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md
-- Agent discovery: https://hlprivateer.xyz/.well-known/agents.json
-- WebSocket: wss://ws.hlprivateer.xyz (live floor tape stream)
-
-## Mandatory Constraints
-- Public responses expose PnL percent only and obfuscated fields.
-- External agents should respect capability gates and dynamic risk policy adjustments.
-- Payment entitlement is checked before every agent endpoint invocation.
+## Model defaults
+- Internal agent runner default LLM: claude
+- Default model: claude-sonnet-4-6

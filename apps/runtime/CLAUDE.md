@@ -32,8 +32,8 @@ src/
 
 ## State Machine
 ```
-INIT → WARMUP → READY ⇄ IN_TRADE ⇄ REBALANCE → READY
-                  ↓         ↓         ↓
+INIT → WARMUP → READY ⇄ IN_TRADE → READY
+                  ↓         ↓
                 HALT      SAFE_MODE
                   ↑         ↓
                   └─────────┘
@@ -51,7 +51,7 @@ INIT → WARMUP → READY ⇄ IN_TRADE ⇄ REBALANCE → READY
 6. Proposal selection (fresh agent proposal from last 60s or skip)
 7. Risk evaluation (`evaluateRisk()` from risk-engine)
 8. Execution (ALLOW → place orders; ALLOW_REDUCE_ONLY → SAFE_MODE after exec)
-9. Mode transition (IN_TRADE / REBALANCE / READY)
+9. Mode transition (IN_TRADE / READY)
 10. Auto-mitigation (critical risk DENY + open exposure → `/flatten` + SAFE_MODE)
 
 Cycle interval: `CYCLE_MS` (default 5000ms)
@@ -88,7 +88,7 @@ Risk DENY with critical codes + open exposure → SAFE_MODE + internal `/flatten
 | `DRY_RUN` | false | Tolerate missing DB |
 | `ENABLE_LIVE_OMS` | false | Live trading |
 | `LIVE_MODE_APPROVED` | false | Operator safety gate |
-| `RISK_MAX_LEVERAGE` | 2 | Hard leverage cap |
+| `RISK_MAX_LEVERAGE` | 10 | Hard leverage cap |
 | `RISK_MAX_NOTIONAL_USD` | 10000 | Gross exposure cap |
 | `BASKET_SYMBOLS` | - | Comma-separated symbols |
 | `RUNTIME_METRICS_PORT` | 9400 | Prometheus endpoint |

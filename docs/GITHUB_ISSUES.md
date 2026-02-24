@@ -8,7 +8,7 @@
 - HLP-005 OMS order lifecycle engine: DONE — strict order state transitions, idempotency dedupe, reconciliation and snapshoting implemented in `apps/runtime/src/services/oms.ts`.
 - HLP-006 Fill reconciliation worker: DONE — periodic reconciliation hooks and reconcile publish path exist in runtime orchestrator and OMS lifecycle.
 - HLP-007 Deterministic risk engine package: DONE — hard-gate checks for leverage, drawdown, exposure, stale data, slippage and fail-closed posture in `packages/risk-engine`.
-- HLP-008 Trading state machine: DONE — `INIT/WARMUP/READY/IN_TRADE/REBALANCE/HALT/SAFE_MODE` machine enforced with audited transitions in runtime.
+- HLP-008 Trading state machine: DONE — `INIT/WARMUP/READY/IN_TRADE/HALT/SAFE_MODE` machine enforced with audited transitions in runtime.
 - HLP-009 Strategy proposal schema and parser: DONE — zod parser and proposal contracts defined in `packages/contracts` plus runtime decision workflow.
 - HLP-010 Paper trading execution adapter: DONE — simulator uses identical execution adapter contract and latency/slippage options.
 - HLP-011 Runtime orchestrator loop: DONE — Sense/Think/Propose/Validate/Execute/Review loop with cycle audit and urgent triggers in `apps/runtime/src/orchestrator/state.ts`.
@@ -91,7 +91,7 @@ Acceptance Criteria:
 Dependencies: HLP-003
 
 ## HLP-008 Trading state machine
-Description: Implement `INIT/WARMUP/READY/IN_TRADE/REBALANCE/HALT/SAFE_MODE` state machine.
+Description: Implement `INIT/WARMUP/READY/IN_TRADE/HALT/SAFE_MODE` state machine.
 Acceptance Criteria:
 - Valid transitions enforced.
 - Invalid transitions rejected and audited.

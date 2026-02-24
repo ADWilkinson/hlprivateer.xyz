@@ -33,12 +33,10 @@ Outputs published:
 Core:
 - `REDIS_URL`, `REDIS_STREAM_PREFIX`
 - `AGENT_ID` (default `agent-runner`)
-- `AGENT_PIPELINE_BASE_MS` (default 1800000 / 30min; IDLE cadence, clamped [5min, 1h])
-- `AGENT_OPS_INTERVAL_MS` (default 3000)
-- `OPS_AUTO_HALT` (default false; when true, ops-agent may publish `/halt` on severe stale data)
+- `AGENT_PIPELINE_BASE_MS` (default 3600000 / 1h; fire-and-forget cadence, clamped [5min, 2h])
 
 Strategy knobs (shared with runtime):
-- `AGENT_MIN_REBALANCE_LEG_USD` (minimum per-leg execution size in USD)
+- `AGENT_MIN_LEG_USD` (minimum per-leg execution size in USD)
 - `DRY_RUN`, `ENABLE_LIVE_OMS` (used by the agent-runner to mark proposals as `requestedMode=LIVE` when live is enabled)
 - `RUNTIME_FLAT_DUST_NOTIONAL_USD` (dust threshold; positions smaller than this are treated as flat to avoid recovery loops)
 - `RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS` (infra-only outage duration before runtime can auto-flatten)

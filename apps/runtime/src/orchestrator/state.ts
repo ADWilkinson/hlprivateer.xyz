@@ -24,10 +24,8 @@ import { RuntimeStore } from '../db/persistence'
 import { RuntimeEnv } from '../config'
 import { canTransition } from '../state-machine'
 import { computeInfraAutoFlattenEligibility } from './infra-auto-flatten'
-import { shouldSuppressDiscretionaryExit, type ActiveThesisState } from './thesis-guard'
 import { ulid } from 'ulid'
 import promClient from 'prom-client'
-import type { PluginSignal } from '@hl/privateer-plugin-sdk'
 import type { HlClient } from '@hl/privateer-hl-client'
 type RateLimitLevel = 'warn' | 'error'
 
@@ -281,27 +279,14 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   let firstInfraFailureAtMs = 0
   let lastInfraAutoFlattenNoticeAtMs = 0
 
-  // Trailing stop state: tracks high/low water marks per symbol for trailing stop logic
-  const trailingStopState = new Map<string, {
-    symbol: string
-    side: 'LONG' | 'SHORT'
-    highWaterPx: number
-    lowWaterPx: number
-    entryPx: number
-    currentSlOrderId: string | null
-    lastUpdateAtMs: number
-  }>()
   let lastNoActionNoticeAtMs = 0
   let lastNoActionSignature = ''
-  let lastDustSweepAtMs = 0
-  const DUST_SWEEP_COOLDOWN_MS = 30_000
   let consecutiveCycleErrors = 0
   const SAFE_MODE_ERROR_THRESHOLD = 5
   const infraAutoFlattenMinOutageMs = env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS
   const infraAutoFlattenNoticeCooldownMs = env.RUNTIME_INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS
   const infraAutoFlattenMinGrossUsd = Math.max(0, env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD)
   const infraAutoFlattenMinGrossPct = Math.max(0, Math.min(1, env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_PCT))
-  let activeThesis: ActiveThesisState | null = null
 
   const normalizeRiskSignature = (message: string): string =>
     message
@@ -453,10 +438,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
   }
 
   const minLiveAccountValueUsd = (): number => {
-    const policy = readRuntimeRiskPolicy()
-    const leverageCap = Math.max(1, policy.targetLeverage ?? policy.maxLeverage)
-    const leverageAwareFloor = env.BASKET_TARGET_NOTIONAL_USD / leverageCap
-    return Math.max(env.RUNTIME_MIN_LIVE_ACCOUNT_VALUE_USD, leverageAwareFloor)
+    return env.RUNTIME_MIN_LIVE_ACCOUNT_VALUE_USD
   }
 
   const minimumFlatExposureUsd = Math.max(MIN_MEANINGFUL_POSITION_USD, env.RUNTIME_FLAT_DUST_NOTIONAL_USD)
@@ -859,161 +841,11 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       const totalPnlUsd = state.realizedPnlUsd + mark.unrealizedPnlUsd
       const pnlDenominatorUsd = resolveRuntimeAccountValueUsd()
       state.pnlPct = pnlDenominatorUsd > 0 ? Number(((totalPnlUsd / pnlDenominatorUsd) * 100).toFixed(3)) : 0
-      if (!hasAnyExposure(state.positions)) {
-        activeThesis = null
-      }
-
       // Cycle reached mark-to-market without error — reset transient error counter.
       consecutiveCycleErrors = 0
 
-      // Trailing stop update: track high/low water marks and move stops in profit direction
-      if (adapter.placeTpsl && env.ENABLE_LIVE_OMS) {
-        const meaningfulPos = state.positions.filter((p) => isMeaningfulPosition(p))
-        const heldSymbols = new Set(meaningfulPos.map((p) => p.symbol))
-
-        // Clean up trailing state for closed positions
-        for (const symbol of trailingStopState.keys()) {
-          if (!heldSymbols.has(symbol)) trailingStopState.delete(symbol)
-        }
-
-        for (const pos of meaningfulPos) {
-          const tick = ticks[pos.symbol]
-          if (!tick) continue
-
-          const existing = trailingStopState.get(pos.symbol)
-          if (!existing) {
-            // Initialize tracking for new positions
-            trailingStopState.set(pos.symbol, {
-              symbol: pos.symbol,
-              side: pos.side,
-              highWaterPx: pos.markPx,
-              lowWaterPx: pos.markPx,
-              entryPx: pos.avgEntryPx,
-              currentSlOrderId: null,
-              lastUpdateAtMs: nowMs
-            })
-            continue
-          }
-
-          // Update water marks
-          existing.highWaterPx = Math.max(existing.highWaterPx, pos.markPx)
-          existing.lowWaterPx = Math.min(existing.lowWaterPx, pos.markPx)
-
-          // Only trail if position is in profit and enough time has passed (5 min cooldown)
-          if (nowMs - existing.lastUpdateAtMs < 5 * 60_000) continue
-
-          const TRAIL_ACTIVATION_PCT = 2.0 // Activate trailing after 2% profit
-          const TRAIL_OFFSET_PCT = 1.5 // Trail 1.5% behind high/low water
-
-          if (pos.side === 'LONG') {
-            const profitPct = ((existing.highWaterPx - existing.entryPx) / existing.entryPx) * 100
-            if (profitPct < TRAIL_ACTIVATION_PCT) continue
-
-            const trailSl = existing.highWaterPx * (1 - TRAIL_OFFSET_PCT / 100)
-            // Only move SL up, never down
-            if (trailSl > existing.entryPx) {
-              try {
-                // Cancel previous SL before placing new one to avoid orphaned orders
-                if (existing.currentSlOrderId) {
-                  await adapter.cancel(existing.currentSlOrderId, `trail-replace-${pos.symbol}`).catch(() => {})
-                }
-                const closingSide: 'BUY' | 'SELL' = 'SELL'
-                const tpslResult = await adapter.placeTpsl({
-                  symbol: pos.symbol,
-                  closingSide,
-                  size: String(pos.qty),
-                  stopLossPrice: trailSl,
-                  tick,
-                  correlationId: `trail-${pos.symbol}-${nowMs}`
-                })
-                existing.currentSlOrderId = tpslResult.slOrderId ?? null
-                existing.lastUpdateAtMs = nowMs
-                await addAudit('trailing_stop.updated', 'runtime', cycleCorrelationId, {
-                  symbol: pos.symbol,
-                  side: pos.side,
-                  highWaterPx: existing.highWaterPx,
-                  newSlPx: trailSl,
-                  profitPct: profitPct.toFixed(2)
-                })
-              } catch { /* non-critical */ }
-            }
-          } else {
-            const profitPct = ((existing.entryPx - existing.lowWaterPx) / existing.entryPx) * 100
-            if (profitPct < TRAIL_ACTIVATION_PCT) continue
-
-            const trailSl = existing.lowWaterPx * (1 + TRAIL_OFFSET_PCT / 100)
-            if (trailSl < existing.entryPx) {
-              try {
-                // Cancel previous SL before placing new one to avoid orphaned orders
-                if (existing.currentSlOrderId) {
-                  await adapter.cancel(existing.currentSlOrderId, `trail-replace-${pos.symbol}`).catch(() => {})
-                }
-                const closingSide: 'BUY' | 'SELL' = 'BUY'
-                const tpslResult = await adapter.placeTpsl({
-                  symbol: pos.symbol,
-                  closingSide,
-                  size: String(pos.qty),
-                  stopLossPrice: trailSl,
-                  tick,
-                  correlationId: `trail-${pos.symbol}-${nowMs}`
-                })
-                existing.currentSlOrderId = tpslResult.slOrderId ?? null
-                existing.lastUpdateAtMs = nowMs
-                await addAudit('trailing_stop.updated', 'runtime', cycleCorrelationId, {
-                  symbol: pos.symbol,
-                  side: pos.side,
-                  lowWaterPx: existing.lowWaterPx,
-                  newSlPx: trailSl,
-                  profitPct: profitPct.toFixed(2)
-                })
-              } catch { /* non-critical */ }
-            }
-          }
-        }
-      }
-
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)
-
-      // Periodic dust sweep: close sub-meaningful positions left by IOC partial fills.
-      if (adapter.closeBySize && !hasAnyExposure() && nowMs - lastDustSweepAtMs >= DUST_SWEEP_COOLDOWN_MS) {
-        const dustPositions = state.positions.filter(
-          (p) => Math.abs(p.notionalUsd) > 0 && !isMeaningfulPosition(p) && p.qty > 0
-        )
-        if (dustPositions.length > 0) {
-          lastDustSweepAtMs = nowMs
-          for (const position of dustPositions) {
-            const dustTick = ticks[position.symbol] ?? (await marketAdapter.latest(position.symbol))
-            if (!dustTick) continue
-            const dustSide: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
-            try {
-              await adapter.closeBySize({
-                symbol: position.symbol,
-                side: dustSide,
-                size: String(position.qty),
-                tick: dustTick,
-                idempotencyKey: `dust-sweep:${cycleCorrelationId}:${position.symbol}:${dustSide}`
-              })
-            } catch (error) {
-              await addAudit('execution.dust_sweep_error', 'runtime', cycleCorrelationId, {
-                symbol: position.symbol,
-                side: dustSide,
-                qty: position.qty,
-                notionalUsd: position.notionalUsd,
-                message: String(error)
-              })
-            }
-          }
-          const dustSnapshot = await adapter.snapshot()
-          state.positions = dustSnapshot.positions
-          state.orders = dustSnapshot.orders
-          state.realizedPnlUsd = dustSnapshot.realizedPnlUsd
-          await Promise.all([store.savePositions(state.positions), store.saveOrders(state.orders)]).catch((error) =>
-            logRuntimePersistenceError('savePositionsOrders', error, { positions: state.positions.length, orders: state.orders.length })
-          )
-          await publishPositionsUpdate(cycleCorrelationId)
-        }
-      }
 
       if (state.mode === 'HALT') {
         runtimeProposalCounter.inc({ status: 'skipped_halt' })
@@ -1098,9 +930,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
           return
         }
       }
-
-      const recentSignals = pluginManager.getSignals()
-      const targetNotional = computeTargetNotional(env.BASKET_TARGET_NOTIONAL_USD, recentSignals)
 
       const agentFresh = pendingAgentProposal && Date.now() - pendingAgentProposalReceivedAt < 60_000
       let proposalCandidate: StrategyProposal | null
@@ -1190,24 +1019,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         urgency: urgency ? 'urgent' : 'scheduled'
       }, 'runtime.proposal')
 
-      const exitGuard = shouldSuppressDiscretionaryExit({
-        proposal,
-        activeThesis,
-        pnlPct: state.pnlPct,
-        nowMs: Date.now()
-      })
-      if (exitGuard.suppress) {
-        runtimeProposalCounter.inc({ status: 'exit_suppressed_thesis_valid' })
-        await addAudit('proposal.exit_suppressed', 'runtime', proposal.proposalId, {
-          proposalId: proposal.proposalId,
-          reason: exitGuard.reason,
-          exitReason: proposal.exitReason ?? 'DISCRETIONARY',
-          thesis: activeThesis
-        }, 'runtime.proposal')
-        await publishStateUpdate(proposal.proposalId, `exit suppressed (${exitGuard.reason})`)
-        return
-      }
-
       let dependencyHealth = await bus.health()
       // In DRY_RUN mode we allow running without Postgres persistence to reduce operational complexity.
       // In live mode, persistence health remains a hard dependency (fail-closed).
@@ -1296,8 +1107,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
       if (previousMode === 'READY' && hasAnyExposure()) {
         await setMode('IN_TRADE', 'trade entry')
-      } else if (hasAnyExposure() && state.mode === 'IN_TRADE') {
-        await setMode('REBALANCE', 'rebalance')
       } else if (!hasAnyExposure() && state.mode !== 'READY') {
         await setMode('READY', 'flat')
       }
@@ -1404,6 +1213,38 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
           )
           if (!shouldReduce) continue
         }
+        // Validate SL/TP on ENTER legs: reject legs missing or directionally inverted prices
+        if (action.type === 'ENTER') {
+          const legAny = leg as any
+          if (legAny.stopLossPrice == null || legAny.takeProfitPrice == null) {
+            await addAudit('execution.enter_rejected_missing_sltp', 'runtime', proposal.proposalId, {
+              symbol: leg.symbol,
+              side: leg.side,
+              hasStopLoss: legAny.stopLossPrice != null,
+              hasTakeProfit: legAny.takeProfitPrice != null,
+              reason: 'ENTER leg missing required stopLossPrice or takeProfitPrice'
+            })
+            continue
+          }
+          // Direction pre-validation: reject before execution if SL/TP are inverted vs current price
+          const midPx = tick.px
+          if (midPx > 0) {
+            const isLong = leg.side === 'BUY'
+            const slOk = isLong ? legAny.stopLossPrice < midPx : legAny.stopLossPrice > midPx
+            const tpOk = isLong ? legAny.takeProfitPrice > midPx : legAny.takeProfitPrice < midPx
+            if (!slOk || !tpOk) {
+              await addAudit('execution.enter_rejected_inverted_sltp', 'runtime', proposal.proposalId, {
+                symbol: leg.symbol,
+                side: leg.side,
+                midPx,
+                stopLossPrice: legAny.stopLossPrice,
+                takeProfitPrice: legAny.takeProfitPrice,
+                reason: `SL/TP inverted vs mid $${midPx}: SL ${slOk ? 'ok' : 'BAD'}, TP ${tpOk ? 'ok' : 'BAD'}`
+              })
+              continue
+            }
+          }
+        }
         eligibleLegs.push({ leg, tick })
       }
 
@@ -1474,7 +1315,7 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
     }
 
     const allActions = proposal.actions
-    const tpslActions = allActions.filter((a) => a.type === 'ENTER' || a.type === 'REBALANCE')
+    const tpslActions = allActions.filter((a) => a.type === 'ENTER')
     if (adapter.placeTpsl && tpslActions.length > 0) {
       const legsWithTpsl = tpslActions.flatMap((a) => a.legs).filter(
         (leg: any) => leg.stopLossPrice != null || leg.takeProfitPrice != null
@@ -1546,8 +1387,10 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
           if (validatedSlPrice == null && validatedTpPrice == null) {
             await addAudit('tpsl.skipped', 'runtime', proposal.proposalId, {
               symbol: leg.symbol,
-              reason: 'both TP and SL rejected or absent after validation'
+              reason: 'both TP and SL rejected or absent after validation — entering SAFE_MODE'
             })
+            // Fire-and-forget invariant violated: position is live without exchange-side protection.
+            await setMode('SAFE_MODE', `tpsl.skipped: ${leg.symbol} entered without exchange-side SL/TP`)
             continue
           }
 
@@ -1578,19 +1421,6 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
             })
           }
         }
-      }
-    }
-
-    const hasExitAction = allActions.some((a) => a.type === 'EXIT')
-    if (hasExitAction) {
-      if (!hasAnyExposure(state.positions)) {
-        activeThesis = null
-      }
-    } else if (hasAnyExposure(state.positions)) {
-      const allSymbols = allActions.flatMap((a) => a.legs.map((leg: { symbol: string }) => leg.symbol))
-      activeThesis = {
-        thesisId: proposal.thesis?.thesisId ?? proposal.proposalId,
-        symbols: [...new Set(allSymbols)]
       }
     }
 
@@ -2260,24 +2090,6 @@ function markToMarketPositions(
 
   return { positions: marked, unrealizedPnlUsd }
 }
-
-function computeTargetNotional(baseTargetNotional: number, signals: PluginSignal[]): number {
-  const latestVolatility = [...signals].reverse().find((signal) => signal.signalType === 'volatility')
-  const latestFunding = [...signals].reverse().find((signal) => signal.signalType === 'funding')
-
-  let scale = 1
-  if (latestVolatility) {
-    const volatilityScale = 1 - Math.min(0.4, Math.abs(latestVolatility.value) / 25)
-    scale *= Math.max(0.6, volatilityScale)
-  }
-
-  if (latestFunding) {
-    scale *= latestFunding.value > 0 ? 0.95 : 1.05
-  }
-
-  return Number(Math.max(100, baseTargetNotional * scale).toFixed(2))
-}
-
 
 function envelopeId() {
   return ulid()

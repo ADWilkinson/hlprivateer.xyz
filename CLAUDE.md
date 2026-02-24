@@ -13,7 +13,7 @@ apps/
 ├── runtime/         # Core trading orchestrator + OMS + state machine
 ├── api/             # Fastify REST API (operator, agent, public routes)
 ├── ws-gateway/      # WebSocket real-time event fanout
-├── agent-runner/    # LLM agent orchestration (7 roles, structured proposals)
+├── agent-runner/    # LLM agent orchestration (fire-and-forget pipeline, structured proposals)
 └── web/             # Next.js ASCII UI (operator dashboard + landing)
 packages/
 ├── contracts/       # Zod schemas + shared types (single source of truth)
@@ -42,7 +42,7 @@ Each directory has its own `CLAUDE.md` with architecture details and development
 ## Key Architectural Invariants
 - **Fail-closed**: Risk engine denies on any critical check failure. Dependency errors trigger SAFE_MODE.
 - **Deterministic risk gates**: Pure function evaluation, no I/O, same inputs → same output.
-- **State machine**: INIT → WARMUP → READY ⇄ IN_TRADE ⇄ REBALANCE. HALT and SAFE_MODE are escape states.
+- **State machine**: INIT → WARMUP → READY ⇄ IN_TRADE. HALT and SAFE_MODE are escape states. Fire-and-forget: each trade has SL/TP on exchange at entry.
 - **Event-sourced**: All inter-service communication flows through typed Redis Streams with correlation IDs.
 - **Audit trail**: Hash-chained (SHA-256) audit events. Every operator/agent action logged.
 - **Secret handling**: `*_FILE` pattern (e.g., `JWT_SECRET_FILE` overrides `JWT_SECRET`).

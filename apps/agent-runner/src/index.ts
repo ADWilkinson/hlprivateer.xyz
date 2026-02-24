@@ -1194,9 +1194,12 @@ function computeExecutionTactics(_params: { signals: PluginSignal[] }): { expect
 }
 
 const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
-  'Core floor rules:',
-  '- Objective: create fully discretionary positions — any structure (directional, paired, hedged) — based on holistic data synthesis.',
-  '- You choose the structure. Directional, pairs, multi-leg — whatever the data supports. No default preference.',
+  'Core floor rules (fire-and-forget model):',
+  '- Each trade is independent. SL and TP are placed on the exchange at entry. No trailing stops, no runtime exit management.',
+  '- Pipeline runs every hour. Between cycles, the system sleeps.',
+  '- Position sizing: 50% of account value per trade leg.',
+  '- Leverage cap: 10x max. Total gross notional must not exceed 10x accountValueUsd.',
+  '- Allowed decisions: OPEN, HOLD, EXIT only.',
   `- The universe is large (${env.AGENT_UNIVERSE_SIZE} assets). Scan broadly — the best opportunity may be anywhere.`,
   '- Synthesize all available context holistically. Every signal gains or loses meaning in relation to other signals. Weight data sources dynamically based on current conditions.',
   '- No direct order routing or execution control lives in this model; runtime + risk-engine are authoritative.',
@@ -1208,7 +1211,7 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- FEAR & GREED INDEX: Interpret as a contrarian indicator. Extreme fear (low values) historically marks buying opportunities — panic selling creates dislocated entries and favorable risk/reward. Extreme greed (high values) signals euphoria, crowded positioning, and over-extension where de-risking is prudent. Do not treat extreme fear as a reason to block trading or flatten.',
   'DECISION PHILOSOPHY:',
   '- The risk engine provides hard backstops. Your job is to find the best risk-adjusted opportunity and express it clearly.',
-  '- Every decision (OPEN, HOLD, EXIT, REBALANCE) is valid when the data supports it. No decision is a "default."',
+  '- Every decision (OPEN, HOLD, EXIT) is valid when the data supports it. No decision is a "default."',
   '- Hesitation has a cost. So does forcing low-conviction trades. Find the right balance for current conditions.',
   'RISK RECOVERY:',
   '- When a recent risk DENY cites DRAWDOWN/EXPOSURE/LEVERAGE, require immediate risk-reduction first.',
@@ -1216,7 +1219,6 @@ const COMMON_AGENT_PROMPT_PREAMBLE: string[] = [
   '- DEPENDENCY_FAILURE refers to runtime infrastructure (Redis, Postgres) NOT external data sources.',
   '- Budget caps in floor context are hard constraints enforced by the risk engine.',
   '- Read floor context memory every cycle: active directive, risk caps, recent posture tape, current exposure before sizing.',
-  '- Each trade is independent with its own TP/SL orders on the exchange.',
   '- Execution channels: /flatten and /risk-policy for safety interventions.'
 ]
 
@@ -1238,8 +1240,6 @@ function buildAgentSourceAppendix(): string[] {
 
 const FLOOR_TAPE_CONTEXT_LINES = 8
 const STRATEGY_CONTEXT_MAX_AGE_MS = 120_000
-const DECK_STATUS_HEARTBEAT_MS = 60_000
-const IDLE_HEARTBEAT_MS = 60_000
 const STRATEGIST_NO_ACTION_SUPPRESS_MS = 60_000
 
 type FloorTapeLine = {
@@ -1337,15 +1337,13 @@ type InterAgentRoleContext = {
 }
 
 function summarizeInterAgentContext(nowMs = Date.now()): Record<string, InterAgentRoleContext> {
-  const staleThresholdMs = Math.max(STRATEGY_CONTEXT_MAX_AGE_MS, env.AGENT_OPS_INTERVAL_MS * 3)
+  const staleThresholdMs = Math.max(STRATEGY_CONTEXT_MAX_AGE_MS, env.AGENT_PIPELINE_BASE_MS * 2)
 
   const entries: Record<string, InterAgentRoleContext> = {}
   entries.research = toInterAgentRoleContext(lastResearchAt, nowMs, staleThresholdMs, 'heartbeat')
   entries.risk = toInterAgentRoleContext(lastRiskAt, nowMs, staleThresholdMs, 'heartbeat')
   entries.strategist = toInterAgentRoleContext(lastDirectiveAt, nowMs, staleThresholdMs, 'heartbeat')
   entries.scribe = toInterAgentRoleContext(lastAnalysisAt, nowMs, staleThresholdMs, 'heartbeat')
-  entries.ops = toInterAgentRoleContext(lastOpsAt, nowMs, staleThresholdMs, 'heartbeat')
-  entries.scout = toInterAgentRoleContext(Math.max(lastProposalPublishedAt, lastDirectiveAt), nowMs, staleThresholdMs, 'heartbeat')
   entries.execution = toInterAgentRoleContext(Math.max(lastProposalPublishedAt, lastDirectiveAt), nowMs, staleThresholdMs, 'heartbeat')
   return entries
 }
@@ -1369,10 +1367,6 @@ function toInterAgentRoleContext(
 }
 
 const floorTapeHistory: FloorTapeLine[] = []
-let lastDeckStatusSignature = ''
-let lastDeckStatusHeartbeatAtMs = 0
-let lastExecutionHeartbeatAtMs = 0
-let lastScribeHeartbeatAtMs = 0
 
 function compactReportFields(report: unknown, keep: readonly string[]): Record<string, unknown> | null {
   if (!report || typeof report !== 'object' || Array.isArray(report)) {
@@ -1650,8 +1644,6 @@ function buildCrewFloorContext(nowMs = Date.now()): Record<string, unknown> {
     requestedMode: requestedModeFromEnv(),
     stateUpdate: lastStateUpdate ?? null,
     risk: {
-      autoHaltActive,
-      autoHaltHealthySinceMs: autoHaltHealthySinceMs > 0 ? now - autoHaltHealthySinceMs : 0,
       lastRiskDecision
     },
     market: {
@@ -2072,7 +2064,7 @@ type UniverseSelection = {
   }
 }
 
-type StrategistDirectiveDecision = 'OPEN' | 'REBALANCE' | 'EXIT' | 'HOLD'
+type StrategistDirectiveDecision = 'OPEN' | 'EXIT' | 'HOLD'
 
 type StrategistDirective = {
   decision: StrategistDirectiveDecision
@@ -2912,72 +2904,47 @@ function buildDiscretionaryProposal(params: {
     return null
   }
 
-  const desiredBySymbol = new Map<string, number>()
-  for (const leg of params.plan.legs) {
-    const symbol = String(leg.symbol).trim().toUpperCase()
-    if (!symbol) {
-      continue
-    }
-    const signedNotional = leg.side === 'LONG' ? leg.notionalUsd : -leg.notionalUsd
-    const previous = desiredBySymbol.get(symbol) ?? 0
-    desiredBySymbol.set(symbol, previous + signedNotional)
-  }
-
-  // Close unmentioned current symbols so stale positions don't linger.
-  for (const position of params.positions) {
-    const symbol = String(position.symbol).trim().toUpperCase()
-    if (symbol && !desiredBySymbol.has(symbol)) {
-      desiredBySymbol.set(symbol, 0)
-    }
-  }
-
-  const currentBySymbol = signedNotionalBySymbol(params.positions)
-  const minLegUsd = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
-  const deltas = [...desiredBySymbol.entries()]
-    .map(([symbol, desiredNotional]) => {
-      const current = currentBySymbol.get(symbol) ?? 0
-      const delta = desiredNotional - current
-      if (!Number.isFinite(delta) || Math.abs(delta) < minLegUsd) {
-        return null
-      }
-      const side: 'BUY' | 'SELL' = delta > 0 ? 'BUY' : 'SELL'
-      const notionalUsd = normalizeProposalNotional(delta)
-      if (!Number.isFinite(notionalUsd) || notionalUsd <= 0) {
-        return null
-      }
-      const reduces =
-        (current > 0 && side === 'SELL') ||
-        (current < 0 && side === 'BUY')
-      return { symbol, side, notionalUsd, reduces }
-    })
-    .filter((leg): leg is { symbol: string; side: 'BUY' | 'SELL'; notionalUsd: number; reduces: boolean } => Boolean(leg))
-
-  if (deltas.length === 0) {
-    return null
-  }
-
-  // Place reducing legs first to minimize transient gross exposure under risk constraints.
-  deltas.sort((a, b) => {
-    if (a.reduces !== b.reduces) return a.reduces ? -1 : 1
-    return a.symbol.localeCompare(b.symbol)
-  })
+  // Enforce 50% sizing: each leg notionalUsd = 0.5 * accountValueUsd
+  const accountValueUsd = Number((lastStateUpdate as { accountValueUsd?: unknown } | null)?.accountValueUsd)
+  const halfAccountUsd = Number.isFinite(accountValueUsd) && accountValueUsd > 0
+    ? normalizeProposalNotional(accountValueUsd * 0.5)
+    : 0
 
   const planLegBySymbol = new Map<string, DiscretionaryLeg>()
   for (const leg of params.plan.legs) {
     planLegBySymbol.set(String(leg.symbol).trim().toUpperCase(), leg)
   }
 
-  const legs = deltas.map(({ symbol, side, notionalUsd }) => {
-    const planLeg = planLegBySymbol.get(symbol)
-    return {
-      symbol,
-      side,
-      notionalUsd,
-      ...(planLeg?.stopLossPrice != null ? { stopLossPrice: planLeg.stopLossPrice } : {}),
-      ...(planLeg?.takeProfitPrice != null ? { takeProfitPrice: planLeg.takeProfitPrice } : {}),
-      ...(planLeg?.thesisNote ? { thesisNote: planLeg.thesisNote } : {})
+  // Validate SL/TP on every ENTER leg — reject proposal if missing
+  for (const leg of params.plan.legs) {
+    if (leg.stopLossPrice == null || leg.takeProfitPrice == null) {
+      console.warn(`[agent-runner] rejecting proposal: ENTER leg ${leg.symbol} missing SL/TP`)
+      return null
     }
-  })
+  }
+
+  const minLegUsd = Math.max(0, env.AGENT_MIN_REBALANCE_LEG_USD)
+  const legs = params.plan.legs
+    .map((leg) => {
+      const symbol = String(leg.symbol).trim().toUpperCase()
+      if (!symbol) return null
+      const side: 'BUY' | 'SELL' = leg.side === 'LONG' ? 'BUY' : 'SELL'
+      const notionalUsd = halfAccountUsd > 0 ? halfAccountUsd : normalizeProposalNotional(leg.notionalUsd)
+      if (!Number.isFinite(notionalUsd) || notionalUsd < minLegUsd) return null
+      return {
+        symbol,
+        side,
+        notionalUsd,
+        ...(leg.stopLossPrice != null ? { stopLossPrice: leg.stopLossPrice } : {}),
+        ...(leg.takeProfitPrice != null ? { takeProfitPrice: leg.takeProfitPrice } : {}),
+        ...(leg.thesisNote ? { thesisNote: leg.thesisNote } : {})
+      }
+    })
+    .filter((leg): leg is NonNullable<typeof leg> => Boolean(leg))
+
+  if (legs.length === 0) {
+    return null
+  }
 
   const latestVolatility = [...params.signals].reverse().find((signal) => signal.signalType === 'volatility')
   const latestCorrelation = [...params.signals].reverse().find((signal) => signal.signalType === 'correlation')
@@ -2990,7 +2957,7 @@ function buildDiscretionaryProposal(params: {
 
   const actionNotionalUsd = legs.reduce((sum, leg) => sum + leg.notionalUsd, 0)
   const proposalId = ulid()
-  const actionType = params.positions.length > 0 ? 'REBALANCE' : 'ENTER'
+  const actionType: 'ENTER' = 'ENTER'
   const summaryPrefix = params.summaryPrefix ?? 'agent discretion'
   const confidence = typeof params.confidence === 'number' ? clamp(params.confidence, 0, 1) : 0.65
   const rationale =
@@ -3116,7 +3083,7 @@ async function generateAnalysis(params: {
   const prompt = [
     buildAgentPrompt({
       role: 'scribe (devil\'s advocate)',
-      mission: 'Challenge the current thesis. Your job is NOT to summarize what happened — the other agents already did that. Instead, identify what could go wrong that the strategist missed, flag hidden assumptions, and stress-test the rationale.',
+      mission: 'Challenge the current thesis. Your job is NOT to summarize what happened — the other agents already did that. Instead, identify what could go wrong that the strategist missed, flag hidden assumptions, and stress-test the rationale. Trades are fire-and-forget with SL/TP on exchange — focus on whether the levels are well-placed.',
       rules: [
         'Focus on what the strategist and research agent DIDN\'T consider or underweighted.',
         'Identify the single biggest risk to the current position or directive that isn\'t already in the risk report.',
@@ -3124,6 +3091,7 @@ async function generateAnalysis(params: {
         'Headline should be the contrarian take — what the bear case is if we\'re long, or the bull case if we\'re short.',
         'Keep output tight and concrete. Each risk item should be specific, observable, and actionable.',
         'Confidence reflects how vulnerable the current thesis is to the risks you identify (low = thesis is fragile, high = thesis is robust despite risks).',
+        'Pipeline runs hourly. Each trade is independent with exchange-side SL/TP — no trailing stops or runtime exit management.',
         'Do not include raw order tickets, signatures, or venue credentials.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3212,6 +3180,7 @@ async function generateResearchReport(params: {
       'When historical context shows regime persistence across cycles, factor that into your assessment.',
       'Scan the full universe — the best opportunity may be in any asset, not just the largest.',
       'Your recommendation MUST name only symbols from universeSymbols. Never recommend a symbol not listed there — it cannot be traded.',
+      'Pipeline runs hourly. Each trade is independent with SL/TP on exchange at entry. Focus on setups that work on hourly+ timeframes.',
       'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3287,7 +3256,7 @@ async function generateRiskReport(params: {
         additionalProperties: false,
         properties: {
           maxDrawdownPct: { type: 'number', minimum: 0.01, maximum: 100 },
-          maxLeverage: { type: 'number', minimum: 0.1, maximum: 20 },
+          maxLeverage: { type: 'number', minimum: 0.1, maximum: 10 },
           maxExposureUsd: { type: 'number', minimum: 25, maximum: 50000 },
           maxSlippageBps: { type: 'number', minimum: 0, maximum: 100 }
         }
@@ -3321,7 +3290,7 @@ async function generateRiskReport(params: {
         'Do not output execution mechanics.',
         'POLICY MANAGEMENT: You control the live risk policy parameters. The current policy is included in context under "currentRiskPolicy".',
         'Set policyRecommendations to an object with any parameters you want to change, or null to keep current policy.',
-        'LEVERAGE: Keep some headroom below the hard max to avoid reject churn from rounding and price moves. How much headroom depends on current volatility and conditions — use your judgment.',
+        'LEVERAGE: Hard cap is 10x. Keep some headroom below the hard max to avoid reject churn from rounding and price moves. How much headroom depends on current volatility and conditions — use your judgment.',
         'DRAWDOWN POLICY: maxDrawdownPct is set to 100 (effectively unlimited). The operator accepts full drawdown risk — do not change maxDrawdownPct.',
         'SESSION PNL: pnlPct is cumulative session realized P&L, not current position risk. When flat, it is historical context only.',
         'Only recommend policy changes with clear justification tied to observable market conditions.',
@@ -3414,7 +3383,7 @@ async function generateStrategistDirective(params: {
     type: 'object',
     additionalProperties: false,
     properties: {
-      decision: { type: 'string', enum: ['OPEN', 'REBALANCE', 'EXIT', 'HOLD'] },
+      decision: { type: 'string', enum: ['OPEN', 'EXIT', 'HOLD'] },
       plan: planSchema,
       rationale: { type: 'string' },
       confidence: { type: 'number' }
@@ -3436,22 +3405,20 @@ async function generateStrategistDirective(params: {
 	      role: 'strategist-directive agent',
 	      mission: 'Synthesize all available context and choose the best execution directive. Any structure (directional, paired, multi-leg) is valid when the thesis supports it.',
 	      rules: [
-	        'Allowed decisions: OPEN, REBALANCE, EXIT, HOLD only.',
-	        'OPEN: establish a new position. Any structure — the data decides.',
-	        'REBALANCE: plan legs define the COMPLETE TARGET PORTFOLIO after execution. Any currently-held symbol NOT included in the legs will be CLOSED. To retain an existing position, include it in the plan legs. To add a position while keeping existing ones, include ALL in the legs.',
+	        'Allowed decisions: OPEN, EXIT, HOLD only.',
+	        'OPEN: establish a new position. Any structure — the data decides. Every OPEN leg MUST include stopLossPrice and takeProfitPrice. Trades are fire-and-forget: SL/TP placed on the exchange at entry, no runtime exit management.',
         'HOLD: keep current exposure. Valid when conviction is genuinely low across available data.',
-        'EXIT: close ALL positions to flat immediately. Use for portfolio-wide risk-off, not routine trade management. To close a specific position, use REBALANCE with notionalUsd=0.',
+        'EXIT: close ALL positions to flat immediately. Use for portfolio-wide risk-off.',
+        'SIZING: Each trade leg notionalUsd = 50% of accountValueUsd. This is a hard rule.',
+        'LEVERAGE CAP: Total gross notional must not exceed 10x accountValueUsd.',
         'AMBER posture = consider reducing sizing, not stopping trading.',
         'If lastRiskDecision contains blocking DENY codes (DRAWDOWN, EXPOSURE, LEVERAGE, SAFE_MODE, STALE_DATA, LIQUIDITY), avoid discretionary churn — the runtime handles risk recovery.',
-        'For each leg, you may optionally specify stopLossPrice and/or takeProfitPrice as absolute price levels. For LONG: SL below markPrice, TP above. For SHORT: SL above, TP below. Inverted levels are rejected. Omitting them is valid — the runtime has trailing stops and you can manage exits via REBALANCE.',
+        'For each OPEN leg, specify stopLossPrice and takeProfitPrice as absolute price levels. For LONG: SL below markPrice, TP above. For SHORT: SL above, TP below. Inverted levels are rejected. Legs without SL/TP will be rejected.',
         'thesisNote per leg: explain the setup and what would invalidate it (max 500 chars).',
-        'Existing positions have active TP/SL on the exchange. Only include a REBALANCE leg for an existing symbol if the thesis is invalidated or you are rotating.',
         'Do not oversize to recover losses. pnlPct is historical — each trade stands on its own merit.',
-        'HOLD DECAY: Check historicalContext.consecutiveHolds. After 3+ consecutive HOLDs when flat, lower your conviction threshold — the cost of inaction compounds. After 5+, actively seek asymmetric setups you might otherwise skip. Persistent HOLDs while flat means the system is idle and earning nothing. If you still HOLD, your rationale must explicitly address why every universe asset is unattractive right now.',
         'Scan the full universe. The best opportunity may be anywhere.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
         'All context (technicals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
-        'For OPEN/REBALANCE plans, each leg notionalUsd must be >= governance.minLegNotionalUsd. You decide sizing autonomously. governance.accountValueUsd is equity, governance.buyingPowerUsd is total buying power (equity * leverage). You can use the full buyingPowerUsd for gross notional — that IS the point of leverage. Size proportionally to conviction within buyingPowerUsd.',
         'riskBudget values must be null or positive numbers.',
         'Do not propose both plan and decision HOLD.'
       ],
@@ -3478,19 +3445,19 @@ async function generateStrategistDirective(params: {
       })
 
   const decision: StrategistDirectiveDecision =
-    raw.decision === 'EXIT' || raw.decision === 'REBALANCE' || raw.decision === 'OPEN' || raw.decision === 'HOLD'
+    raw.decision === 'EXIT' || raw.decision === 'OPEN' || raw.decision === 'HOLD'
       ? raw.decision
       : 'HOLD'
 
   let plan: DirectivePlan | null = null
-  if (raw.plan && (decision === 'OPEN' || decision === 'REBALANCE')) {
+  if (raw.plan && decision === 'OPEN') {
     plan = normalizeDirectivePlan({
       plan: raw.plan as DirectivePlan | null,
       fallbackTargetNotionalUsd: computeMaxBudgetUsd(),
       markPrices: params.markPrices
     })
   }
-  if ((decision === 'OPEN' || decision === 'REBALANCE') && plan === null) {
+  if (decision === 'OPEN' && plan === null) {
     plan = null
   }
 
@@ -3514,10 +3481,7 @@ let lastProposalAt = 0
 let lastAnalysisAt = 0
 let lastResearchAt = 0
 let lastRiskAt = 0
-let lastOpsAt = 0
 let lastDirectiveAt = 0
-let lastPipelineAt = 0
-let pipelineActive = false
 
 let lastProposal: StrategyProposal | null = null
 let lastProposalPublishedAt = 0
@@ -3566,8 +3530,6 @@ let lastScribeAnalysis: { headline: string; thesis: string; risks: string[]; con
 let lastExternalIntel: ExternalIntelPack | null = null
 let cachedTwitterIntel: { data: ExternalIntelPack['twitter']; fetchedAtMs: number } | undefined
 let agentSuggestedTwitterQueries: string[] = []
-let autoHaltActive = false
-let autoHaltHealthySinceMs = 0
 let lastRiskDecisionAuditSignature = ''
 let lastRiskDecisionAuditAtMs = 0
 
@@ -3767,30 +3729,6 @@ function tickStalenessMs(symbols: string[]): { maxAgeMs: number; missing: string
   return { maxAgeMs, missing }
 }
 
-async function emitIdleHeartbeats(): Promise<void> {
-  const now = Date.now()
-
-  if (now - lastExecutionHeartbeatAtMs >= IDLE_HEARTBEAT_MS) {
-    lastExecutionHeartbeatAtMs = now
-    const age = lastProposalPublishedAt ? formatIdleAge(now - lastProposalPublishedAt) : null
-    await publishTape({
-      correlationId: ulid(),
-      role: 'execution',
-      line: age ? `standby -- last proposal ${age} ago` : 'standby -- awaiting proposals'
-    })
-  }
-
-  if (now - lastScribeHeartbeatAtMs >= IDLE_HEARTBEAT_MS) {
-    lastScribeHeartbeatAtMs = now
-    const age = lastAnalysisAt ? formatIdleAge(now - lastAnalysisAt) : null
-    await publishTape({
-      correlationId: ulid(),
-      role: 'scribe',
-      line: age ? `standby -- last analysis ${age} ago` : 'standby -- awaiting trades'
-    })
-  }
-}
-
 function formatIdleAge(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
@@ -3972,75 +3910,6 @@ function shouldRefreshExternalIntel(nowMs: number, currentSymbols: string[]): bo
   const previousSymbolKey = lastExternalIntel.symbols.join(',')
   if (symbolKey !== previousSymbolKey) return true
   return nowMs - lastComputedAtMs >= env.AGENT_INTEL_MIN_REFRESH_MS
-}
-
-async function runOpsAgent(): Promise<void> {
-  const now = Date.now()
-  if (now - lastOpsAt < env.AGENT_OPS_INTERVAL_MS) {
-    return
-  }
-  lastOpsAt = now
-
-  const universe = [...activeBasket.symbols]
-  const { maxAgeMs, missing } = tickStalenessMs(universe)
-
-  const level: 'INFO' | 'WARN' | 'ERROR' = maxAgeMs > 15000 || missing.length > 0 ? 'WARN' : 'INFO'
-  const deckStatusLine = `deck status mode=${lastMode} feedAgeMs=${Math.round(maxAgeMs)} missing=${missing.length}`
-  const deckStatusSignature = `${level}|mode=${lastMode}|missing=${missing.length}`
-  const shouldPublishDeckStatus =
-    deckStatusSignature !== lastDeckStatusSignature || now - lastDeckStatusHeartbeatAtMs >= DECK_STATUS_HEARTBEAT_MS
-  if (shouldPublishDeckStatus) {
-    lastDeckStatusSignature = deckStatusSignature
-    lastDeckStatusHeartbeatAtMs = now
-    await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level,
-      line: deckStatusLine
-    })
-  }
-
-  // Runtime can source ticks for dynamic basket symbols on-demand via l2Book snapshots.
-  void maybePublishWatchlist({ symbols: universe, reason: 'ops heartbeat' }).catch(() => undefined)
-
-  const healthy = maxAgeMs <= 15_000 && missing.length === 0
-
-  // Auto-resume only if we were the party that auto-halted.
-  if (autoHaltActive) {
-    if (lastMode !== 'HALT') {
-      autoHaltActive = false
-      autoHaltHealthySinceMs = 0
-    } else if (healthy) {
-      if (autoHaltHealthySinceMs === 0) {
-        autoHaltHealthySinceMs = now
-      }
-      if (now - autoHaltHealthySinceMs > 30_000) {
-        await publishTape({
-          correlationId: ulid(),
-          role: 'ops',
-          level: 'WARN',
-          line: 'auto-resume: market data recovered'
-        })
-        await publishAgentCommand({ command: '/resume', reason: 'auto-resume: market data recovered' })
-        autoHaltActive = false
-        autoHaltHealthySinceMs = 0
-      }
-    } else {
-      autoHaltHealthySinceMs = 0
-    }
-  }
-
-  if (env.OPS_AUTO_HALT && lastMode !== 'HALT' && !healthy) {
-    await publishTape({
-      correlationId: ulid(),
-      role: 'ops',
-      level: 'ERROR',
-      line: 'auto-halt: market data stale'
-    })
-    await publishAgentCommand({ command: '/halt', reason: 'auto-halt: market data stale' })
-    autoHaltActive = true
-    autoHaltHealthySinceMs = 0
-  }
 }
 
 async function runStrategyPipeline(): Promise<void> {
@@ -4737,7 +4606,7 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
       }
     }
 
-    let filteredPlan = raw.decision === 'OPEN' || raw.decision === 'REBALANCE' ? raw.plan : null
+    let filteredPlan = raw.decision === 'OPEN' ? raw.plan : null
     if (filteredPlan && activeBasket.symbols.length > 0) {
       const allowed = new Set(activeBasket.symbols)
       const validLegs = filteredPlan.legs.filter((leg) => allowed.has((leg as { symbol?: string }).symbol ?? ''))
@@ -4945,7 +4814,7 @@ async function runStrategistCycle(): Promise<void> {
       rationale: activeDirective.rationale,
       exitReason: riskRecovery.active || lastMode === 'SAFE_MODE' ? 'RISK_OFF' : 'DISCRETIONARY'
     })
-  } else if (activeDirective.decision === 'OPEN' || activeDirective.decision === 'REBALANCE') {
+  } else if (activeDirective.decision === 'OPEN') {
     if (!activeDirective.plan) {
       const noActionLine = `no action (mode=${lastMode} missing plan for ${activeDirective.decision})`
       const now = Date.now()
@@ -4992,7 +4861,7 @@ async function runStrategistCycle(): Promise<void> {
       executionTactics: tactics,
       confidence: activeDirective.confidence,
       rationale: activeDirective.rationale,
-      summaryPrefix: activeDirective.decision === 'REBALANCE' ? 'agent rebalance' : 'agent autonomous'
+      summaryPrefix: 'agent autonomous'
     })
   } else {
     const noActionLine = `no action (mode=${lastMode} holding)`
@@ -5066,7 +4935,6 @@ async function runStrategistCycle(): Promise<void> {
     role: 'execution',
     line: `tactics slippage=${tactics.expectedSlippageBps}bps cap=${tactics.maxSlippageBps}bps`
   })
-  lastExecutionHeartbeatAtMs = Date.now()
 
   await publishProposal({ actorId: roleActorId('strategist'), proposal: parsed.proposal })
   await publishAudit({
@@ -5105,7 +4973,6 @@ async function runStrategistCycle(): Promise<void> {
 }
 
 async function runScribeAnalysis(proposal: StrategyProposal, context: { targetNotionalUsd: number }): Promise<void> {
-  lastScribeHeartbeatAtMs = Date.now()
   const nowMs = Date.now()
   const universe = new Set<string>([...activeBasket.symbols, ...lastPositions.map((position) => position.symbol)])
   const tickSnapshot = [...universe].map((symbol) => latestTicks.get(symbol)).filter(Boolean)
@@ -5432,7 +5299,6 @@ const start = async (): Promise<void> => {
           const held = basketFromPositions(lastPositions)
           if (held.length > 0 && sameBasket(held, basketPivot.basketSymbols)) {
             basketPivot = null
-            lastExecutionHeartbeatAtMs = Date.now()
             void publishTape({
               correlationId: ulid(),
               role: 'execution',
@@ -5513,45 +5379,15 @@ const start = async (): Promise<void> => {
   const HEARTBEAT_PATH = '/tmp/.agent-runner-heartbeat'
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-  let tickRunning = true
-  let consecutiveFailures = 0
-  const BASE_TICK_MS = 1000
-  const MAX_BACKOFF_MS = 30_000
+  let running = true
 
-  const tickLoop = async () => {
-    while (tickRunning) {
-      const startedAtMs = Date.now()
+  const mainLoop = async () => {
+    while (running) {
+      const start = Date.now()
 
       try {
-        await runOpsAgent()
-        await emitIdleHeartbeats()
-        const nowTick = Date.now()
-        if (!pipelineActive && nowTick - lastPipelineAt >= env.AGENT_PIPELINE_BASE_MS) {
-          lastPipelineAt = nowTick
-          pipelineActive = true
-          void runStrategyPipeline().catch((error) => {
-            void publishAudit({
-              id: ulid(),
-              ts: new Date().toISOString(),
-              actorType: 'internal_agent',
-              actorId: roleActorId('ops'),
-              action: 'agent.error',
-              resource: 'agent.runner',
-              correlationId: ulid(),
-              details: { message: String(error) }
-            }).catch((publishError) => {
-              console.warn('agent-runner: publishAudit failed in pipeline error handler', {
-                error: String(publishError)
-              })
-            })
-          }).finally(() => {
-            pipelineActive = false
-          })
-        }
-        consecutiveFailures = 0
+        await runStrategyPipeline()
       } catch (error) {
-        consecutiveFailures += 1
-        // Keep the runner alive; report via audit stream.
         void publishAudit({
           id: ulid(),
           ts: new Date().toISOString(),
@@ -5562,7 +5398,7 @@ const start = async (): Promise<void> => {
           correlationId: ulid(),
           details: { message: String(error) }
         }).catch((publishError) => {
-          console.warn('agent-runner: publishAudit failed in error handler', {
+          console.warn('agent-runner: publishAudit failed in pipeline error handler', {
             error: String(publishError)
           })
         })
@@ -5570,14 +5406,11 @@ const start = async (): Promise<void> => {
         await fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch((error) => {
           warnHeartbeatWriteFailed(error)
         })
-
-        const elapsedMs = Date.now() - startedAtMs
-        const backoffMs = consecutiveFailures > 0
-          ? Math.min(MAX_BACKOFF_MS, BASE_TICK_MS * (2 ** (consecutiveFailures - 1)))
-          : BASE_TICK_MS
-        const delayMs = Math.max(0, backoffMs - elapsedMs)
-        await sleep(delayMs)
       }
+
+      const elapsed = Date.now() - start
+      const sleepMs = Math.max(0, env.AGENT_PIPELINE_BASE_MS - elapsed)
+      if (sleepMs > 0) await sleep(sleepMs)
     }
   }
 
@@ -5592,7 +5425,7 @@ const start = async (): Promise<void> => {
     console.warn('agent-runner: eager universe selection failed at boot, will retry in pipeline', String(error))
   }
 
-  void tickLoop()
+  void mainLoop()
 
   await publishTape({ correlationId: ulid(), role: 'ops', line: `crew online requestedMode=${requestedModeFromEnv()}` })
   await publishTape({ correlationId: ulid(), role: 'scout', line: 'scout online (market + tape)' })

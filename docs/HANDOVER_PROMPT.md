@@ -102,7 +102,7 @@ Required concrete outputs:
 - fail-closed if risk or dependencies are unavailable
 
 5) Trading state machine:
-- INIT, WARMUP, READY, IN_TRADE, REBALANCE, HALT, SAFE_MODE
+- INIT, WARMUP, READY, IN_TRADE, HALT, SAFE_MODE
 
 6) External agent + x402:
 - challenge, verify, entitlement issuance, quota enforcement, anti-abuse

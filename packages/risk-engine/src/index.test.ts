@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { evaluateRisk } from './index.ts'
 
 const baseConfig = {
-  maxLeverage: 2,
+  maxLeverage: 10,
   maxDrawdownPct: 5,
   maxExposureUsd: 50000,
   maxSlippageBps: 25,
@@ -228,7 +228,7 @@ describe('risk-engine', () => {
         createdBy: 'agent',
         actions: [
           {
-            type: 'REBALANCE',
+            type: 'EXIT',
             rationale: 'reduce risk',
             notionalUsd: 250,
             expectedSlippageBps: 2,
@@ -249,7 +249,7 @@ describe('risk-engine', () => {
 
   it('allows EXIT proposals even during drawdown', () => {
     const decision = evaluateRisk(baseConfig, {
-      state: 'REBALANCE',
+      state: 'IN_TRADE',
       actorType: 'internal_agent',
       accountValueUsd: 9000,
       peakAccountValueUsd: 10000,
@@ -267,9 +267,9 @@ describe('risk-engine', () => {
         BTC: { symbol: 'BTC', px: 69500, bid: 69499, ask: 69500, bidSize: 1000, askSize: 1000, updatedAt: new Date().toISOString() }
       },
       proposal: {
-        proposalId: 'p-exit-rebalance',
+        proposalId: 'p-exit-drawdown',
         cycleId: 'c1',
-        summary: 'exit to flat from REBALANCE',
+        summary: 'exit to flat during drawdown',
         confidence: 0.95,
         requestedMode: 'SIM',
         createdBy: 'agent',
@@ -365,6 +365,92 @@ describe('risk-engine', () => {
 
     expect(decision.decision).toBe('DENY')
     expect(decision.reasons.some((reason) => reason.code === 'ACTOR_NOT_ALLOWED')).toBe(true)
+  })
+
+  it('allows proposals at exactly 10x leverage boundary', () => {
+    const highExposureConfig = { ...baseConfig, maxExposureUsd: 200000 }
+    const decision = evaluateRisk(highExposureConfig, {
+      state: 'READY',
+      actorType: 'internal_agent',
+      accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
+      dependenciesHealthy: true,
+      openPositions: [],
+      ticks: {
+        HYPE: {
+          symbol: 'HYPE',
+          px: 100,
+          bid: 100,
+          ask: 100,
+          bidSize: 100000,
+          askSize: 100000,
+          updatedAt: new Date().toISOString()
+        }
+      },
+      proposal: {
+        proposalId: 'p-lev-boundary',
+        cycleId: 'c1',
+        summary: 'max leverage boundary',
+        confidence: 0.9,
+        requestedMode: 'SIM',
+        createdBy: 'agent',
+        actions: [
+          {
+            type: 'ENTER',
+            rationale: '10x leverage boundary test',
+            notionalUsd: 100000,
+            expectedSlippageBps: 2,
+            legs: [{ symbol: 'HYPE', side: 'BUY', notionalUsd: 100000 }]
+          }
+        ]
+      }
+    })
+
+    expect(decision.decision).toBe('ALLOW')
+    expect(decision.reasons.some((reason) => reason.code === 'LEVERAGE')).toBe(false)
+  })
+
+  it('denies proposals exceeding 10x leverage', () => {
+    const highExposureConfig = { ...baseConfig, maxExposureUsd: 200000 }
+    const decision = evaluateRisk(highExposureConfig, {
+      state: 'READY',
+      actorType: 'internal_agent',
+      accountValueUsd: 10000,
+      peakAccountValueUsd: 10000,
+      dependenciesHealthy: true,
+      openPositions: [],
+      ticks: {
+        HYPE: {
+          symbol: 'HYPE',
+          px: 100,
+          bid: 100,
+          ask: 100,
+          bidSize: 100000,
+          askSize: 100000,
+          updatedAt: new Date().toISOString()
+        }
+      },
+      proposal: {
+        proposalId: 'p-lev-over',
+        cycleId: 'c1',
+        summary: 'over max leverage',
+        confidence: 0.9,
+        requestedMode: 'SIM',
+        createdBy: 'agent',
+        actions: [
+          {
+            type: 'ENTER',
+            rationale: 'exceeds 10x leverage',
+            notionalUsd: 100001,
+            expectedSlippageBps: 2,
+            legs: [{ symbol: 'HYPE', side: 'BUY', notionalUsd: 100001 }]
+          }
+        ]
+      }
+    })
+
+    expect(decision.decision).toBe('DENY')
+    expect(decision.reasons.some((reason) => reason.code === 'LEVERAGE')).toBe(true)
   })
 
 })

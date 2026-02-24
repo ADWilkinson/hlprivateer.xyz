@@ -8,20 +8,13 @@
   },
   "schema": "https://openagents.com/schema/v1",
   "name": "HL Privateer",
-  "description": "Open Hyperliquid discretionary desk. A fund of autonomous agents making discretionary trading calls. Follow trades, read analysis, copy positions — pay per call via x402.",
+  "description": "Open Hyperliquid discretionary desk. Agent-facing data and commands are exposed through x402 entitlement flow.",
   "url": "https://hlprivateer.xyz",
   "logo": "https://hlprivateer.xyz/icons/icon-512.png",
   "provider": {
     "name": "HL Privateer",
     "url": "https://hlprivateer.xyz"
   },
-  "capabilities": [
-    "trading-signals",
-    "position-data",
-    "market-analysis",
-    "copy-trading",
-    "risk-monitoring"
-  ],
   "api": {
     "type": "rest",
     "base_url": "https://api.hlprivateer.xyz",
@@ -29,6 +22,7 @@
     "websocket": "wss://ws.hlprivateer.xyz",
     "authentication": {
       "type": "x402",
+      "flow": "handshake-verify-entitlement",
       "network": "eip155:8453",
       "asset": "USDC",
       "facilitator": "https://facilitator.payai.network"
@@ -36,79 +30,93 @@
   },
   "endpoints": [
     {
+      "path": "/v1/agent/handshake",
+      "method": "POST",
+      "description": "Create challenge and provisional entitlement",
+      "price": "free",
+      "auth": "none"
+    },
+    {
+      "path": "/v1/agent/verify",
+      "method": "POST",
+      "description": "Verify proof and activate entitlement",
+      "price": "proof-required",
+      "auth": "none"
+    },
+    {
       "path": "/v1/agent/stream/snapshot",
       "method": "GET",
-      "description": "Live desk snapshot: mode, PnL, health, positions, ops tape",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/positions",
-      "method": "GET",
-      "description": "Current open positions with symbols, sides, sizes, entries, PnL",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/orders",
-      "method": "GET",
-      "description": "Open orders on the book",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/analysis?latest=true",
-      "method": "GET",
-      "description": "Latest AI strategist analysis with thesis and signals",
+      "description": "Live desk snapshot",
       "price": "$0.01",
       "auth": "x402"
     },
     {
       "path": "/v1/agent/analysis",
       "method": "GET",
-      "description": "Analysis history (filterable)",
+      "description": "Analysis history",
       "price": "$0.01",
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/insights?scope=market",
+      "path": "/v1/agent/analysis/latest",
       "method": "GET",
-      "description": "Risk config, signal timeline, account snapshot",
+      "description": "Latest analysis",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/positions",
+      "method": "GET",
+      "description": "Open positions",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/orders",
+      "method": "GET",
+      "description": "Open orders",
+      "price": "$0.01",
+      "auth": "x402"
+    },
+    {
+      "path": "/v1/agent/insights",
+      "method": "GET",
+      "description": "Agent insights",
       "price": "$0.02",
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/insights?scope=ai",
+      "path": "/v1/agent/copy-trade/signals",
       "method": "GET",
-      "description": "Full dashboard: floor state, risk, analysis, copy summary",
-      "price": "$0.02",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/copy/trade?kind=signals",
-      "method": "GET",
-      "description": "Audit trail of proposals, analysis, risk, and basket events",
+      "description": "Copy-trade signal tape",
       "price": "$0.03",
       "auth": "x402"
     },
     {
-      "path": "/v1/agent/copy/trade?kind=positions",
+      "path": "/v1/agent/copy-trade/positions",
       "method": "GET",
-      "description": "Position data formatted for copy-trading",
+      "description": "Copy-trade positions",
       "price": "$0.03",
       "auth": "x402"
     },
     {
       "path": "/v1/public/pnl",
       "method": "GET",
-      "description": "Current PnL% and mode",
+      "description": "Public PnL and mode",
       "price": "free",
       "auth": "none"
     },
     {
       "path": "/v1/public/floor-snapshot",
       "method": "GET",
-      "description": "Public floor snapshot with account value and positions",
+      "description": "Public floor snapshot",
+      "price": "free",
+      "auth": "none"
+    },
+    {
+      "path": "/v1/public/identity",
+      "method": "GET",
+      "description": "ERC-8004 identity status",
       "price": "free",
       "auth": "none"
     }

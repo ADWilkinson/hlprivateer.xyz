@@ -45,9 +45,9 @@ export const runtimeEnv = z
     HL_API_URL: z.string().optional(),
     HL_PRIVATE_KEY: z.string().optional(),
     HL_REQUEST_TIMEOUT_MS: z.coerce.number().default(10_000),
-    RISK_MAX_LEVERAGE: z.coerce.number().default(20),
+    RISK_MAX_LEVERAGE: z.coerce.number().default(10),
     // Preferred leverage target used by agent layers for sizing (runtime still enforces max leverage as a hard cap).
-    RISK_TARGET_LEVERAGE: z.coerce.number().positive().default(20),
+    RISK_TARGET_LEVERAGE: z.coerce.number().positive().default(10),
     RISK_MAX_DRAWDOWN_PCT: z.coerce.number().default(100),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().default(20),
     RISK_MAX_NOTIONAL_USD: z.coerce.number().default(50000),
@@ -64,10 +64,8 @@ export const runtimeEnv = z
     RUNTIME_INFRA_AUTO_FLATTEN_NOTICE_COOLDOWN_MS: z.coerce.number().int().nonnegative().default(5 * 60_000),
     RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_USD: z.coerce.number().nonnegative().default(0),
     RUNTIME_INFRA_AUTO_FLATTEN_MIN_GROSS_PCT: z.coerce.number().min(0).max(1).default(0.35),
-    // Account value should be sourced from exchange/live state, not hardcoded.
     // Market-data seed only (runtime trade entry is agent-driven).
     BASKET_SYMBOLS: z.string().default(''),
-    BASKET_TARGET_NOTIONAL_USD: z.coerce.number().default(100),
     RUNTIME_MIN_LIVE_ACCOUNT_VALUE_USD: z.coerce
       .number()
       .positive()

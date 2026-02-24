@@ -10,8 +10,7 @@ const transitions: Record<TradeState, TradeState[]> = {
   INIT: ['WARMUP'],
   WARMUP: ['READY', 'HALT', 'SAFE_MODE'],
   READY: ['IN_TRADE', 'HALT', 'SAFE_MODE'],
-  IN_TRADE: ['REBALANCE', 'READY', 'HALT', 'SAFE_MODE'],
-  REBALANCE: ['READY', 'HALT', 'SAFE_MODE'],
+  IN_TRADE: ['READY', 'HALT', 'SAFE_MODE'],
   HALT: ['READY'],
   SAFE_MODE: ['READY', 'IN_TRADE', 'HALT']
 }

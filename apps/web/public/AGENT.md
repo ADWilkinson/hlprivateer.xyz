@@ -1,64 +1,33 @@
 # Agent Index (HL Privateer)
 
-This file is the "start here" index for any external agent interacting with HL Privateer.
-
-## What is HL Privateer?
-An open, agentic discretionary trading desk on Hyperliquid. Autonomous agents make discretionary long/short calls — positions, analysis, signals, and risk state are accessible to any inbound agent via x402 pay-per-call endpoints.
-
-## Quick Start
-1. Hit any agent endpoint: `GET https://api.hlprivateer.xyz/v1/agent/stream/snapshot`
-2. Receive `402 Payment Required` with `PAYMENT-REQUIRED` header
-3. Pay with x402 (USDC on Base) and retry with `PAYMENT-SIGNATURE` header
-4. Receive data in the `200` response
+HL Privateer is an open agentic discretionary trading desk on Hyperliquid.
+External agents can read paid desk data through x402 entitlement flow.
 
 ## Base URLs
 - REST API: `https://api.hlprivateer.xyz`
 - WebSocket: `wss://ws.hlprivateer.xyz`
 - Web UI: `https://hlprivateer.xyz`
 
-## Agent Resources
-- `llms.txt`: LLM-oriented overview with endpoint catalog and payment details.
-- `skills.md`: agentskills.io skill — full endpoint reference, use cases, payment flow.
-- `skills/hl-privateer.md`: ClawHub skill package — full endpoint reference and payment flow.
-- `API.md`: Complete HTTP + WebSocket API surface.
-- `docs/X402_SELLER_QUICKSTART.md`: x402 payment integration guide.
-- `.well-known/agents.json`: Machine-readable agent discovery.
+## Agent Access (x402)
+1. `POST /v1/agent/handshake` with `agentId`, `requestedTier`, and bootstrap `proof`.
+2. `POST /v1/agent/verify` with `challengeId` plus proof payload (JSON body or `PAYMENT-SIGNATURE`).
+3. Call paid routes with `x-agent-entitlement: <challengeId>`.
 
-All files are served at `https://hlprivateer.xyz/<path>`.
+## Paid routes
+- `$0.01`: `/v1/agent/stream/snapshot`, `/v1/agent/positions`, `/v1/agent/orders`, `/v1/agent/analysis`, `/v1/agent/analysis/latest`
+- `$0.02`: `/v1/agent/insights`, `/v1/agent/data/overview`
+- `$0.03`: `/v1/agent/copy-trade/signals`, `/v1/agent/copy-trade/positions`
 
-## x402 Payment
-- Network: Base (eip155:8453)
-- Asset: USDC
-- Facilitator: `https://facilitator.payai.network`
-- Protocol: x402 v2 (exact scheme)
+## Free routes
+- `/v1/public/pnl`
+- `/v1/public/floor-snapshot`
+- `/v1/public/floor-tape`
+- `/v1/public/identity`
+- `/healthz`
 
-## Endpoint Pricing
-
-### $0.01/call
-- `/v1/agent/stream/snapshot` — Mode, PnL%, health, positions, ops tape
-- `/v1/agent/positions` — Full position array
-- `/v1/agent/orders` — Open orders
-- `/v1/agent/analysis?latest=true` — Latest strategist analysis
-- `/v1/agent/analysis` — Analysis history
-
-### $0.02/call
-- `/v1/agent/insights?scope=market` — Risk config, signals, account snapshot
-- `/v1/agent/insights?scope=ai` — Full dashboard with risk + analysis
-
-### $0.03/call
-- `/v1/agent/copy/trade?kind=signals` — Proposal + risk audit trail
-- `/v1/agent/copy/trade?kind=positions` — Copy-trade position data
-
-### Free (no payment)
-- `/v1/public/pnl` — PnL% and mode
-- `/v1/public/floor-snapshot` — Public floor snapshot
-- `/v1/public/floor-tape` — Recent ops log lines
-- `/healthz` — Health check
-
-## Repository Documentation
-- `AGENTS.md`: operational runbook and deployment flow.
-- `README.md`: repo overview and setup commands.
-- `API.md`: endpoint contracts and x402 pricing.
-- `docs/SPEC.md`: architecture and behavioral invariants.
-- `RUNBOOK.md`: operational recovery and day-to-day runbook.
-- `SECURITY.md`: secret handling and threat model.
+## Discovery docs
+- `https://hlprivateer.xyz/.well-known/x402`
+- `https://hlprivateer.xyz/.well-known/agents.json`
+- `https://hlprivateer.xyz/.well-known/agent-registration.json`
+- `https://hlprivateer.xyz/llms.txt`
+- `https://hlprivateer.xyz/skills.md`

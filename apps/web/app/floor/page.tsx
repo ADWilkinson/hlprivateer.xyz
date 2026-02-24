@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { apiUrl } from '../../lib/endpoints'
 
 type TapeLine = {
@@ -61,6 +61,11 @@ function fmtTs(value: unknown): string {
   return new Date(parsed).toLocaleString()
 }
 
+async function copyToClipboard(value: string): Promise<void> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard) return
+  await navigator.clipboard.writeText(value)
+}
+
 function normalizeSnapshot(input: unknown): FloorSnapshot {
   if (!input || typeof input !== 'object') return {}
   const raw = input as Record<string, unknown>
@@ -85,11 +90,43 @@ function normalizeSnapshot(input: unknown): FloorSnapshot {
   }
 }
 
+type SectionCardProps = {
+  title: string
+  subtitle?: string
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}
+
+function SectionCard({ title, subtitle, open, onToggle, children }: SectionCardProps) {
+  return (
+    <section className='mt-6 rounded-md border border-zinc-200 bg-white p-4'>
+      <button
+        type='button'
+        onClick={onToggle}
+        className='flex w-full items-center justify-between gap-3 rounded-md text-left'
+      >
+        <div>
+          <div className='text-sm font-semibold uppercase text-zinc-600'>{title}</div>
+          {subtitle && <div className='mt-1 text-xs text-zinc-500'>{subtitle}</div>}
+        </div>
+        <span className='rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs text-zinc-700'>
+          {open ? 'hide' : 'show'}
+        </span>
+      </button>
+      {open && <div className='mt-3'>{children}</div>}
+    </section>
+  )
+}
+
 export default function FloorPage() {
   const [snapshot, setSnapshot] = useState<FloorSnapshot | null>(null)
   const [tape, setTape] = useState<TapeLine[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showPositions, setShowPositions] = useState(true)
+  const [showTape, setShowTape] = useState(true)
+  const [showAgentAccess, setShowAgentAccess] = useState(true)
 
   useEffect(() => {
     let stopped = false
@@ -135,6 +172,36 @@ export default function FloorPage() {
   }, [])
 
   const positions = useMemo(() => snapshot?.openPositions ?? [], [snapshot])
+  const handshakeUrl = apiUrl('/v1/agent/handshake')
+  const verifyUrl = apiUrl('/v1/agent/verify')
+  const streamSnapshotUrl = apiUrl('/v1/agent/stream/snapshot')
+  const x402WellKnownUrl = 'https://hlprivateer.xyz/.well-known/x402'
+  const agentRegistrationUrl = 'https://hlprivateer.xyz/.well-known/agent-registration.json'
+  const agentsDiscoveryUrl = 'https://hlprivateer.xyz/.well-known/agents.json'
+  const x402QuickstartUrl = 'https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md'
+  const handshakeCurl = `curl -s ${handshakeUrl} \\
+  -H 'content-type: application/json' \\
+  -d '{
+    "agentId": "agent-demo",
+    "requestedTier": "tier1",
+    "proof": "bootstrap-proof-token"
+  }'`
+  const verifyCurl = `curl -s ${verifyUrl} \\
+  -H 'content-type: application/json' \\
+  -d '{
+    "challengeId": "<challengeId>",
+    "proof": {
+      "challengeId": "<challengeId>",
+      "agentId": "agent-demo",
+      "tier": "tier1",
+      "nonce": "<nonce-from-handshake>",
+      "paidAmountUsd": 1,
+      "paidAt": "2026-02-23T00:00:00.000Z",
+      "signature": "<signature>"
+    }
+  }'`
+  const paidReadCurl = `curl -s ${streamSnapshotUrl} \\
+  -H 'x-agent-entitlement: <challengeId>'`
 
   return (
     <main id='main-content' className='mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8'>
@@ -175,21 +242,12 @@ export default function FloorPage() {
         </div>
       </section>
 
-      <section className='mt-6 rounded-md border border-zinc-200 bg-white p-4'>
-        <div className='mb-2 text-sm font-semibold uppercase text-zinc-600'>Agent Access (x402)</div>
-        <p className='text-sm text-zinc-600'>
-          Paid agent routes stay enabled through x402 entitlement flow: handshake at
-          {' '}
-          <code className='rounded bg-zinc-100 px-1 py-0.5'>/v1/agent/handshake</code>
-          {' '}
-          then verify at
-          {' '}
-          <code className='rounded bg-zinc-100 px-1 py-0.5'>/v1/agent/verify</code>.
-        </p>
-      </section>
-
-      <section className='mt-6 rounded-md border border-zinc-200 bg-white p-4'>
-        <div className='mb-3 text-sm font-semibold uppercase text-zinc-600'>Open Positions</div>
+      <SectionCard
+        title='Open Positions'
+        subtitle='Current exposure across symbols'
+        open={showPositions}
+        onToggle={() => setShowPositions((value) => !value)}
+      >
         {loading ? (
           <div className='text-sm text-zinc-500'>loading...</div>
         ) : positions.length === 0 ? (
@@ -224,10 +282,14 @@ export default function FloorPage() {
             </table>
           </div>
         )}
-      </section>
+      </SectionCard>
 
-      <section className='mt-6 rounded-md border border-zinc-200 bg-white p-4'>
-        <div className='mb-3 text-sm font-semibold uppercase text-zinc-600'>Recent Tape</div>
+      <SectionCard
+        title='Recent Tape'
+        subtitle='Latest desk and agent activity lines'
+        open={showTape}
+        onToggle={() => setShowTape((value) => !value)}
+      >
         <div className='space-y-2'>
           {(tape.length > 0 ? tape : snapshot?.recentTape ?? []).slice(0, 30).map((entry, index) => (
             <div key={`${entry.ts ?? 'na'}-${index}`} className='rounded border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm'>
@@ -242,7 +304,65 @@ export default function FloorPage() {
             <div className='text-sm text-zinc-500'>no tape lines yet</div>
           )}
         </div>
-      </section>
+      </SectionCard>
+
+      <SectionCard
+        title='Agent Access (x402)'
+        subtitle='POST handshake and verify, then read with x-agent-entitlement'
+        open={showAgentAccess}
+        onToggle={() => setShowAgentAccess((value) => !value)}
+      >
+        <div className='grid gap-3 lg:grid-cols-3'>
+          <div className='rounded-md border border-zinc-200 bg-zinc-50 p-3'>
+            <div className='mb-2 flex items-center justify-between gap-2'>
+              <div className='font-mono text-[11px] font-semibold uppercase text-zinc-600'>POST /v1/agent/handshake</div>
+              <button
+                type='button'
+                onClick={() => void copyToClipboard(handshakeCurl)}
+                className='shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100'
+              >
+                copy
+              </button>
+            </div>
+            <pre className='whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] leading-5 text-zinc-800'><code>{handshakeCurl}</code></pre>
+          </div>
+
+          <div className='rounded-md border border-zinc-200 bg-zinc-50 p-3'>
+            <div className='mb-2 flex items-center justify-between gap-2'>
+              <div className='font-mono text-[11px] font-semibold uppercase text-zinc-600'>POST /v1/agent/verify</div>
+              <button
+                type='button'
+                onClick={() => void copyToClipboard(verifyCurl)}
+                className='shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100'
+              >
+                copy
+              </button>
+            </div>
+            <pre className='whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] leading-5 text-zinc-800'><code>{verifyCurl}</code></pre>
+          </div>
+
+          <div className='rounded-md border border-zinc-200 bg-zinc-50 p-3'>
+            <div className='mb-2 flex items-center justify-between gap-2'>
+              <div className='font-mono text-[11px] font-semibold uppercase text-zinc-600'>GET /v1/agent/stream/snapshot</div>
+              <button
+                type='button'
+                onClick={() => void copyToClipboard(paidReadCurl)}
+                className='shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100'
+              >
+                copy
+              </button>
+            </div>
+            <pre className='whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] leading-5 text-zinc-800'><code>{paidReadCurl}</code></pre>
+          </div>
+        </div>
+
+        <div className='mt-4 grid gap-2 text-sm sm:grid-cols-2'>
+          <a href={x402WellKnownUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>/.well-known/x402</a>
+          <a href={agentsDiscoveryUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>/.well-known/agents.json</a>
+          <a href={agentRegistrationUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>/.well-known/agent-registration.json</a>
+          <a href={x402QuickstartUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>x402 quickstart docs</a>
+        </div>
+      </SectionCard>
 
       <div className='mt-4 text-xs text-zinc-500'>last update: {fmtTs(snapshot?.lastUpdateAt)}</div>
     </main>

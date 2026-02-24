@@ -144,7 +144,7 @@ import { z } from "zod";
 
 export const PublicPnlResponseSchema = z.object({
   pnlPct: z.number(),
-  mode: z.enum(["INIT", "WARMUP", "READY", "IN_TRADE", "REBALANCE", "HALT", "SAFE_MODE"]),
+  mode: z.enum(["INIT", "WARMUP", "READY", "IN_TRADE", "HALT", "SAFE_MODE"]),
   updatedAt: z.string().datetime()
 });
 

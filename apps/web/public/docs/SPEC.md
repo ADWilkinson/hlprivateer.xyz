@@ -292,7 +292,7 @@ export interface StrategyProposal {
   summary: string;
   confidence: number; // 0-1
   actions: Array<{
-    type: "ENTER" | "EXIT" | "REBALANCE" | "HOLD";
+    type: "ENTER" | "EXIT" | "HOLD";
     legs: Array<{ symbol: string; side: "BUY" | "SELL"; notionalUsd: number }>;
     rationale: string;
   }>;
@@ -824,7 +824,6 @@ State machine:
 - `WARMUP` -> collect minimum market windows.
 - `READY` -> eligible for entries.
 - `IN_TRADE` -> active long/short exposure.
-- `REBALANCE` -> adjusting existing position (add/trim/rotate).
 - `HALT` -> human/system forced stop.
 - `SAFE_MODE` -> only risk-reducing actions.
 
@@ -832,7 +831,6 @@ Transition rules:
 - `INIT -> WARMUP` when services healthy.
 - `WARMUP -> READY` after N ticks and freshness checks pass.
 - `READY -> IN_TRADE` when strategy proposal passes risk.
-- `IN_TRADE -> REBALANCE` when adjusting existing exposure.
 - `* -> SAFE_MODE` on stale data/high volatility/liquidity breach.
 - `* -> HALT` on kill-switch/manual critical incident.
 
@@ -865,13 +863,10 @@ Execution rules:
   - track per leg fill ratio.
   - trigger compensating re-quote for lagging leg.
 
-Rebalancing and exits:
-- Rebalance trigger if notional imbalance > 1.5% for > 10s.
-- Exit trigger:
-  - spread mean-reversion target reached,
-  - stop-loss breached,
-  - regime invalidation,
-  - manual flatten.
+Exit management:
+- Each trade has SL and TP placed on Hyperliquid order books at entry.
+- No trailing stops or runtime exit management.
+- Trades are independent — risk is fully defined at entry.
 
 Risk rules:
 - Stop-loss per cycle and global max drawdown.
@@ -892,7 +887,7 @@ Worked example:
   - Long SOL qty `3200/110 = 29.090` -> `29.1` (lot rounded)
   - Short BTC qty `3100/68000 = 0.0456`
   - Short ETH qty `3700/3400 = 1.088`
-- If post-rounding imbalance exceeds policy and persists, transition to `REBALANCE` and submit risk-approved corrective orders.
+- SL and TP orders placed on Hyperliquid at entry. No runtime rebalancing.
 
 ---
 

@@ -666,17 +666,24 @@ app.get('/v1/public/identity', routeRateLimit(30, 60_000), async () => {
     return { erc8004: null, reputation: null }
   }
 
-  const registry = env.ERC8004_CHAIN_ID === 84532
+  const identityRegistry = env.ERC8004_CHAIN_ID === 84532
+    ? '0x8004B663056A597Dffe9eCcC1965A193B7388713'
+    : '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'
+  const reputationRegistry = env.ERC8004_CHAIN_ID === 84532
     ? '0x8004B663056A597Dffe9eCcC1965A193B7388713'
     : '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63'
+  const registrationBaseUrl =
+    env.PUBLIC_BASE_URL.includes('localhost') || env.PUBLIC_BASE_URL.includes('127.0.0.1')
+      ? 'https://hlprivateer.xyz'
+      : env.PUBLIC_BASE_URL
 
   return {
     erc8004: {
       chainId: env.ERC8004_CHAIN_ID,
       agentId: env.ERC8004_AGENT_ID,
-      identityRegistry: registry,
-      reputationRegistry: registry,
-      registrationFile: `${env.PUBLIC_BASE_URL.replace(/\/$/, '')}/agent-registration.json`
+      identityRegistry,
+      reputationRegistry,
+      registrationFile: `${registrationBaseUrl.replace(/\/$/, '')}/.well-known/agent-registration.json`
     },
     reputation: cachedReputationSummary
   }
@@ -1506,7 +1513,7 @@ app.get('/v1/agent/copy-trade/positions', { ...routeRateLimit(180, 60_000), preH
   reply.send({
     generatedAt: new Date().toISOString(),
     mode: snapshot.mode,
-    copySignalCompatible: snapshot.mode === 'READY' || snapshot.mode === 'IN_TRADE' || snapshot.mode === 'REBALANCE',
+    copySignalCompatible: snapshot.mode === 'READY' || snapshot.mode === 'IN_TRADE',
     riskPolicy: getEffectiveRiskConfig(),
     positions: store.positions,
     summary: copySummary

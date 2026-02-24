@@ -5,7 +5,6 @@ export const TradeStateSchema = z.enum([
   'WARMUP',
   'READY',
   'IN_TRADE',
-  'REBALANCE',
   'HALT',
   'SAFE_MODE'
 ])
@@ -78,7 +77,7 @@ export const NormalizedTickSchema = z.object({
 })
 export type NormalizedTick = z.infer<typeof NormalizedTickSchema>
 
-export const StrategyActionTypeSchema = z.enum(['ENTER', 'EXIT', 'REBALANCE', 'HOLD'])
+export const StrategyActionTypeSchema = z.enum(['ENTER', 'EXIT', 'HOLD'])
 export const ActionSideSchema = z.enum(['BUY', 'SELL'])
 
 export const StrategyLegSchema = z

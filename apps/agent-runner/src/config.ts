@@ -53,12 +53,10 @@ export const env = z
       .number()
       .int()
       .positive()
-      .default(30 * 60_000)
-      .transform((value) => clamp(Math.trunc(value), 300_000, 3_600_000)),
-    AGENT_OPS_INTERVAL_MS: z.coerce.number().int().positive().default(3000),
-    OPS_AUTO_HALT: booleanFromEnv.default(false),
+      .default(60 * 60_000)
+      .transform((value) => clamp(Math.trunc(value), 300_000, 7_200_000)),
     AGENT_MIN_REBALANCE_LEG_USD: z.coerce.number().nonnegative().default(25),
-    RISK_MAX_LEVERAGE: z.coerce.number().positive().default(20),
+    RISK_MAX_LEVERAGE: z.coerce.number().positive().default(10),
     RISK_MAX_DRAWDOWN_PCT: z.coerce.number().positive().default(100),
     RISK_MAX_NOTIONAL_USD: z.coerce.number().positive().default(50000),
     RISK_MAX_SLIPPAGE_BPS: z.coerce.number().positive().default(20),

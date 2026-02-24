@@ -3,12 +3,12 @@
 ## Base URLs
 - Public web: `https://hlprivateer.xyz`
 - REST API: `https://api.hlprivateer.xyz`
-- Websocket: `wss://ws.hlprivateer.xyz`
+- WebSocket: `wss://ws.hlprivateer.xyz`
 
 ## Auth model
 - Public endpoints: no auth.
 - Operator endpoints: Bearer JWT with role claims.
-- Agent endpoints: API key + entitlement token and/or x402 proof.
+- Agent endpoints: x402 entitlement flow (`/v1/agent/handshake` -> `/v1/agent/verify` -> `x-agent-entitlement` header).
 
 ## Operator token bootstrap
 - Development: `POST /v1/operator/login` can mint a short-lived JWT.
@@ -21,15 +21,9 @@
 - `GET /v1/public/pnl`
 - `GET /v1/public/floor-snapshot`
 - `GET /v1/public/floor-tape`
-
-Response example:
-```json
-{
-  "pnlPct": 1.92,
-  "mode": "READY",
-  "updatedAt": "2026-02-13T16:20:00Z"
-}
-```
+- `GET /v1/public/performance`
+- `GET /v1/public/trajectory`
+- `GET /v1/public/identity`
 
 ### Operator
 - `POST /v1/operator/login`
@@ -44,51 +38,39 @@ Response example:
 - `GET /v1/operator/replay`
 - `GET /v1/operator/replay/export`
 
-Replay endpoint parameters:
-- `from` (ISO datetime)
-- `to` (ISO datetime)
-- `correlationId` (optional)
-- `resource` (optional: audit resource or stream)
-- `limit` (1-5000, default 200)
-
-Command request example:
-```json
-{
-  "command": "/halt",
-  "args": [],
-  "reason": "volatility-breakout"
-}
-```
-
 ### External agent
 - `POST /v1/agent/handshake`
+- `POST /v1/agent/verify`
 - `GET /v1/agent/entitlement`
 - `GET /v1/agent/stream/snapshot`
 - `GET /v1/agent/analysis`
+- `GET /v1/agent/analysis/latest` (compatibility alias)
 - `GET /v1/agent/insights`
-- `GET /v1/agent/copy/trade`
+- `GET /v1/agent/data/overview` (compatibility alias)
+- `GET /v1/agent/copy-trade/signals`
+- `GET /v1/agent/copy-trade/positions`
 - `GET /v1/agent/positions`
 - `GET /v1/agent/orders`
 - `POST /v1/agent/command`
-- `POST /v1/agent/unlock/:tier`
+- `POST /v1/agent/unlock/:tier` (non-production admin utility)
 
-Deprecated compatibility aliases:
-- `GET /v1/agent/analysis/latest`
-- `GET /v1/agent/data/overview`
-- `GET /v1/agent/copy-trade/signals`
-- `GET /v1/agent/copy-trade/positions`
-
-### Internal
+### Internal / platform
 - `GET /v1/security/refresh-secrets` (operator auth required)
 - `GET /health`
 - `GET /healthz`
 - `GET /metrics`
 
 ## x402 behavior
-- x402 payment gating is disabled by default in the simplified core runtime path.
-- Agent routes are directly readable/writable with existing API authentication/rate limiting.
+- Paid agent routes require `x-agent-entitlement`.
+- If missing, API returns `402 PAYMENT_REQUIRED` with guidance to call handshake + verify.
+- Verification accepts proof in request body or headers:
+  - `PAYMENT-SIGNATURE`
+  - `x402-payment`
+  - `x-agent-proof`
+  - `x-payment`
+- Network target: Base (`eip155:8453`).
 
-## Websocket protocol
+## WebSocket protocol
 
 ### Client -> server
 - `sub.add`
@@ -103,46 +85,12 @@ Deprecated compatibility aliases:
 - `error`
 - `pong`
 
-Event payload example:
-```json
-{
-  "type": "event",
-  "channel": "operator.execution",
-  "payload": {
-    "eventType": "execution.fill",
-    "orderId": "ord_01J...",
-    "symbol": "HYPE",
-    "qty": 12.5,
-    "price": 23.14,
-    "ts": "2026-02-13T16:21:12Z"
-  }
-}
-```
-
-## Zod contracts
-```ts
-import { z } from "zod";
-
-export const PublicPnlResponseSchema = z.object({
-  pnlPct: z.number(),
-  mode: z.enum(["INIT", "WARMUP", "READY", "IN_TRADE", "REBALANCE", "HALT", "SAFE_MODE"]),
-  updatedAt: z.string().datetime()
-});
-
-export const OperatorCommandSchema = z.object({
-  command: z.enum(["/status", "/positions", "/risk-policy", "/halt", "/resume", "/flatten", "/explain"]),
-  args: z.array(z.string()).default([]),
-  reason: z.string().min(3)
-});
-```
-
 ## Error model
 ```json
 {
   "error": {
-    "code": "RISK_DENY",
-    "message": "Proposal denied by max drawdown rule",
-    "requestId": "req_01J..."
+    "code": "PAYMENT_REQUIRED",
+    "message": "missing x-agent-entitlement header; use /v1/agent/handshake then /v1/agent/verify"
   }
 }
 ```
