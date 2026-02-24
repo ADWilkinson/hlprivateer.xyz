@@ -3170,9 +3170,11 @@ async function generateResearchReport(params: {
   const prompt = [
     buildAgentPrompt({
       role: 'research-agent',
-      mission: 'Classify current market regime, identify the best opportunity across the universe, and return one actionable recommendation.',
+      mission: 'Classify current market regime, identify the best NEW entry opportunity across the universe, and return one actionable recommendation. Do not manage existing positions — they have SL/TP on exchange.',
       rules: [
       'Use only context and observed signals; do not speculate on external events.',
+      'Your job is to research NEW trade opportunities. Do NOT recommend actions on existing positions (no EXIT, HOLD, or position management). SL/TP are on the exchange — existing positions manage themselves. Focus entirely on identifying the single best NEW entry.',
+      'If all current positions overlap with your best opportunity, find the next-best opportunity in a DIFFERENT asset.',
       'Output one actionable recommendation — name the specific asset(s) and direction. Not a portfolio plan, not a vague "monitor" statement.',
       'REGIME must be one of: RISK_ON (broad strength, expanding breadth), RISK_OFF (broad weakness, contracting breadth), TRENDING (directional momentum in majors), MEAN_REVERTING (range-bound, fading moves), VOLATILE (elevated vol, wide ranges), CALM (low vol, compressed ranges), TRANSITIONING (regime shifting, signals mixed). Pick the single best fit.',
       'Synthesize all available context holistically. Confidence reflects the overall quality and coherence of the thesis, not how many data sources agree.',
