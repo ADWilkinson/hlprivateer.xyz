@@ -38,7 +38,16 @@ export function getTtlForPayload(payload: unknown): number | null {
 }
 
 export function stableCacheKey(payload: unknown): string {
-  return JSON.stringify(payload, Object.keys(payload as Record<string, unknown>).sort())
+  return JSON.stringify(payload, (_key, value) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const sorted: Record<string, unknown> = {}
+      for (const k of Object.keys(value).sort()) {
+        sorted[k] = (value as Record<string, unknown>)[k]
+      }
+      return sorted
+    }
+    return value
+  })
 }
 
 export function createResponseCache(config?: CacheConfig): ResponseCache {
