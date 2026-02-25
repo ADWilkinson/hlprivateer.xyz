@@ -909,11 +909,53 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
         if (hasAnyExposure()) {
           lastSafeModeNoExposureHoldNoticeAtMs = 0
           if (canExitSafeMode) {
+            // Before auto-resolving, verify every meaningful position has exchange-side SL/TP.
+            // Without this check, SAFE_MODE bounces: protection audit detects naked position,
+            // enters SAFE_MODE, recovery sees deps healthy and exits, protection audit fires again.
+            let allProtected = true
+            if (adapter.queryTriggerOrders && env.ENABLE_LIVE_OMS) {
+              try {
+                const triggerOrders = await adapter.queryTriggerOrders()
+                const meaningful = meaningfulPositions()
+                for (const pos of meaningful) {
+                  const closingSide = pos.side === 'LONG' ? 'SELL' : 'BUY'
+                  const positionTriggers = triggerOrders.filter(
+                    (o) => o.symbol === pos.symbol && o.side === closingSide
+                  )
+                  const hasSl = positionTriggers.some(
+                    (o) => o.orderType === 'Stop Market' || o.orderType === 'Stop Limit'
+                  )
+                  const hasTp = positionTriggers.some(
+                    (o) => o.orderType === 'Take Profit Market' || o.orderType === 'Take Profit Limit'
+                  )
+                  if (!hasSl || !hasTp) {
+                    allProtected = false
+                    break
+                  }
+                }
+              } catch {
+                // Can't verify protection — stay in SAFE_MODE
+                allProtected = false
+              }
+            }
+
+            if (!allProtected) {
+              runtimeProposalCounter.inc({ status: 'safe_mode_unprotected' })
+              if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
+                lastSafeModeHoldNoticeAtMs = nowMs
+                await publishStateUpdate(
+                  cycleCorrelationId,
+                  'safe mode: deps healthy but positions missing exchange-side SL/TP — staying in SAFE_MODE'
+                )
+              }
+              return
+            }
+
             lastSafeModeHoldNoticeAtMs = 0
             markInfraRecovered()
             consecutiveCycleErrors = 0
             const recoveryMode = hasAnyExposure() ? 'IN_TRADE' : 'READY'
-            await setMode(recoveryMode, 'safe mode auto-resolve: dependencies recovered')
+            await setMode(recoveryMode, 'safe mode auto-resolve: dependencies recovered and all positions protected')
             return
           }
           runtimeProposalCounter.inc({ status: 'safe_mode_holding' })
