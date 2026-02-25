@@ -3360,7 +3360,7 @@ async function generateStrategistDirective(params: {
             takeProfitPrice: { type: 'number' },
             thesisNote: { type: 'string' }
           },
-          required: ['symbol', 'side', 'notionalUsd', 'thesisNote']
+          required: ['symbol', 'side', 'notionalUsd', 'stopLossPrice', 'takeProfitPrice', 'thesisNote']
         },
         minItems: 1,
         maxItems: 12

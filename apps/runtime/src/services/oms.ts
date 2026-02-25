@@ -64,6 +64,8 @@ export interface ExecutionAdapter {
   /** Close a position by exact size with a reduce-only IOC market order. Used for dust cleanup. */
   closeBySize?(input: { symbol: string; side: 'BUY' | 'SELL'; size: string; tick: NormalizedTick; idempotencyKey: string }): Promise<PlacedOrder>
   placeTpsl?(input: TpslInput): Promise<TpslPlaced>
+  /** Query open trigger orders (TP/SL) for protection audit. */
+  queryTriggerOrders?(): Promise<Array<{ symbol: string; side: 'BUY' | 'SELL'; orderType: string; triggerPx: string; oid: string }>>
   // Live-only helpers used by runtime funding gates.
   getAccountValueUsd?: () => Promise<number>
   getWalletAddress?: () => string
@@ -874,7 +876,20 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     return result
   }
 
-  return { place, cancel, modify, reconcile, snapshot, closeBySize, getAccountValueUsd, getWalletAddress, placeTpsl }
+  async function queryTriggerOrders(): Promise<Array<{ symbol: string; side: 'BUY' | 'SELL'; orderType: string; triggerPx: string; oid: string }>> {
+    const open = await info.frontendOpenOrders({ user: wallet.address })
+    return open
+      .filter((o) => o.isTrigger)
+      .map((o) => ({
+        symbol: o.coin,
+        side: o.side === 'B' ? 'BUY' as const : 'SELL' as const,
+        orderType: o.orderType,
+        triggerPx: o.triggerPx,
+        oid: String(o.oid)
+      }))
+  }
+
+  return { place, cancel, modify, reconcile, snapshot, closeBySize, getAccountValueUsd, getWalletAddress, placeTpsl, queryTriggerOrders }
 }
 
 export function mapToOperatorOrder(order: PlacedOrder): OperatorOrder {

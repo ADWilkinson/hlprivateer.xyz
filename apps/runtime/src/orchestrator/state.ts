@@ -281,6 +281,8 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
   let lastNoActionNoticeAtMs = 0
   let lastNoActionSignature = ''
+  let lastProtectionAuditAtMs = 0
+  const PROTECTION_AUDIT_COOLDOWN_MS = 30_000
   let consecutiveCycleErrors = 0
   const SAFE_MODE_ERROR_THRESHOLD = 5
   const infraAutoFlattenMinOutageMs = env.RUNTIME_INFRA_AUTO_FLATTEN_MIN_OUTAGE_MS
@@ -846,6 +848,52 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
 
       // Keep downstream views live even on no-op cycles.
       await publishPositionsUpdate(cycleCorrelationId)
+
+      // TP/SL protection audit: verify every meaningful position has exchange-side trigger orders.
+      // Runs on a cooldown to avoid hammering the exchange API every cycle.
+      if (
+        adapter.queryTriggerOrders &&
+        env.ENABLE_LIVE_OMS &&
+        state.mode !== 'HALT' &&
+        state.mode !== 'SAFE_MODE' &&
+        nowMs - lastProtectionAuditAtMs >= PROTECTION_AUDIT_COOLDOWN_MS
+      ) {
+        lastProtectionAuditAtMs = nowMs
+        const meaningful = meaningfulPositions()
+        if (meaningful.length > 0) {
+          try {
+            const triggerOrders = await adapter.queryTriggerOrders()
+            const unprotected: string[] = []
+            for (const pos of meaningful) {
+              const closingSide = pos.side === 'LONG' ? 'SELL' : 'BUY'
+              const positionTriggers = triggerOrders.filter(
+                (o) => o.symbol === pos.symbol && o.side === closingSide
+              )
+              const hasSl = positionTriggers.some(
+                (o) => o.orderType === 'Stop Market' || o.orderType === 'Stop Limit'
+              )
+              const hasTp = positionTriggers.some(
+                (o) => o.orderType === 'Take Profit Market' || o.orderType === 'Take Profit Limit'
+              )
+              if (!hasSl || !hasTp) {
+                unprotected.push(`${pos.symbol} ${pos.side} (SL=${hasSl}, TP=${hasTp})`)
+              }
+            }
+            if (unprotected.length > 0) {
+              await addAudit('protection_audit.unprotected', 'runtime', cycleCorrelationId, {
+                unprotected,
+                totalPositions: meaningful.length,
+                totalTriggerOrders: triggerOrders.length
+              })
+              await setMode('SAFE_MODE', `protection audit: ${unprotected.length} position(s) missing SL/TP — ${unprotected.join(', ')}`)
+            }
+          } catch (error) {
+            await addAudit('protection_audit.error', 'runtime', cycleCorrelationId, {
+              error: String(error)
+            })
+          }
+        }
+      }
 
       if (state.mode === 'HALT') {
         runtimeProposalCounter.inc({ status: 'skipped_halt' })
