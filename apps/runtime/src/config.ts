@@ -74,7 +74,11 @@ export const runtimeEnv = z
     RUNTIME_METRICS_PORT: z.coerce.number().default(9400),
     ENABLE_LIVE_OMS: booleanFromEnv.default(false),
     LIVE_MODE_APPROVED: booleanFromEnv.default(false),
-    LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS: z.coerce.number().default(60_000)
+    LIVE_RECONCILE_OPEN_ORDER_MAX_AGE_MS: z.coerce.number().default(60_000),
+    // Emergency SL/TP percentages from mark price for SAFE_MODE recovery.
+    // Used when a position is detected without exchange-side protection.
+    RUNTIME_EMERGENCY_SL_PCT: z.coerce.number().min(0.5).max(50).default(8),
+    RUNTIME_EMERGENCY_TP_PCT: z.coerce.number().min(0.5).max(50).default(8)
   })
   .parse({
     ...process.env,

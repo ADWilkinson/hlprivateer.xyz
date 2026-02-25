@@ -939,13 +939,105 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
               }
             }
 
+            if (!allProtected && adapter.placeTpsl) {
+              // Attempt emergency SL/TP placement for unprotected positions.
+              // Uses configurable percentage from mark price as a last-resort safety net.
+              const emergencySlPct = env.RUNTIME_EMERGENCY_SL_PCT / 100
+              const emergencyTpPct = env.RUNTIME_EMERGENCY_TP_PCT / 100
+
+              try {
+                const triggerOrders = await adapter.queryTriggerOrders!()
+                const meaningful = meaningfulPositions()
+
+                for (const pos of meaningful) {
+                  const closingSide: 'BUY' | 'SELL' = pos.side === 'LONG' ? 'SELL' : 'BUY'
+                  const positionTriggers = triggerOrders.filter(
+                    (o) => o.symbol === pos.symbol && o.side === closingSide
+                  )
+                  const hasSl = positionTriggers.some(
+                    (o) => o.orderType === 'Stop Market' || o.orderType === 'Stop Limit'
+                  )
+                  const hasTp = positionTriggers.some(
+                    (o) => o.orderType === 'Take Profit Market' || o.orderType === 'Take Profit Limit'
+                  )
+
+                  if (hasSl && hasTp) continue
+
+                  const tick = await marketAdapter.latest(pos.symbol)
+                  if (!tick || tick.px <= 0) continue
+
+                  const markPx = tick.px
+                  const slPrice = pos.side === 'LONG'
+                    ? markPx * (1 - emergencySlPct)
+                    : markPx * (1 + emergencySlPct)
+                  const tpPrice = pos.side === 'LONG'
+                    ? markPx * (1 + emergencyTpPct)
+                    : markPx * (1 - emergencyTpPct)
+
+                  try {
+                    const tpsl = await adapter.placeTpsl({
+                      symbol: pos.symbol,
+                      closingSide,
+                      size: String(pos.qty),
+                      stopLossPrice: hasSl ? undefined : slPrice,
+                      takeProfitPrice: hasTp ? undefined : tpPrice,
+                      tick,
+                      correlationId: `emergency:${cycleCorrelationId}:${pos.symbol}`
+                    })
+
+                    await addAudit('tpsl.emergency_placed', 'runtime', cycleCorrelationId, {
+                      symbol: pos.symbol,
+                      side: pos.side,
+                      markPx,
+                      stopLossPrice: hasSl ? 'already_set' : slPrice,
+                      takeProfitPrice: hasTp ? 'already_set' : tpPrice,
+                      tpOrderId: tpsl.tpOrderId ?? null,
+                      slOrderId: tpsl.slOrderId ?? null,
+                      emergencySlPct: env.RUNTIME_EMERGENCY_SL_PCT,
+                      emergencyTpPct: env.RUNTIME_EMERGENCY_TP_PCT,
+                      qty: pos.qty
+                    })
+                  } catch (placeErr) {
+                    await addAudit('tpsl.emergency_failed', 'runtime', cycleCorrelationId, {
+                      symbol: pos.symbol,
+                      side: pos.side,
+                      error: String(placeErr)
+                    })
+                  }
+                }
+
+                // Re-check protection after emergency placement
+                const updatedTriggers = await adapter.queryTriggerOrders!()
+                allProtected = true
+                for (const pos of meaningful) {
+                  const closingSide = pos.side === 'LONG' ? 'SELL' : 'BUY'
+                  const positionTriggers = updatedTriggers.filter(
+                    (o) => o.symbol === pos.symbol && o.side === closingSide
+                  )
+                  const hasSl2 = positionTriggers.some(
+                    (o) => o.orderType === 'Stop Market' || o.orderType === 'Stop Limit'
+                  )
+                  const hasTp2 = positionTriggers.some(
+                    (o) => o.orderType === 'Take Profit Market' || o.orderType === 'Take Profit Limit'
+                  )
+                  if (!hasSl2 || !hasTp2) {
+                    allProtected = false
+                    break
+                  }
+                }
+              } catch {
+                // Emergency placement failed entirely — stay in SAFE_MODE
+                allProtected = false
+              }
+            }
+
             if (!allProtected) {
               runtimeProposalCounter.inc({ status: 'safe_mode_unprotected' })
               if (nowMs - lastSafeModeHoldNoticeAtMs >= 30_000) {
                 lastSafeModeHoldNoticeAtMs = nowMs
                 await publishStateUpdate(
                   cycleCorrelationId,
-                  'safe mode: deps healthy but positions missing exchange-side SL/TP — staying in SAFE_MODE'
+                  'safe mode: emergency SL/TP placement failed — positions still unprotected'
                 )
               }
               return
