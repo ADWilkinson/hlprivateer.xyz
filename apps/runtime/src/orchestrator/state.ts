@@ -1370,10 +1370,20 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
       )
 
       if (legsWithTpsl.length > 0) {
-        const currentSnapshot = await adapter.snapshot().catch(() => null)
+        let currentSnapshot: Awaited<ReturnType<typeof adapter.snapshot>> | null = null
+        try {
+          currentSnapshot = await adapter.snapshot()
+        } catch (snapshotErr) {
+          await addAudit('tpsl.snapshot_failed', 'runtime', proposal.proposalId, {
+            error: String(snapshotErr),
+            reason: 'snapshot failed during TPSL placement — cannot verify positions, entering SAFE_MODE'
+          })
+          await setMode('SAFE_MODE', `tpsl.snapshot_failed: cannot verify positions for SL/TP placement`)
+        }
 
         for (const leg of legsWithTpsl) {
-          const position = currentSnapshot?.positions.find((p) => p.symbol === leg.symbol)
+          if (!currentSnapshot) break
+          const position = currentSnapshot.positions.find((p) => p.symbol === leg.symbol)
           if (!position || position.qty <= 0) continue
 
           const closingSide: 'BUY' | 'SELL' = position.side === 'LONG' ? 'SELL' : 'BUY'
@@ -1453,20 +1463,48 @@ export async function createRuntime({ env, bus, store, hlClient }: LoopConfig): 
               correlationId: proposal.proposalId
             })
 
-            await addAudit('tpsl.placed', 'runtime', proposal.proposalId, {
-              symbol: leg.symbol,
-              closingSide,
-              stopLossPrice: validatedSlPrice,
-              takeProfitPrice: validatedTpPrice,
-              tpOrderId: tpsl.tpOrderId,
-              slOrderId: tpsl.slOrderId,
-              qty: position.qty
-            })
+            // Verify both orders were actually placed on the exchange.
+            // A partial result (e.g. TP placed but SL failed) means the position
+            // is not fully protected — fail-closed into SAFE_MODE.
+            const expectedSl = validatedSlPrice != null
+            const expectedTp = validatedTpPrice != null
+            const gotSl = tpsl.slOrderId != null
+            const gotTp = tpsl.tpOrderId != null
+            const missingOrders: string[] = []
+            if (expectedSl && !gotSl) missingOrders.push('SL')
+            if (expectedTp && !gotTp) missingOrders.push('TP')
+
+            if (missingOrders.length > 0) {
+              await addAudit('tpsl.partial', 'runtime', proposal.proposalId, {
+                symbol: leg.symbol,
+                closingSide,
+                stopLossPrice: validatedSlPrice,
+                takeProfitPrice: validatedTpPrice,
+                tpOrderId: tpsl.tpOrderId ?? null,
+                slOrderId: tpsl.slOrderId ?? null,
+                missing: missingOrders,
+                qty: position.qty,
+                reason: `exchange accepted order but ${missingOrders.join(' and ')} order ID missing — entering SAFE_MODE`
+              })
+              await setMode('SAFE_MODE', `tpsl.partial: ${leg.symbol} missing ${missingOrders.join('+')} confirmation`)
+            } else {
+              await addAudit('tpsl.placed', 'runtime', proposal.proposalId, {
+                symbol: leg.symbol,
+                closingSide,
+                stopLossPrice: validatedSlPrice,
+                takeProfitPrice: validatedTpPrice,
+                tpOrderId: tpsl.tpOrderId,
+                slOrderId: tpsl.slOrderId,
+                qty: position.qty
+              })
+            }
           } catch (error) {
             await addAudit('tpsl.error', 'runtime', proposal.proposalId, {
               symbol: leg.symbol,
-              error: String(error)
+              error: String(error),
+              reason: 'placeTpsl threw — position is live without exchange-side protection, entering SAFE_MODE'
             })
+            await setMode('SAFE_MODE', `tpsl.error: ${leg.symbol} SL/TP placement failed — ${String(error)}`)
           }
         }
       }

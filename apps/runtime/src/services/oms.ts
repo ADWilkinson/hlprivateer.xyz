@@ -821,6 +821,8 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
     const size = formatSize(Number(input.size), szDecimals)
     const result: TpslPlaced = {}
 
+    const errors: string[] = []
+
     if (input.takeProfitPrice != null && Number.isFinite(input.takeProfitPrice) && input.takeProfitPrice > 0) {
       const tpPx = formatPrice(input.takeProfitPrice, szDecimals, 'perp')
       try {
@@ -841,9 +843,13 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
           result.tpOrderId = String((tpStatus as any).resting.oid)
         } else if (tpStatus && typeof tpStatus !== 'string' && 'filled' in tpStatus) {
           result.tpOrderId = String((tpStatus as any).filled.oid)
+        } else if (tpStatus && typeof tpStatus === 'string') {
+          errors.push(`TP rejected by exchange: ${tpStatus}`)
+        } else if (tpStatus && typeof tpStatus !== 'string' && 'error' in tpStatus) {
+          errors.push(`TP error from exchange: ${(tpStatus as any).error}`)
         }
       } catch (error) {
-        console.warn(`oms: placeTpsl TP failed for ${input.symbol}`, error)
+        errors.push(`TP placement threw: ${String(error)}`)
       }
     }
 
@@ -867,10 +873,18 @@ export function createLiveAdapter(env: RuntimeEnv, getSlippageBps: () => number 
           result.slOrderId = String((slStatus as any).resting.oid)
         } else if (slStatus && typeof slStatus !== 'string' && 'filled' in slStatus) {
           result.slOrderId = String((slStatus as any).filled.oid)
+        } else if (slStatus && typeof slStatus === 'string') {
+          errors.push(`SL rejected by exchange: ${slStatus}`)
+        } else if (slStatus && typeof slStatus !== 'string' && 'error' in slStatus) {
+          errors.push(`SL error from exchange: ${(slStatus as any).error}`)
         }
       } catch (error) {
-        console.warn(`oms: placeTpsl SL failed for ${input.symbol}`, error)
+        errors.push(`SL placement threw: ${String(error)}`)
       }
+    }
+
+    if (errors.length > 0) {
+      console.warn(`oms: placeTpsl errors for ${input.symbol}:`, errors.join('; '))
     }
 
     return result
