@@ -1232,7 +1232,7 @@ const AGENT_DATA_SOURCES_PRESET: string[] = [
   '5) DefiLlama: TVL flows, protocol metrics, stablecoin supply changes.',
   '6) Fear & Greed Index: crowd sentiment gauge (contrarian indicator).',
   '7) Technical signals: RSI, trend (1h/4h/1d), ATR, volume ratios.',
-  '8) Composite signals: hourly trend classification (swing high/low analysis), BTC macro context (4h+1h trend with alt modifier), volume surges (2x+ vs 20-bar avg), OI velocity (expanding/contracting/stable), funding regime scores, multi-pillar composite (Market Structure / Technicals / Funding, 0-100 each).',
+  '8) Composite signals: hourly swing structure (higher-highs/lower-lows counts and delta), BTC macro context (4h+1h swing structure), volume profiles (current vs 20-bar average ratio), OI deltas (cycle-over-cycle % change), funding snapshots (raw 8h rate + annualized %).',
   'All data is fetched programmatically and included in your context. Weight sources dynamically based on current regime. No fixed priority.'
 ]
 
@@ -2227,8 +2227,8 @@ async function generateBasketSelection(params: {
         'Favor assets with active catalysts, momentum shifts, or narrative tailwinds — a liquid but stale asset is less useful than a liquid asset with a developing setup.',
         'Consider funding rate extremes, OI changes, and sector rotation as opportunity signals when selecting.',
         'Favor diversified selections across sectors/narratives over concentrated bets on correlated assets.',
-        'Prefer symbols with volume surges (compositeSignals.volumeSurgeSymbols) and expanding OI (compositeSignals.oiExpandingSymbols) — these indicate active participation and developing setups.',
-        'Avoid symbols with contracting OI and no volume signal — they are dead weight with no edge.',
+        'Use compositeSignals.volumeProfiles (current/avg20/ratio) and compositeSignals.oiDeltas (deltaPct) to assess participation quality — interpret the raw numbers yourself.',
+        'Avoid symbols with declining volume ratios and shrinking OI — low participation means low edge.',
         'If context is weak or intel is degraded, keep the opportunity set smaller and more conservative.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -2552,12 +2552,8 @@ async function maybeSelectBasket(params: {
         latest: latestBasketSignals
       },
       compositeSignals: lastCompositeSignals ? {
-        volumeSurgeSymbols: Object.entries(lastCompositeSignals.volumeSurges)
-          .filter(([, v]) => v.isSurge)
-          .map(([sym]) => sym),
-        oiExpandingSymbols: Object.entries(lastCompositeSignals.oiVelocity)
-          .filter(([, v]) => v.velocity === 'EXPANDING')
-          .map(([sym]) => sym),
+        volumeProfiles: lastCompositeSignals.volumeProfiles,
+        oiDeltas: lastCompositeSignals.oiDeltas,
         btcMacro: lastCompositeSignals.btcMacro,
       } : null,
     }
@@ -3196,8 +3192,8 @@ async function generateResearchReport(params: {
       'Scan the full universe — the best opportunity may be in any asset, not just the largest.',
       'Your recommendation MUST name only symbols from universeSymbols. Never recommend a symbol not listed there — it cannot be traded.',
       'Pipeline runs hourly. Each trade is independent with SL/TP on exchange at entry. Focus on setups that work on hourly+ timeframes.',
-      'BTC macro context is provided as compositeSignals.btcMacro with 4h/1h trend classifications and an altLongModifier. Factor this into regime classification and alt-specific recommendations.',
-      'Volume surges (2x+ vs 20-bar avg) and OI expansion/contraction are provided in compositeSignals. Use these as confirmation signals for narrative strength or weakness.',
+      'BTC macro context is provided as compositeSignals.btcMacro with 4h and 1h swing structure (higherHighs, lowerLows, delta). Factor BTC trend into regime classification and alt recommendations.',
+      'Volume profiles (current vs 20-bar avg ratio) and OI deltas (% change from prior cycle) are provided in compositeSignals. Use these as confirmation signals for narrative strength or weakness.',
       'Include suggestedTwitterQueries: up to 8 Twitter/X v2 search queries for the NEXT intel cycle. Target narratives, catalysts, liquidations, or sentiment shifts relevant to current regime and universe. Use operators: OR, -is:retweet, lang:en, $cashtag. Keep queries focused and concise (<280 chars each).'
     ],
       schemaHint: 'Return only JSON that matches the provided schema.',
@@ -3312,9 +3308,8 @@ async function generateRiskReport(params: {
         'SESSION PNL: pnlPct is cumulative session realized P&L, not current position risk. When flat, it is historical context only.',
         'Only recommend policy changes with clear justification tied to observable market conditions.',
         'Assess all data sources based on their current relevance. The importance of any source depends on the regime.',
-        'BTC MACRO: If compositeSignals.btcMacro shows btcTrend4h=DOWN and btcTrend1h=DOWN, this is a macro headwind for alt longs. Factor into AMBER decision and consider recommending reduced maxLeverage.',
-        'VOLUME SURGE CLUSTER: Multiple simultaneous volume surges (volumeSurgeCount) may indicate a macro event. Note this in your risk assessment.',
-        'OI CONTRACTION: Widespread OI contraction (oiContractingCount) signals declining participation and liquidity risk.'
+        'BTC MACRO: compositeSignals.btcMacro provides BTC 4h and 1h swing structure (higherHighs, lowerLows, delta). Negative deltas on both timeframes signal macro headwind for alts.',
+        'VOLUME + OI: compositeSignals provides volumeProfiles (ratio vs 20-bar avg) and oiDeltas (% change from prior cycle) per symbol. Interpret these for liquidity and participation trends.'
       ],
       schemaHint: 'Return only JSON that matches the provided schema.',
       context: params.input
@@ -3438,15 +3433,14 @@ async function generateStrategistDirective(params: {
         'Do not oversize to recover losses. pnlPct is historical — each trade stands on its own merit.',
         'Scan the full universe. The best opportunity may be anywhere.',
         'ALL plan legs MUST use symbols from activeUniverse.symbols — off-basket legs are dropped.',
-        'HOURLY TREND GATE (HARD RULE): For LONG entries, compositeSignals.hourlyTrends[symbol].classification must NOT be DOWN. For SHORT entries, it must NOT be UP. Counter-trend entries are rejected. If no symbols pass the hourly trend gate, decision is HOLD.',
-        'BTC MACRO MODIFIER: compositeSignals.btcMacro.altLongModifier adjusts conviction for alt entries. Negative modifier = headwind for longs. Factor this into sizing and symbol selection.',
-        'PILLAR SCORES: compositeSignals.pillarScores[symbol] provides marketStructure (0-100), technicals (0-100), funding (0-100), and composite (0-300). Use as a ranking aid — higher composite = stronger setup. Do not trade symbols with composite < 100.',
+        'HOURLY SWING STRUCTURE: compositeSignals.hourlyTrends[symbol] provides higherHighs, lowerLows, and delta (higherHighs - lowerLows). Use delta to assess trend direction — positive favors longs, negative favors shorts, near-zero is ambiguous. Interpret thresholds yourself.',
+        'BTC MACRO CONTEXT: compositeSignals.btcMacro provides BTC 4h and 1h swing structures (same higherHighs/lowerLows/delta format). BTC trend context matters for alt entries — interpret how it affects your conviction.',
+        'VOLUME PROFILES: compositeSignals.volumeProfiles[symbol] provides currentVolume, avg20, and ratio (current/avg20). Higher ratios indicate more active participation. Interpret what ratio levels matter.',
+        'OI DELTAS: compositeSignals.oiDeltas[symbol] provides currentOiUsd, previousOiUsd, and deltaPct (cycle-over-cycle % change). Rising OI = growing participation, falling = declining interest. Interpret significance yourself.',
+        'FUNDING SNAPSHOTS: compositeSignals.fundingSnapshots[symbol] provides currentRate (raw 8h) and annualizedPct. Extreme funding is a cost headwind — factor into SL/TP placement and side selection.',
         'CONCENTRATION: Prefer 2-4 high-conviction legs over many mediocre ones. An empty slot is better than a low-conviction trade.',
         'MIN LEVERAGE GATE: Skip symbols where maxLeverage < 7x — insufficient room for fire-and-forget SL/TP to work.',
-        'DEAD WEIGHT: Symbols with no volume surge, stable OI, neutral hourly trend, and middling pillar scores have zero edge. Do not trade dead-weight symbols.',
         'FEE AWARENESS: Hyperliquid taker fee is 0.035%. Round-trip cost is 0.07% of notional. TP targets must exceed this floor for positive expectancy.',
-        'FUNDING REGIME: compositeSignals.fundingRegimes[symbol] shows which side current funding favors. Extreme unfavorable funding (annualized > 50%) is a cost headwind — factor into SL/TP placement.',
-        'OI VELOCITY: compositeSignals.oiVelocity[symbol] shows EXPANDING/CONTRACTING/STABLE. Prefer EXPANDING (growing participation) over CONTRACTING (declining interest).',
         'All context (technicals, compositeSignals, funding, OI, aixbt, narrative, tradeHistory, convictionBoard, portfolioCorrelation) is available for holistic synthesis. No single input is more important than another — weight them based on current conditions.',
         'riskBudget values must be null or positive numbers.',
         'Do not propose both plan and decision HOLD.'
@@ -4047,7 +4041,6 @@ async function runStrategyPipeline(): Promise<void> {
           symbols: activeBasket.symbols,
           postInfo: hlClient.postInfo,
           previousOiBySymbol,
-          technicalSignals: lastTechnicalSignals,
           fundingBySymbol,
           oiBySymbol,
           concurrency: 4
@@ -4140,15 +4133,8 @@ async function runResearchAgent(): Promise<boolean> {
     inferredRegime: regime,
     compositeSignals: lastCompositeSignals ? {
       btcMacro: lastCompositeSignals.btcMacro,
-      volumeSurges: Object.entries(lastCompositeSignals.volumeSurges)
-        .filter(([, v]) => v.isSurge)
-        .map(([sym, v]) => ({ symbol: sym, ratio: v.ratio })),
-      oiExpanding: Object.entries(lastCompositeSignals.oiVelocity)
-        .filter(([, v]) => v.velocity === 'EXPANDING')
-        .map(([sym, v]) => ({ symbol: sym, deltaPct: v.deltaPct })),
-      oiContracting: Object.entries(lastCompositeSignals.oiVelocity)
-        .filter(([, v]) => v.velocity === 'CONTRACTING')
-        .map(([sym, v]) => ({ symbol: sym, deltaPct: v.deltaPct })),
+      volumeProfiles: lastCompositeSignals.volumeProfiles,
+      oiDeltas: lastCompositeSignals.oiDeltas,
     } : null,
     historicalContext: {
       recentResearch: formatHistoryForPrompt('recent research cycles', researchHistory.recent(5), ['ts', 'headline', 'regime', 'recommendation', 'confidence']),
@@ -4342,9 +4328,8 @@ async function runRiskAgent(): Promise<void> {
 	    lastResearchReport,
 	    compositeSignals: lastCompositeSignals ? {
 	      btcMacro: lastCompositeSignals.btcMacro,
-	      volumeSurgeCount: Object.values(lastCompositeSignals.volumeSurges).filter(v => v.isSurge).length,
-	      oiExpandingCount: Object.values(lastCompositeSignals.oiVelocity).filter(v => v.velocity === 'EXPANDING').length,
-	      oiContractingCount: Object.values(lastCompositeSignals.oiVelocity).filter(v => v.velocity === 'CONTRACTING').length,
+	      volumeProfiles: lastCompositeSignals.volumeProfiles,
+	      oiDeltas: lastCompositeSignals.oiDeltas,
 	    } : null,
 	    historicalContext: {
       recentRisk: formatHistoryForPrompt('recent risk cycles', riskHistory.recent(5), ['ts', 'headline', 'posture', 'risks', 'confidence']),
@@ -4584,10 +4569,9 @@ async function maybeRefreshStrategistDirective(params: { signals: PluginSignal[]
 	      compositeSignals: lastCompositeSignals ? {
 	        hourlyTrends: lastCompositeSignals.hourlyTrends,
 	        btcMacro: lastCompositeSignals.btcMacro,
-	        volumeSurges: lastCompositeSignals.volumeSurges,
-	        oiVelocity: lastCompositeSignals.oiVelocity,
-	        fundingRegimes: lastCompositeSignals.fundingRegimes,
-	        pillarScores: lastCompositeSignals.pillarScores,
+	        volumeProfiles: lastCompositeSignals.volumeProfiles,
+	        oiDeltas: lastCompositeSignals.oiDeltas,
+	        fundingSnapshots: lastCompositeSignals.fundingSnapshots,
 	      } : null,
 	      tradeHistory: tradeJournal.summarize(),
 	      convictionBoard: convictionBoard.forPrompt(),
