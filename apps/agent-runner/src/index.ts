@@ -5482,8 +5482,16 @@ const start = async (): Promise<void> => {
       }
 
       const elapsed = Date.now() - start
-      const sleepMs = Math.max(0, env.AGENT_PIPELINE_BASE_MS - elapsed)
-      if (sleepMs > 0) await sleep(sleepMs)
+      let remaining = Math.max(0, env.AGENT_PIPELINE_BASE_MS - elapsed)
+      const HEARTBEAT_INTERVAL_MS = 30_000
+      while (remaining > 0 && running) {
+        const chunk = Math.min(remaining, HEARTBEAT_INTERVAL_MS)
+        await sleep(chunk)
+        remaining -= chunk
+        await fs.writeFile(HEARTBEAT_PATH, String(Date.now())).catch((error) => {
+          warnHeartbeatWriteFailed(error)
+        })
+      }
     }
   }
 
