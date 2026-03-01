@@ -6,9 +6,9 @@ import { SiteNav } from './ui/SiteNav'
 
 const SITE_URL = 'https://hlprivateer.xyz'
 const SITE_NAME = '[HL] PRIVATEER'
-const SITE_TITLE = '[HL] PRIVATEER - Open Hyperliquid Discretionary Desk'
+const SITE_TITLE = '[HL] PRIVATEER - An Agentic Open Fund Experiment'
 const SITE_DESCRIPTION =
-  'A fund of autonomous agents making discretionary calls on Hyperliquid. Follow trades and read analysis in real time.'
+  'An experiment in running an agentic open fund on Hyperliquid with x402 machine payments and LLM-driven trade proposals. Open-sourced for fun.'
 const SITE_SOCIAL_IMAGE = '/og-image.png'
 
 const terminalFont = IBM_Plex_Mono({
@@ -28,10 +28,12 @@ export const metadata: Metadata = {
   referrer: 'origin-when-cross-origin',
   keywords: [
     'Hyperliquid',
-    'trading desk',
-    'autonomous agents',
-    'market analysis',
-    'crypto trading',
+    'agentic trading',
+    'open source',
+    'risk engine',
+    'LLM agents',
+    'TypeScript',
+    'x402',
   ],
   authors: [{ name: 'HL Privateer', url: SITE_URL }],
   creator: 'HL Privateer',

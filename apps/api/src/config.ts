@@ -100,7 +100,7 @@ const envSchema = z.object({
   ERC8004_ENABLED: booleanFromEnv.default(false),
   ERC8004_CHAIN_ID: z.coerce.number().default(8453),
   ERC8004_AGENT_ID: z.coerce.number().optional(),
-  ERC8004_RPC_URL: z.string().default('https://base-mainnet.g.alchemy.com/v2/REDACTED'),
+  ERC8004_RPC_URL: z.string().default(''),
   ERC8004_FEEDBACK_PRIVATE_KEY: z.string().optional(),
 })
 
