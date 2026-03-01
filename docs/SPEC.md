@@ -120,50 +120,95 @@
 
 ## 3) System architecture (design + data flows)
 
-### 3.1 Text-based architecture diagram
+### 3.1 System architecture diagram
 
-```text
-                            +-----------------------------+
-                            |        Cloudflare Edge      |
-                            |  hlprivateer.xyz / api / ws |
-                            +--------------+--------------+
-                                           |
-                                  Cloudflare Tunnel
-                                           |
-+---------------------------------------------------------------------------------+
-| Home Server (Linux)                                                             |
-|                                                                                 |
-|  +-----------------+      +----------------+      +--------------------------+  |
-|  | apps/web        |<---->| apps/ws-gateway|<---->| Redis Streams (event bus)|  |
-|  | Next.js ASCII UI|      | Realtime fanout|      | + pub/sub cache          |  |
-|  +--------+--------+      +--------+-------+      +-------------+------------+  |
-|           |                        |                            |               |
-|           v                        v                            v               |
-|  +-----------------+      +----------------+      +--------------------------+  |
-|  | apps/api        |<---->| apps/runtime   |<---->| packages/risk-engine     |  |
-|  | REST/x402/Auth  |      | agent loop + OMS|     | deterministic gate       |  |
-|  +--------+--------+      +--------+-------+      +-------------+------------+  |
-|           |                        |                            |               |
-|           +------------------------+----------------------------+               |
-|                                    v                                            |
-|                           +-----------------------+                             |
-|                           | Postgres (primary DB) |                             |
-|                           | events, orders, audit |                             |
-|                           +-----------+-----------+                             |
-|                                       |                                         |
-|                                       v                                         |
-|                         +-------------------------------+                       |
-|                         | Observability stack           |                       |
-|                         | OTel Collector + Prom + Loki  |                       |
-|                         +-------------------------------+                       |
-+---------------------------------------------------------------------------------+
-
-External:
-- Hyperliquid API/WebSocket
-- x402 Verifier / chain RPC
+```
+                         ┌──────────────────────────────────────────┐
+                         │            Cloudflare Edge                │
+                         │   hlprivateer.xyz / api.* / ws.*         │
+                         └──────────────────┬───────────────────────┘
+                                            │ Tunnel
+     ┌──────────────────────────────────────┼──────────────────────────────────┐
+     │  Home Server (Linux)                 │                                  │
+     │                                      ▼                                  │
+     │  ┌──────────────┐  ┌─────────────┐  ┌──────────────┐  ┌────────────┐  │
+     │  │  Web UI      │◄─│ WS Gateway  │◄─│Redis Streams │──│Agent Runner│  │
+     │  │  Next.js     │  │ :4100       │  │ (event bus)  │  │ (LLM crew) │  │
+     │  │  ASCII floor │  │ fanout +    │  │              │  │ 7 roles    │  │
+     │  │  :3000       │  │ heartbeat   │  │ 12 typed     │  │ structured │  │
+     │  └──────────────┘  └──────┬──────┘  │ streams      │  │ output     │  │
+     │                           │         └──────┬───────┘  └─────┬──────┘  │
+     │                           │                │                │         │
+     │  ┌──────────────┐  ┌──────┴──────┐  ┌──────┴───────┐       │         │
+     │  │  REST API    │◄─│  Runtime    │──│ Risk Engine  │       │         │
+     │  │  :4000       │  │  (core)     │  │ (pure fns)   │       │         │
+     │  │              │  │             │  │              │       │         │
+     │  │  JWT auth    │  │  State      │  │  11 checks   │       │         │
+     │  │  x402 gate   │  │  machine    │  │  fail-closed │       │         │
+     │  │  rate limits │  │  OMS        │  │  zero deps   │       │         │
+     │  └──────────────┘  │  Plugins    │  └──────────────┘       │         │
+     │                    └──────┬──────┘                         │         │
+     │                           │                                │         │
+     │                    ┌──────┴──────┐                         │         │
+     │                    │  Postgres   │◄────────────────────────┘         │
+     │                    │  (Drizzle)  │                                   │
+     │                    │  orders     │                                   │
+     │                    │  fills      │                                   │
+     │                    │  audit log  │                                   │
+     │                    │  PnL snaps  │                                   │
+     │                    └─────────────┘                                   │
+     │                                                                     │
+     │                    ┌──────────────────────────────┐                  │
+     │                    │  Observability                │                  │
+     │                    │  OTel ──► Prometheus ──► Grafana               │
+     │                    │  Promtail ──► Loki                             │
+     │                    └──────────────────────────────┘                  │
+     └─────────────────────────────────────────────────────────────────────┘
+                                            │
+                         ┌──────────────────┼──────────────────┐
+                         ▼                  ▼                  ▼
+                   Hyperliquid        x402 Verifier      ERC-8004
+                   API + WS           (Base USDC)        (reputation)
 ```
 
-### 3.2 Event-driven design (Redis Streams default)
+### 3.2 Data flow
+
+The platform has three primary data flows:
+
+**1. Trading pipeline (agent proposals to execution)**
+```
+Agent Runner                    Runtime                    Hyperliquid
+    │                              │                           │
+    │──proposals──►                │                           │
+    │  (hlp.strategy.proposals)    │                           │
+    │                              │──evaluate──► Risk Engine  │
+    │                              │◄─ALLOW/DENY──┘           │
+    │                              │                           │
+    │                              │──place order──────────────►
+    │                              │◄─fill/ack─────────────────│
+    │                              │                           │
+    │                              │──reconcile (30s)──────────►
+    │                              │◄─position state───────────│
+```
+
+**2. UI and monitoring pipeline**
+```
+Runtime ──► hlp.ui.events ──► WS Gateway ──► Web UI (ASCII floor)
+Runtime ──► hlp.audit.events ──► API (audit trail + replay)
+Runtime ──► metrics ──► OTel ──► Prometheus ──► Grafana
+```
+
+**3. Operator command pipeline**
+```
+Web UI / API ──► hlp.commands ──► Runtime (validate + execute)
+                                     │
+                                     ├── /halt ──► HALT state
+                                     ├── /resume ──► READY state
+                                     ├── /flatten ──► close all positions
+                                     └── /status ──► return state snapshot
+```
+
+### 3.3 Event-driven design (Redis Streams default)
 - Stream names:
   - `hlp.market.raw`
   - `hlp.market.normalized`
@@ -205,7 +250,7 @@ export interface EventEnvelope<T = unknown> {
   - UI and API consume derived projections.
   - Audit service mirrors every event to append-only table.
 
-### 3.3 Trust boundaries
+### 3.4 Trust boundaries
 - Public boundary:
   - `GET /v1/public/pnl` and public websocket topics only.
   - Data limited to PnL percentage, health code, obfuscated state markers.
@@ -218,7 +263,7 @@ export interface EventEnvelope<T = unknown> {
 - Internal-only boundary:
   - Risk engine, raw market feeds, full positions, signing keys.
 
-### 3.4 Key management approach
+### 3.5 Key management approach
 - Hyperliquid trading key (EVM private key):
   - Stored as a plaintext `0x...` value in a local secret file referenced by `HL_PRIVATE_KEY_FILE`.
   - Generated by `scripts/ops/generate-trading-wallet.ts` into `secrets/` (gitignored, `chmod 600`).
@@ -235,7 +280,7 @@ export interface EventEnvelope<T = unknown> {
   - For systemd deployments, mount secrets via `LoadCredential=`/`systemd-creds` or point `*_FILE` at gitignored files.
   - At-rest protection is provided by host hardening (and optionally full-disk encryption); SOPS/age is not required by the current implementation.
 
-### 3.5 Failure modes and safe degradation
+### 3.6 Failure modes and safe degradation
 - Exchange websocket stale > threshold:
   - Enter `SAFE_MODE`; no new entries, only risk-reducing actions.
 - Risk engine unavailable:
@@ -983,7 +1028,7 @@ Week 4
 
 ### 10.2 GitHub issue backlog (32 issues)
 
-Full details are in `docs/GITHUB_ISSUES.md`. Summary IDs:
+Summary IDs:
 - `HLP-001` Repo bootstrap and workspace tooling
 - `HLP-002` Event envelope and Redis Streams foundation
 - `HLP-003` Postgres schema v1 with migrations
