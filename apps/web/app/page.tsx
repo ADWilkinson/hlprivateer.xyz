@@ -56,38 +56,35 @@ export default function LandingPage() {
       {/* Writeup */}
       <section className='w-full space-y-6 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
         <p>
-          HL Privateer was an experiment in running an agentic open fund on{' '}
+          HL Privateer was an experiment in running an agentic trading desk on{' '}
           <a href='https://hyperliquid.xyz' target='_blank' rel='noreferrer' className='text-hlpAccent hover:underline'>
             Hyperliquid
           </a>
-          . LLM agents proposed structured trades, a deterministic risk engine gated every proposal,
-          and an order management system executed what survived. Open-sourced because it was just an
-          experiment and for fun.
+          . A crew of 7 LLM agents (Claude/Codex) proposed discretionary long/short trades with structured
+          reasoning. A deterministic risk engine hard-gated every proposal before the OMS could execute.
+          The whole thing ran on a single home server behind a Cloudflare Tunnel.
         </p>
 
         <div className='space-y-3'>
           <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>Key ideas</div>
           <ul className='space-y-2 pl-4'>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Fail-closed risk gates</span> — pure functions, no I/O, same inputs produce same output. Dependency errors trigger SAFE_MODE.
+              <span className='text-hlpFg'>Fail-closed risk gates</span> — 11 sequential checks as pure functions. No I/O, deterministic. Any failure = DENY.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Agent-in-the-loop</span> — LLMs propose structured trades with conviction scores and reasoning. They cannot execute directly.
+              <span className='text-hlpFg'>AI proposes, never executes</span> — agents output structured proposals with conviction scores. Only the runtime can place orders.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Event-sourced audit trail</span> — hash-chained (SHA-256) audit events with correlation and causation IDs across every action.
+              <span className='text-hlpFg'>Fire-and-forget trades</span> — SL/TP placed on Hyperliquid at entry. No trailing stops, no runtime rebalancing.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>x402 machine payments</span> — pay-per-request API access for agent-to-agent data markets. External agents pay to consume fund signals and market data.
+              <span className='text-hlpFg'>Event-sourced audit trail</span> — hash-chained (SHA-256) audit events across all proposals, decisions, and executions.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>On-chain agent identity (ERC-8004)</span> — agents register on-chain with verifiable reputation. Feedback loops from x402 settlements feed back into agent scores.
+              <span className='text-hlpFg'>x402 machine payments</span> — pay-per-call API for agent-to-agent data markets. External agents pay USDC on Base to consume signals.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>State machine with recovery</span> — INIT, WARMUP, READY, IN_TRADE, HALT, SAFE_MODE. Fire-and-forget SL/TP placed at entry.
-            </li>
-            <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Home server deployment</span> — bare-metal systemd services behind Cloudflare Tunnel. No cloud, no vendor lock-in.
+              <span className='text-hlpFg'>State machine</span> — INIT, WARMUP, READY, IN_TRADE, HALT, SAFE_MODE. Dependency errors trigger SAFE_MODE (risk-reducing only).
             </li>
           </ul>
         </div>
@@ -96,29 +93,40 @@ export default function LandingPage() {
       {/* Architecture diagram */}
       <section className='w-full'>
         <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim mb-3'>Data flow</div>
-        <pre className='w-full overflow-x-auto border border-hlpBorder bg-hlpInverseBg p-4 text-[10px] leading-relaxed text-hlpPanel/85'>
-{`  Market Data
-      |
-      v
-  Research Agent ──> Strategy Agent
-                          |
-                          v
-                    ┌─────────────┐
-                    │ Risk Engine │
-                    │ (pure fn)   │
-                    └──────┬──────┘
-                           |
-                     DENY / ALLOW
-                           |
-                     ┌─────┴─────┐
-                     v           v
-                  Reject    OMS Execute
-                              |
-                              v
-                         Exchange
-                              |
-                              v
-                    Audit Trail + Events`}
+        <pre className='w-full overflow-x-auto border border-hlpBorder bg-hlpInverseBg p-4 text-[9px] leading-[1.6] text-hlpPanel/85'>
+{`  Hyperliquid            Agent Runner
+  (API + WS)             (7 LLM roles)
+      |                       |
+      | ticks                 | proposals
+      v                       v
+  ┌─────────────────────────────────────┐
+  │  Runtime                            │
+  │                                     │
+  │  Market Adapter ──> Risk Engine     │
+  │                     (11 checks,     │
+  │                      pure fns,      │
+  │                      fail-closed)   │
+  │                         |           │
+  │                   ALLOW | DENY      │
+  │                         |           │
+  │                        OMS          │
+  │                    (place, fill,    │
+  │                     reconcile) ───────> Hyperliquid
+  │                         |           │
+  │  ┌──────────────────────┴────────┐  │
+  │  │     Redis Streams (12 typed)  │  │
+  │  └───────┬──────────────┬────────┘  │
+  └──────────┼──────────────┼───────────┘
+             |              |
+      ┌──────┴───┐   ┌─────┴──────┐
+      │ WS Gate  │   │  REST API  │
+      │ (fanout) │   │ (JWT/x402) │
+      └────┬─────┘   └─────┬──────┘
+           |                |
+           v                v
+      ┌───────────────────────────┐
+      │   ASCII Trade Floor UI    │
+      └───────────────────────────┘`}
         </pre>
       </section>
 
