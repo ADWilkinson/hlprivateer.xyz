@@ -18,51 +18,52 @@ Self-hosted, agentic Hyperliquid trading platform. Autonomous AI agents propose 
 ## How It Works
 
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │              Cloudflare Edge                     │
-                    │     hlprivateer.xyz / api.* / ws.*              │
-                    └────────────────────┬────────────────────────────┘
-                                         │ Tunnel
-     ┌───────────────────────────────────┼───────────────────────────────────┐
-     │  Home Server                      │                                   │
-     │                                   ▼                                   │
-     │  ┌──────────┐   ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  │
-     │  │ Web UI   │◄──│ WS Gateway  │◄─│ Redis Streams│──│Agent Runner │  │
-     │  │ :3000    │   │ :4100       │  │ (event bus)  │  │ (LLM crew)  │  │
-     │  └──────────┘   └──────┬──────┘  └──────┬───────┘  └──────┬──────┘  │
-     │                        │                │                  │         │
-     │  ┌──────────┐   ┌──────┴──────┐  ┌──────┴───────┐         │         │
-     │  │ REST API │◄──│  Runtime    │──│ Risk Engine  │         │         │
-     │  │ :4000    │   │  (OMS +     │  │ (pure, fail- │         │         │
-     │  │ x402/JWT │   │  state      │  │  closed)     │         │         │
-     │  └──────────┘   │  machine)   │  └──────────────┘         │         │
-     │                 └──────┬──────┘                            │         │
-     │                        │                                   │         │
-     │                 ┌──────┴──────┐                            │         │
-     │                 │  Postgres   │◄───────────────────────────┘         │
-     │                 │  (orders,   │                                      │
-     │                 │  audit, PnL)│                                      │
-     │                 └─────────────┘                                      │
-     └──────────────────────────────────────────────────────────────────────┘
-                                         │
-                          ┌──────────────┼──────────────┐
-                          ▼              ▼              ▼
-                    Hyperliquid    x402 Verifier   OTel/Prom/Loki
-                    API + WS      (Base USDC)     (observability)
+                  ┌───────────────────────────────────────┐
+                  │           Cloudflare Edge              │
+                  │    hlprivateer.xyz / api.* / ws.*      │
+                  └──────────────────┬────────────────────┘
+                                     │ Tunnel
+┌────────────────────────────────────┼────────────────────────────────┐
+│ Home Server                        │                                │
+│                                    v                                │
+│ ┌────────────┐  ┌────────────┐  ┌──────────────┐  ┌─────────────┐ │
+│ │  Web UI    │◄─│ WS Gateway │◄─│Redis Streams │──│Agent Runner │ │
+│ │  :3000     │  │ :4100      │  │ (event bus)  │  │ (LLM crew)  │ │
+│ └────────────┘  └─────┬──────┘  └──────┬───────┘  └──────┬──────┘ │
+│                       │                │                  │        │
+│ ┌────────────┐  ┌─────┴──────┐  ┌──────┴───────┐         │        │
+│ │  REST API  │◄─│  Runtime   │──│ Risk Engine  │         │        │
+│ │  :4000     │  │  (OMS +    │  │ (pure, fail- │         │        │
+│ │  x402/JWT  │  │   state    │  │  closed)     │         │        │
+│ └────────────┘  │   machine) │  └──────────────┘         │        │
+│                 └─────┬──────┘                            │        │
+│                       │                                   │        │
+│                 ┌─────┴──────┐                            │        │
+│                 │  Postgres  │◄───────────────────────────┘        │
+│                 │  (orders,  │                                     │
+│                 │  audit,    │                                     │
+│                 │  PnL)      │                                     │
+│                 └────────────┘                                     │
+└────────────────────────┬──────────────────────────────────────────-┘
+                         │
+          ┌──────────────┼──────────────┐
+          v              v              v
+    Hyperliquid    x402 Verifier   OTel/Prom/Loki
+    API + WS       (Base USDC)    (observability)
 ```
 
 ### Data Flow
 
 ```
-Agent Runner ──proposals──► Runtime ──risk eval──► Risk Engine
-                               │                       │
-                               │◄──── ALLOW/DENY ──────┘
-                               │
-                               ├──orders──► Hyperliquid
-                               │
-                               ├──► hlp.ui.events ──► WS Gateway ──► Web UI
-                               ├──► hlp.audit.events ──► API (audit trail)
-                               └──◄ hlp.commands ◄── API/WS (operator commands)
+Agent Runner ──proposals──> Runtime ──risk eval──> Risk Engine
+                               |                       |
+                               |<──── ALLOW/DENY ──────┘
+                               |
+                               |──orders──> Hyperliquid
+                               |
+                               |──> hlp.ui.events ──> WS Gateway ──> Web UI
+                               |──> hlp.audit.events ──> API (audit trail)
+                               └──< hlp.commands <── API/WS (operator commands)
 ```
 
 ### Agent Crew (7 Roles)
