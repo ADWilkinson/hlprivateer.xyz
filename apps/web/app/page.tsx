@@ -91,9 +91,9 @@ export default function LandingPage() {
       </section>
 
       {/* Architecture diagram */}
-      <section className='w-full'>
+      <section className='w-full text-center'>
         <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim mb-3'>Data flow</div>
-        <pre className='w-full overflow-x-auto border border-hlpBorder bg-hlpInverseBg p-4 text-[9px] leading-[1.6] text-hlpPanel/85'>
+        <pre className='inline-block text-left overflow-x-auto border border-hlpBorder bg-hlpInverseBg p-4 text-[9px] leading-[1.6] text-hlpPanel/85'>
 {`Hyperliquid               Agent Runner
 (API + WS)                (7 LLM roles)
     |                          |
