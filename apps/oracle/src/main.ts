@@ -1,36 +1,70 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { InMemoryEventBus, RedisEventBus, type EventBus } from '@hl/privateer-event-bus'
 import type { ProbabilityEstimate } from '@hl/privateer-contracts'
-import { createHlClient } from '@hl/privateer-hl-client'
+import { createHlClient, type HlClient } from '@hl/privateer-hl-client'
 import { loadStrategy } from '@hl/privateer-strategy'
 import {
   createOrchestrator,
-  DryRunRouter,
-  FixtureMarketProvider,
   HyperliquidAccountant,
-  LocalAccountant,
   startHttpServer,
-  type Accountant
+  type OrderRouter,
+  type OutcomeMarketProvider
 } from './index'
 
 const log = (msg: string, meta?: unknown) => console.log(`[oracle] ${msg}`, meta ?? '')
 
+function requireEnv(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`${name} is required`)
+  return v
+}
+
+async function loadWiring(hl: HlClient): Promise<{
+  markets: OutcomeMarketProvider
+  router: OrderRouter
+}> {
+  const path = resolve(process.env.ORACLE_WIRING ?? 'apps/oracle/wiring.ts')
+  if (!existsSync(path)) {
+    throw new Error(
+      `oracle wiring not found at ${path}. Copy apps/oracle/wiring.template.ts and implement makeMarketProvider + makeOrderRouter against HL.`
+    )
+  }
+  const mod = (await import(path)) as {
+    makeMarketProvider: (hl: HlClient) => OutcomeMarketProvider
+    makeOrderRouter: (hl: HlClient) => OrderRouter
+  }
+  return { markets: mod.makeMarketProvider(hl), router: mod.makeOrderRouter(hl) }
+}
+
 async function main(): Promise<void> {
   const strategy = await loadStrategy({ log: (m) => log(m) })
+
+  const hl = createHlClient({
+    isTestnet: process.env.ORACLE_HL_TESTNET === '1',
+    apiUrl: process.env.ORACLE_HL_API_URL,
+    infoUrl: process.env.ORACLE_HL_INFO_URL,
+    timeout: 10_000,
+    tokensPerMinute: Number(process.env.ORACLE_HL_RPM ?? 1000)
+  })
+
+  const accountant = new HyperliquidAccountant({
+    hl,
+    user: requireEnv('ORACLE_HL_USER'),
+    ttlMs: Number(process.env.ORACLE_HL_TTL_MS ?? 4000),
+    log
+  })
+
+  const { markets, router } = await loadWiring(hl)
 
   const bus: EventBus = process.env.ORACLE_REDIS_URL
     ? new RedisEventBus(process.env.ORACLE_REDIS_URL, 'hlpv2', 'oracle')
     : new InMemoryEventBus()
 
-  const markets = new FixtureMarketProvider(
-    process.env.ORACLE_FIXTURE_MARKETS ?? './apps/oracle/fixtures/markets.json'
-  )
-
-  const accountant = makeAccountant()
-
   const orchestrator = createOrchestrator({
     bus,
     markets,
-    router: new DryRunRouter(),
+    router,
     accountant,
     riskConfig: strategy.risk,
     engine: {
@@ -74,30 +108,6 @@ async function main(): Promise<void> {
   }
   process.once('SIGINT', shutdown)
   process.once('SIGTERM', shutdown)
-}
-
-// HL is the source of truth for accountancy when ORACLE_HL_USER is set.
-// Without it (dev / DryRun) we keep a local accountant whose state is
-// driven by simulated fills.
-function makeAccountant(): Accountant {
-  const user = process.env.ORACLE_HL_USER
-  if (!user) {
-    log('accountant: LocalAccountant (set ORACLE_HL_USER for HL-backed reads)')
-    return new LocalAccountant()
-  }
-  const hl = createHlClient({
-    isTestnet: process.env.ORACLE_HL_TESTNET === '1',
-    apiUrl: process.env.ORACLE_HL_API_URL,
-    infoUrl: process.env.ORACLE_HL_INFO_URL,
-    timeout: 10_000,
-    tokensPerMinute: Number(process.env.ORACLE_HL_RPM ?? 1000)
-  })
-  return new HyperliquidAccountant({
-    hl,
-    user,
-    ttlMs: Number(process.env.ORACLE_HL_TTL_MS ?? 4000),
-    log
-  })
 }
 
 main().catch((err) => {

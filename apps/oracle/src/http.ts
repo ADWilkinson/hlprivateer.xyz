@@ -71,7 +71,7 @@ async function route(req: IncomingMessage, res: ServerResponse, cfg: HttpServerC
     const snap: FloorSnapshot = {
       mode: cfg.orchestrator.mode(),
       pnlPct:
-        equity !== null && cfg.pnlBaselineUsd && cfg.pnlBaselineUsd > 0
+        cfg.pnlBaselineUsd && cfg.pnlBaselineUsd > 0
           ? (equity - cfg.pnlBaselineUsd) / cfg.pnlBaselineUsd
           : null,
       marketsTracked: ms.length,
@@ -144,15 +144,15 @@ async function emitCommand(bus: EventBus, command: 'halt' | 'resume'): Promise<v
   })
 }
 
-function renderPrometheus(orch: OrchestratorHandle, equityUsd: number | null): string {
+function renderPrometheus(orch: OrchestratorHandle, equityUsd: number): string {
   const m = orch.metrics()
   return [
     '# HELP hlpv2_runtime_mode 1 if oracle is in READY mode.',
     '# TYPE hlpv2_runtime_mode gauge',
     `hlpv2_runtime_mode ${orch.mode() === 'READY' ? 1 : 0}`,
-    '# HELP hlpv2_equity_usd Account equity in USD as reported by the accountant.',
+    '# HELP hlpv2_equity_usd Account equity in USD from clearinghouseState.',
     '# TYPE hlpv2_equity_usd gauge',
-    equityUsd === null ? '# (equity unknown)' : `hlpv2_equity_usd ${equityUsd}`,
+    `hlpv2_equity_usd ${equityUsd}`,
     '# HELP hlpv2_signals_ingested_total Sentiment signals ingested.',
     '# TYPE hlpv2_signals_ingested_total counter',
     `hlpv2_signals_ingested_total ${m.signalsIngested}`,

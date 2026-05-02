@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import type { OutcomeMarket } from '@hl/privateer-contracts'
 import { OutcomeMarketSchema } from '@hl/privateer-contracts'
 
@@ -7,38 +6,8 @@ export interface OutcomeMarketProvider {
   get(id: string): Promise<OutcomeMarket | undefined>
 }
 
-export class FixtureMarketProvider implements OutcomeMarketProvider {
-  private cache: Map<string, OutcomeMarket> = new Map()
-  private loaded = false
-
-  constructor(private readonly path: string) {}
-
-  private async ensure(): Promise<void> {
-    if (this.loaded) return
-    try {
-      const text = await readFile(this.path, 'utf8')
-      const raw = JSON.parse(text) as unknown[]
-      for (const m of raw) {
-        const parsed = OutcomeMarketSchema.parse(m)
-        this.cache.set(parsed.id, parsed)
-      }
-    } catch {
-      // empty fixture is fine
-    }
-    this.loaded = true
-  }
-
-  async list(): Promise<OutcomeMarket[]> {
-    await this.ensure()
-    return [...this.cache.values()]
-  }
-
-  async get(id: string): Promise<OutcomeMarket | undefined> {
-    await this.ensure()
-    return this.cache.get(id)
-  }
-}
-
+// Test helper. Production wires an HL-backed provider; this exists so test
+// files don't have to repeat the trivial Map<id, OutcomeMarket> wrapper.
 export class InMemoryMarketProvider implements OutcomeMarketProvider {
   private cache = new Map<string, OutcomeMarket>()
 

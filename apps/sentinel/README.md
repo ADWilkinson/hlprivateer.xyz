@@ -6,11 +6,18 @@ envelopes onto `hlpv2.sentiment`.
 ## Run
 
 ```bash
+SENTINEL_LLM_COMMAND="claude -p"    # required — shell that reads prompt on
+                                    # stdin, emits the model response on stdout
 bun run dev
+
+# Optional:
 SENTINEL_REDIS_URL=redis://...      # opt-in Redis (default: in-memory bus)
 SENTINEL_INTERVAL_MS=30000
 SENTINEL_FIXTURE=path/to/items.json
 ```
+
+There is no built-in fallback scorer. Sentinel refuses to start without
+`SENTINEL_LLM_COMMAND`.
 
 Fixture item shape:
 
@@ -26,7 +33,7 @@ Fixture item shape:
 
 ## Strategy
 
-The LLM system prompt for `LlmScorer` is read from `strategy.prompts.sentimentScorer`
-in `config/strategy.json` (gitignored — see root README). The default scorer
-in `main.ts` is the deterministic `HeuristicScorer`; wire `resolveCompleter()`
-to your LLM of choice to use the prompt.
+The LLM system prompt for `LlmScorer` is read from
+`strategy.prompts.sentimentScorer` in `config/strategy.json` (gitignored —
+see root README). The completer is whatever process `SENTINEL_LLM_COMMAND`
+points at.

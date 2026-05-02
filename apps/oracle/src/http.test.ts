@@ -1,11 +1,55 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ulid } from 'ulid'
 import { InMemoryEventBus } from '@hl/privateer-event-bus'
-import type { OutcomeMarket, RiskConfig } from '@hl/privateer-contracts'
-import { LocalAccountant } from './accountant'
+import type {
+  OutcomeFill,
+  OutcomeMarket,
+  OutcomeProposal,
+  RiskConfig
+} from '@hl/privateer-contracts'
+import type { Accountant, OpenPosition } from './accountant'
 import { createOrchestrator } from './orchestrator'
 import { InMemoryMarketProvider } from './markets'
-import { DryRunRouter } from './order-router'
+import type { OrderRouter } from './order-router'
 import { startHttpServer } from './http'
+
+class TestRouter implements OrderRouter {
+  async place(p: OutcomeProposal): Promise<OutcomeFill> {
+    return {
+      id: `f-${ulid()}`,
+      proposalId: p.id,
+      marketId: p.marketId,
+      side: p.side,
+      fillPrice: p.limitPrice,
+      fillSizeUsd: p.sizeUsd,
+      feeUsd: 0,
+      ts: new Date().toISOString()
+    }
+  }
+}
+
+class TestAccountant implements Accountant {
+  recordMarket(): void {}
+  async positions(): Promise<readonly OpenPosition[]> {
+    return []
+  }
+  async equityUsd(): Promise<number> {
+    return 0
+  }
+  async openExposureUsd(): Promise<number> {
+    return 0
+  }
+  async openMarketCount(): Promise<number> {
+    return 0
+  }
+  async clusterExposureUsd(): Promise<number> {
+    return 0
+  }
+  async warmup(): Promise<void> {}
+  async recentFills(): Promise<never[]> {
+    return []
+  }
+}
 
 const market: OutcomeMarket = {
   id: 'mkt-1',
@@ -46,11 +90,11 @@ interface Setup {
 async function setup(operatorToken?: string): Promise<Setup> {
   const bus = new InMemoryEventBus()
   const markets = new InMemoryMarketProvider([market])
-  const accountant = new LocalAccountant()
+  const accountant = new TestAccountant()
   const orch = createOrchestrator({
     bus,
     markets,
-    router: new DryRunRouter(),
+    router: new TestRouter(),
     accountant,
     riskConfig
   })
@@ -64,7 +108,6 @@ async function setup(operatorToken?: string): Promise<Setup> {
     accountant,
     operatorToken
   })
-  // node:http listen(0) picks a free port; address() returns it.
   await new Promise<void>((res) => server.once('listening', () => res()))
   const addr = server.address()
   if (!addr || typeof addr === 'string') throw new Error('unexpected address')
@@ -79,21 +122,30 @@ beforeEach(async () => {
 afterEach(() => s.close())
 
 describe('http server', () => {
-  it('GET /healthz reports mode + metrics', async () => {
+  it('GET /healthz reports mode + metrics + accountant snapshot', async () => {
     const res = await fetch(`${s.baseUrl}/healthz`)
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { ok: boolean; mode: string; metrics: { signalsIngested: number } }
+    const body = (await res.json()) as {
+      ok: boolean
+      mode: string
+      metrics: { signalsIngested: number }
+      equityUsd: number
+      openMarkets: number
+    }
     expect(body.ok).toBe(true)
     expect(body.mode).toBe('READY')
     expect(body.metrics.signalsIngested).toBe(0)
+    expect(body.equityUsd).toBe(0)
+    expect(body.openMarkets).toBe(0)
   })
 
-  it('GET /metrics returns Prometheus text format', async () => {
+  it('GET /metrics returns Prometheus text format with equity gauge', async () => {
     const res = await fetch(`${s.baseUrl}/metrics`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toMatch(/text\/plain/)
     const body = await res.text()
     expect(body).toContain('hlpv2_runtime_mode 1')
+    expect(body).toContain('hlpv2_equity_usd 0')
     expect(body).toContain('hlpv2_decisions_total{decision="ALLOW"}')
   })
 

@@ -17,37 +17,6 @@ export interface SentimentScorer {
   score(item: RawSentimentItem, marketContext?: { question: string }): Promise<ScoredSentiment>
 }
 
-const POSITIVE = [
-  'beat', 'beats', 'rally', 'surge', 'jump', 'gain', 'gains', 'positive', 'bull',
-  'bullish', 'win', 'approved', 'approve', 'pass', 'passed', 'green', 'rise',
-  'strong', 'expand', 'growth', 'optimistic', 'breakthrough', 'agreement', 'deal'
-]
-
-const NEGATIVE = [
-  'miss', 'misses', 'fall', 'drop', 'plunge', 'crash', 'loss', 'losses',
-  'negative', 'bear', 'bearish', 'reject', 'rejected', 'fail', 'failed',
-  'red', 'weak', 'shrink', 'recession', 'pessimistic', 'concern', 'concerns',
-  'protest', 'sanction', 'sanctions', 'fine', 'fined', 'lawsuit', 'arrest'
-]
-
-export class HeuristicScorer implements SentimentScorer {
-  async score(item: RawSentimentItem): Promise<ScoredSentiment> {
-    const tokens = item.summary.toLowerCase().split(/[^a-z]+/).filter(Boolean)
-    let pos = 0
-    let neg = 0
-    for (const t of tokens) {
-      if (POSITIVE.includes(t)) pos++
-      if (NEGATIVE.includes(t)) neg++
-    }
-    const total = pos + neg
-    if (total === 0) return { polarity: 0, confidence: 0.1 }
-    return {
-      polarity: (pos - neg) / total,
-      confidence: Math.min(0.9, 0.3 + total * 0.1)
-    }
-  }
-}
-
 export type LlmCompleter = (prompt: string) => Promise<string>
 
 export const DEFAULT_SYSTEM_PROMPT =
