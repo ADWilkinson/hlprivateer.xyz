@@ -1,120 +1,129 @@
 import { describe, expect, it } from 'vitest'
 import {
-  HttpReplayQuerySchema,
-  ReplayRangeSchema,
-  parseStrategyProposal,
-  RiskDecisionResultSchema,
-  StrategyActionSchema,
-  StrategyProposalSchema,
-  WsMessageSchema,
-  WsServerMessageSchema
+  EventEnvelopeSchema,
+  OutcomeMarketSchema,
+  OutcomeProposalSchema,
+  ProbabilityEstimateSchema,
+  RiskConfigSchema,
+  RiskDecisionSchema,
+  SentimentSignalSchema
 } from './index'
 
-describe('contracts', () => {
-  it('rejects unknown strategy fields', () => {
-    const result = parseStrategyProposal({
+const ts = () => new Date().toISOString()
+
+describe('contracts v2', () => {
+  it('parses a valid OutcomeMarket', () => {
+    const r = OutcomeMarketSchema.safeParse({
+      id: 'mkt-1',
+      question: 'Will X happen by EOY?',
+      resolutionAt: '2026-12-31T23:59:59.000Z',
+      status: 'trading',
+      yesPrice: 0.42,
+      bidYes: 0.41,
+      askYes: 0.43,
+      bookDepthYesUsd: 1500,
+      bookDepthNoUsd: 1200,
+      topicTags: ['macro', 'fed'],
+      updatedAt: ts()
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects probability out of [0,1]', () => {
+    const r = OutcomeMarketSchema.safeParse({
+      id: 'mkt-2',
+      question: 'q',
+      resolutionAt: ts(),
+      status: 'trading',
+      yesPrice: 1.5,
+      updatedAt: ts()
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it('parses a SentimentSignal', () => {
+    const r = SentimentSignalSchema.safeParse({
+      id: 's-1',
+      marketId: 'mkt-1',
+      source: 'news',
+      polarity: 0.6,
+      confidence: 0.8,
+      freshnessSec: 60,
+      summary: 'positive Fed comments',
+      ts: ts()
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('parses a ProbabilityEstimate with edge', () => {
+    const r = ProbabilityEstimateSchema.safeParse({
+      id: 'e-1',
+      marketId: 'mkt-1',
+      pHat: 0.55,
+      marketYesPrice: 0.42,
+      edge: 0.13,
+      confidence: 0.7,
+      basisSignalIds: ['s-1'],
+      rationale: 'sentiment skew positive',
+      ts: ts()
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('parses an OutcomeProposal', () => {
+    const r = OutcomeProposalSchema.safeParse({
+      id: 'p-1',
+      marketId: 'mkt-1',
+      side: 'YES',
+      limitPrice: 0.5,
+      sizeUsd: 100,
+      edgeBps: 1300,
+      kellyFraction: 0.1,
+      expiresAt: ts(),
+      estimateId: 'e-1',
+      rationale: 'edge above threshold',
+      ts: ts()
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('parses a RiskDecision (DENY with failures)', () => {
+    const r = RiskDecisionSchema.safeParse({
       proposalId: 'p-1',
-      cycleId: 'c-1',
-      summary: 'test',
-      confidence: 0.5,
-      createdBy: 'agent',
-      requestedMode: 'SIM',
-      actions: [
-        {
-          type: 'ENTER',
-          rationale: 'test',
-          notionalUsd: 100,
-          legs: [{ symbol: 'HYPE', side: 'BUY', notionalUsd: 100 }],
-          unexpected: 'blocked'
-        }
-      ]
-    } as any)
-
-    if (result.ok) {
-      throw new Error('expected validation failure')
-    }
-
-    expect(result.errors[0]?.code).toBe('SCHEMA_VALIDATION_ERROR')
-  })
-
-  it('supports strict strategy schema parsing', () => {
-    const proposal = StrategyProposalSchema.parse({
-      proposalId: 'p-2',
-      cycleId: 'c-2',
-      summary: 'pair',
-      confidence: 0.9,
-      createdBy: 'agent',
-      requestedMode: 'SIM',
-      actions: [
-        {
-          type: 'ENTER',
-          rationale: 'market',
-          notionalUsd: 1000,
-          legs: [
-            { symbol: 'HYPE', side: 'BUY', notionalUsd: 500 },
-            { symbol: 'BTC', side: 'SELL', notionalUsd: 500 }
-          ]
-        }
-      ]
+      decision: 'DENY',
+      failures: [
+        { code: 'STALE_SENTIMENT', reason: 'sentiment 1200s old > 900s', observed: 1200, threshold: 900 }
+      ],
+      evaluatedAt: ts()
     })
-
-    expect(proposal.actions[0].notionalUsd).toBe(1000)
+    expect(r.success).toBe(true)
   })
 
-  it('documents risk decision shape', () => {
-    const parsed = RiskDecisionResultSchema.parse({
-      decision: 'ALLOW',
-      reasons: [],
-      decisionId: 'dec-test',
-      correlationId: 'abc',
-      computedAt: new Date().toISOString(),
-      computed: {
-        grossExposureUsd: 0,
-        netExposureUsd: 0,
-        projectedDrawdownPct: 0
-      }
+  it('applies RiskConfig defaults', () => {
+    const cfg = RiskConfigSchema.parse({
+      bankrollUsd: 10_000,
+      maxStakePerMarketUsd: 500,
+      maxGrossExposureUsd: 5000,
+      maxCorrelatedClusterUsd: 1500
     })
-
-    expect(parsed.decision).toBe('ALLOW')
+    expect(cfg.maxSentimentAgeSec).toBe(900)
+    expect(cfg.kellyCap).toBeCloseTo(0.25)
+    expect(cfg.minEdgeBps).toBe(200)
+    expect(cfg.haltAll).toBe(false)
   })
 
-  it('rejects unknown websocket client fields', () => {
-    expect(() =>
-      WsMessageSchema.parse({
-        type: 'ping',
-        unknown: 'blocked'
-      })
-    ).toThrowError()
-  })
-
-  it('rejects unknown websocket server fields', () => {
-    expect(() =>
-      WsServerMessageSchema.parse({
-        type: 'pong',
-        unknown: 'blocked'
-      })
-    ).toThrowError()
-  })
-
-  it('supports replay query ranges with optional resource', () => {
-    const range = ReplayRangeSchema.parse({
-      from: '2026-02-13T16:20:00.000Z',
-      to: '2026-02-13T16:21:00.000Z',
-      resource: 'hlp.audit.events',
-      correlationId: 'corr-1'
+  it('parses an EventEnvelope', () => {
+    const r = EventEnvelopeSchema.safeParse({
+      id: 'evt-1',
+      stream: 'hlpv2.proposals',
+      type: 'proposal.emitted',
+      ts: ts(),
+      source: 'oracle',
+      correlationId: 'corr-1',
+      actorType: 'internal_agent',
+      actorId: 'EXE',
+      payload: {}
     })
-
-    expect(range.resource).toBe('hlp.audit.events')
-    expect(range.correlationId).toBe('corr-1')
-  })
-
-  it('rejects malformed replay window order', () => {
-    expect(() =>
-      HttpReplayQuerySchema.parse({
-        from: '2026-02-13T16:30:00.000Z',
-        to: '2026-02-13T16:20:00.000Z',
-        limit: 200
-      })
-    ).toThrowError()
+    expect(r.success).toBe(true)
   })
 })

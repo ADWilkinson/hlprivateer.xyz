@@ -1,370 +1,161 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { apiUrl } from '../../lib/endpoints'
 
-type TapeLine = {
-  ts?: string
-  role?: string
-  level?: 'INFO' | 'WARN' | 'ERROR'
-  line?: string
+type FloorMarket = {
+  id: string
+  question: string
+  status: string
+  yesPrice: number
+  pHat?: number
+  edge?: number
+  resolutionAt: string
+  topicTags: string[]
 }
 
-type Position = {
-  symbol?: string
-  side?: string
-  entryPrice?: number
-  markPrice?: number
-  pnlUsd?: number
-  pnlPct?: number
-  notionalUsd?: number
+type FloorTapeLine = {
+  ts: string
+  role: 'SNT' | 'RSK' | 'EXE' | 'OPS'
+  message: string
 }
 
 type FloorSnapshot = {
-  mode?: string
-  pnlPct?: number
-  healthCode?: string
-  openPositions?: Position[]
-  openPositionCount?: number
-  openPositionNotionalUsd?: number
-  recentTape?: TapeLine[]
-  lastUpdateAt?: string
+  mode: 'INIT' | 'READY' | 'HALT'
+  pnlPct: number | null
+  marketsTracked: number
+  markets: FloorMarket[]
+  tape: FloorTapeLine[]
 }
 
 const POLL_MS = 5_000
 
-function asNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
+function fmtPct(x: number | undefined): string {
+  if (x === undefined || !Number.isFinite(x)) return '—'
+  return `${(x * 100).toFixed(1)}%`
+}
+
+function fmtEdge(x: number | undefined): string {
+  if (x === undefined || !Number.isFinite(x)) return '—'
+  const sign = x > 0 ? '+' : ''
+  return `${sign}${(x * 100).toFixed(2)}pp`
+}
+
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour12: false })
+  } catch {
+    return iso.slice(11, 19)
   }
-  return null
-}
-
-function fmtPct(value: unknown): string {
-  const num = asNumber(value)
-  if (num === null) return '--'
-  return `${num.toFixed(2)}%`
-}
-
-function fmtUsd(value: unknown): string {
-  const num = asNumber(value)
-  if (num === null) return '--'
-  return `$${num.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
-}
-
-function fmtTs(value: unknown): string {
-  if (typeof value !== 'string' || !value) return '--'
-  const parsed = Date.parse(value)
-  if (!Number.isFinite(parsed)) return '--'
-  return new Date(parsed).toLocaleString()
-}
-
-async function copyToClipboard(value: string): Promise<void> {
-  if (typeof navigator === 'undefined' || !navigator.clipboard) return
-  await navigator.clipboard.writeText(value)
-}
-
-function normalizeSnapshot(input: unknown): FloorSnapshot {
-  if (!input || typeof input !== 'object') return {}
-  const raw = input as Record<string, unknown>
-  const positionsRaw = Array.isArray(raw.openPositions) ? raw.openPositions : []
-  const positions = positionsRaw
-    .filter((item) => item && typeof item === 'object')
-    .map((item) => item as Position)
-  const tapeRaw = Array.isArray(raw.recentTape) ? raw.recentTape : []
-  const tape = tapeRaw
-    .filter((item) => item && typeof item === 'object')
-    .map((item) => item as TapeLine)
-
-  return {
-    mode: typeof raw.mode === 'string' ? raw.mode : undefined,
-    pnlPct: asNumber(raw.pnlPct) ?? undefined,
-    healthCode: typeof raw.healthCode === 'string' ? raw.healthCode : undefined,
-    openPositions: positions,
-    openPositionCount: asNumber(raw.openPositionCount) ?? positions.length,
-    openPositionNotionalUsd: asNumber(raw.openPositionNotionalUsd) ?? undefined,
-    recentTape: tape,
-    lastUpdateAt: typeof raw.lastUpdateAt === 'string' ? raw.lastUpdateAt : undefined
-  }
-}
-
-type SectionCardProps = {
-  title: string
-  subtitle?: string
-  open: boolean
-  onToggle: () => void
-  children: ReactNode
-}
-
-function SectionCard({ title, subtitle, open, onToggle, children }: SectionCardProps) {
-  return (
-    <section className='mt-6 rounded-md border border-zinc-200 bg-white p-4'>
-      <button
-        type='button'
-        onClick={onToggle}
-        className='flex w-full items-center justify-between gap-3 rounded-md text-left'
-      >
-        <div>
-          <div className='text-sm font-semibold uppercase text-zinc-600'>{title}</div>
-          {subtitle && <div className='mt-1 text-xs text-zinc-500'>{subtitle}</div>}
-        </div>
-        <span className='rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-xs text-zinc-700'>
-          {open ? 'hide' : 'show'}
-        </span>
-      </button>
-      {open && <div className='mt-3'>{children}</div>}
-    </section>
-  )
 }
 
 export default function FloorPage() {
-  const [snapshot, setSnapshot] = useState<FloorSnapshot | null>(null)
-  const [tape, setTape] = useState<TapeLine[]>([])
-  const [loading, setLoading] = useState(true)
+  const [snap, setSnap] = useState<FloorSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showPositions, setShowPositions] = useState(true)
-  const [showTape, setShowTape] = useState(true)
-  const [showAgentAccess, setShowAgentAccess] = useState(true)
 
   useEffect(() => {
-    let stopped = false
-
-    const refresh = async () => {
+    let active = true
+    const load = async () => {
       try {
-        const [snapshotRes, tapeRes] = await Promise.all([
-          fetch(apiUrl('/v1/public/floor-snapshot'), { cache: 'no-store' }),
-          fetch(apiUrl('/v1/public/floor-tape'), { cache: 'no-store' })
-        ])
-
-        if (!snapshotRes.ok) {
-          throw new Error(`floor snapshot failed (${snapshotRes.status})`)
+        const res = await fetch(apiUrl('/v1/public/floor'))
+        if (!res.ok) {
+          if (active) setError(`HTTP ${res.status}`)
+          return
         }
-
-        const snapshotJson = await snapshotRes.json()
-        const normalized = normalizeSnapshot(snapshotJson)
-        const tapeJson = tapeRes.ok ? await tapeRes.json() : []
-        const tapeLines = Array.isArray(tapeJson)
-          ? tapeJson.filter((item) => item && typeof item === 'object').map((item) => item as TapeLine)
-          : []
-
-        if (!stopped) {
-          setSnapshot(normalized)
-          setTape(tapeLines.slice(-40).reverse())
+        const json = (await res.json()) as FloorSnapshot
+        if (active) {
+          setSnap(json)
           setError(null)
-          setLoading(false)
         }
       } catch (err) {
-        if (!stopped) {
-          setError(err instanceof Error ? err.message : String(err))
-          setLoading(false)
-        }
+        if (active) setError(String(err))
       }
     }
-
-    void refresh()
-    const timer = setInterval(() => void refresh(), POLL_MS)
+    void load()
+    const t = setInterval(load, POLL_MS)
     return () => {
-      stopped = true
-      clearInterval(timer)
+      active = false
+      clearInterval(t)
     }
   }, [])
 
-  const positions = useMemo(() => snapshot?.openPositions ?? [], [snapshot])
-  const handshakeUrl = apiUrl('/v1/agent/handshake')
-  const verifyUrl = apiUrl('/v1/agent/verify')
-  const streamSnapshotUrl = apiUrl('/v1/agent/stream/snapshot')
-  const x402WellKnownUrl = 'https://hlprivateer.xyz/.well-known/x402'
-  const agentRegistrationUrl = 'https://hlprivateer.xyz/.well-known/agent-registration.json'
-  const agentsDiscoveryUrl = 'https://hlprivateer.xyz/.well-known/agents.json'
-  const x402QuickstartUrl = 'https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md'
-  const handshakeCurl = `curl -s ${handshakeUrl} \\
-  -H 'content-type: application/json' \\
-  -d '{
-    "agentId": "agent-demo",
-    "requestedTier": "tier1",
-    "proof": "bootstrap-proof-token"
-  }'`
-  const verifyCurl = `curl -s ${verifyUrl} \\
-  -H 'content-type: application/json' \\
-  -d '{
-    "challengeId": "<challengeId>",
-    "proof": {
-      "challengeId": "<challengeId>",
-      "agentId": "agent-demo",
-      "tier": "tier1",
-      "nonce": "<nonce-from-handshake>",
-      "paidAmountUsd": 1,
-      "paidAt": "2026-02-23T00:00:00.000Z",
-      "signature": "<signature>"
-    }
-  }'`
-  const paidReadCurl = `curl -s ${streamSnapshotUrl} \\
-  -H 'x-agent-entitlement: <challengeId>'`
-
   return (
-    <main id='main-content' className='mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8'>
-      <div className='mb-6 flex flex-wrap items-end justify-between gap-4'>
-        <div>
-          <h1 className='text-2xl font-semibold tracking-tight'>HL Privateer Floor</h1>
-          <p className='mt-1 text-sm text-zinc-500'>Core fund monitor: mode, pnl, positions, tape.</p>
+    <main className='relative z-10 mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-4 py-8 text-[11px] tracking-wide text-hlpMuted'>
+      <header className='flex items-center justify-between border-b border-hlpBorder pb-3'>
+        <div className='flex items-center gap-3'>
+          <span className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>floor</span>
+          <span className='border border-hlpBorder bg-hlpInverseBg px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-hlpPanel'>
+            {snap?.mode ?? '—'}
+          </span>
+          <span className='text-[10px] text-hlpDim'>
+            tracking {snap?.marketsTracked ?? 0} markets
+          </span>
         </div>
-        <div className='text-xs text-zinc-500'>polling every {Math.round(POLL_MS / 1000)}s</div>
-      </div>
+        {error && (
+          <span className='text-[10px] text-hlpNegative'>backend offline · {error}</span>
+        )}
+      </header>
 
-      {error && (
-        <div className='mb-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700'>
-          {error}
-        </div>
-      )}
-
-      <section className='grid gap-3 sm:grid-cols-2 lg:grid-cols-5'>
-        <div className='rounded-md border border-zinc-200 bg-white p-3'>
-          <div className='text-xs uppercase text-zinc-500'>mode</div>
-          <div className='mt-1 text-lg font-semibold'>{snapshot?.mode ?? '--'}</div>
-        </div>
-        <div className='rounded-md border border-zinc-200 bg-white p-3'>
-          <div className='text-xs uppercase text-zinc-500'>health</div>
-          <div className='mt-1 text-lg font-semibold'>{snapshot?.healthCode ?? '--'}</div>
-        </div>
-        <div className='rounded-md border border-zinc-200 bg-white p-3'>
-          <div className='text-xs uppercase text-zinc-500'>pnl</div>
-          <div className='mt-1 text-lg font-semibold'>{fmtPct(snapshot?.pnlPct)}</div>
-        </div>
-        <div className='rounded-md border border-zinc-200 bg-white p-3'>
-          <div className='text-xs uppercase text-zinc-500'>positions</div>
-          <div className='mt-1 text-lg font-semibold'>{snapshot?.openPositionCount ?? positions.length}</div>
-        </div>
-        <div className='rounded-md border border-zinc-200 bg-white p-3'>
-          <div className='text-xs uppercase text-zinc-500'>gross notional</div>
-          <div className='mt-1 text-lg font-semibold'>{fmtUsd(snapshot?.openPositionNotionalUsd)}</div>
+      <section>
+        <div className='mb-2 text-[10px] uppercase tracking-[0.22em] text-hlpDim'>markets</div>
+        <div className='border border-hlpBorder'>
+          <table className='w-full text-[10px]'>
+            <thead className='bg-hlpInverseBg text-hlpPanel/85'>
+              <tr>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-left'>QUESTION</th>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>MKT YES</th>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>p̂</th>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>EDGE</th>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-left'>RESOLVES</th>
+                <th className='px-3 py-1.5 text-left'>TAGS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(snap?.markets ?? []).map((m) => (
+                <tr key={m.id} className='border-t border-hlpBorder'>
+                  <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpFg'>{m.question}</td>
+                  <td className='border-r border-hlpBorder px-3 py-1.5 text-right'>{fmtPct(m.yesPrice)}</td>
+                  <td className='border-r border-hlpBorder px-3 py-1.5 text-right'>{fmtPct(m.pHat)}</td>
+                  <td
+                    className={
+                      'border-r border-hlpBorder px-3 py-1.5 text-right ' +
+                      (m.edge && m.edge > 0
+                        ? 'text-hlpPositive'
+                        : m.edge && m.edge < 0
+                          ? 'text-hlpNegative'
+                          : '')
+                    }
+                  >
+                    {fmtEdge(m.edge)}
+                  </td>
+                  <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpDim'>
+                    {fmtTime(m.resolutionAt)} · {m.resolutionAt.slice(0, 10)}
+                  </td>
+                  <td className='px-3 py-1.5 text-hlpDim'>{m.topicTags.join(' · ') || '—'}</td>
+                </tr>
+              ))}
+              {snap && snap.markets.length === 0 && (
+                <tr>
+                  <td colSpan={6} className='px-3 py-3 text-center text-hlpDim'>
+                    no markets yet
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      <SectionCard
-        title='Open Positions'
-        subtitle='Current exposure across symbols'
-        open={showPositions}
-        onToggle={() => setShowPositions((value) => !value)}
-      >
-        {loading ? (
-          <div className='text-sm text-zinc-500'>loading...</div>
-        ) : positions.length === 0 ? (
-          <div className='text-sm text-zinc-500'>no open positions</div>
-        ) : (
-          <div className='overflow-x-auto'>
-            <table className='min-w-full text-sm'>
-              <thead>
-                <tr className='border-b border-zinc-200 text-left text-xs uppercase text-zinc-500'>
-                  <th className='px-2 py-2'>symbol</th>
-                  <th className='px-2 py-2'>side</th>
-                  <th className='px-2 py-2'>entry</th>
-                  <th className='px-2 py-2'>mark</th>
-                  <th className='px-2 py-2'>pnl usd</th>
-                  <th className='px-2 py-2'>pnl %</th>
-                  <th className='px-2 py-2'>notional</th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((position, index) => (
-                  <tr key={`${position.symbol ?? 'unknown'}-${index}`} className='border-b border-zinc-100'>
-                    <td className='px-2 py-2 font-medium'>{position.symbol ?? '--'}</td>
-                    <td className='px-2 py-2'>{position.side ?? '--'}</td>
-                    <td className='px-2 py-2'>{fmtUsd(position.entryPrice)}</td>
-                    <td className='px-2 py-2'>{fmtUsd(position.markPrice)}</td>
-                    <td className='px-2 py-2'>{fmtUsd(position.pnlUsd)}</td>
-                    <td className='px-2 py-2'>{fmtPct(position.pnlPct)}</td>
-                    <td className='px-2 py-2'>{fmtUsd(position.notionalUsd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </SectionCard>
-
-      <SectionCard
-        title='Recent Tape'
-        subtitle='Latest desk and agent activity lines'
-        open={showTape}
-        onToggle={() => setShowTape((value) => !value)}
-      >
-        <div className='space-y-2'>
-          {(tape.length > 0 ? tape : snapshot?.recentTape ?? []).slice(0, 30).map((entry, index) => (
-            <div key={`${entry.ts ?? 'na'}-${index}`} className='rounded border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm'>
-              <div className='mb-1 flex items-center justify-between gap-2 text-xs text-zinc-500'>
-                <span>{entry.role ?? 'system'}</span>
-                <span>{fmtTs(entry.ts)}</span>
-              </div>
-              <div className='text-zinc-900'>{entry.line ?? '--'}</div>
-            </div>
-          ))}
-          {!loading && (tape.length === 0 && (snapshot?.recentTape ?? []).length === 0) && (
-            <div className='text-sm text-zinc-500'>no tape lines yet</div>
-          )}
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        title='Agent Access (x402)'
-        subtitle='POST handshake and verify, then read with x-agent-entitlement'
-        open={showAgentAccess}
-        onToggle={() => setShowAgentAccess((value) => !value)}
-      >
-        <div className='grid gap-3 lg:grid-cols-3'>
-          <div className='rounded-md border border-zinc-200 bg-zinc-50 p-3'>
-            <div className='mb-2 flex items-center justify-between gap-2'>
-              <div className='font-mono text-[11px] font-semibold uppercase text-zinc-600'>POST /v1/agent/handshake</div>
-              <button
-                type='button'
-                onClick={() => void copyToClipboard(handshakeCurl)}
-                className='shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100'
-              >
-                copy
-              </button>
-            </div>
-            <pre className='whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] leading-5 text-zinc-800'><code>{handshakeCurl}</code></pre>
-          </div>
-
-          <div className='rounded-md border border-zinc-200 bg-zinc-50 p-3'>
-            <div className='mb-2 flex items-center justify-between gap-2'>
-              <div className='font-mono text-[11px] font-semibold uppercase text-zinc-600'>POST /v1/agent/verify</div>
-              <button
-                type='button'
-                onClick={() => void copyToClipboard(verifyCurl)}
-                className='shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100'
-              >
-                copy
-              </button>
-            </div>
-            <pre className='whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] leading-5 text-zinc-800'><code>{verifyCurl}</code></pre>
-          </div>
-
-          <div className='rounded-md border border-zinc-200 bg-zinc-50 p-3'>
-            <div className='mb-2 flex items-center justify-between gap-2'>
-              <div className='font-mono text-[11px] font-semibold uppercase text-zinc-600'>GET /v1/agent/stream/snapshot</div>
-              <button
-                type='button'
-                onClick={() => void copyToClipboard(paidReadCurl)}
-                className='shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100'
-              >
-                copy
-              </button>
-            </div>
-            <pre className='whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] leading-5 text-zinc-800'><code>{paidReadCurl}</code></pre>
-          </div>
-        </div>
-
-        <div className='mt-4 grid gap-2 text-sm sm:grid-cols-2'>
-          <a href={x402WellKnownUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>/.well-known/x402</a>
-          <a href={agentsDiscoveryUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>/.well-known/agents.json</a>
-          <a href={agentRegistrationUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>/.well-known/agent-registration.json</a>
-          <a href={x402QuickstartUrl} target='_blank' rel='noreferrer' className='rounded border border-zinc-200 px-2 py-1 font-mono text-blue-700 hover:bg-zinc-50 hover:underline'>x402 quickstart docs</a>
-        </div>
-      </SectionCard>
-
-      <div className='mt-4 text-xs text-zinc-500'>last update: {fmtTs(snapshot?.lastUpdateAt)}</div>
+      <section>
+        <div className='mb-2 text-[10px] uppercase tracking-[0.22em] text-hlpDim'>tape</div>
+        <pre className='max-h-[420px] min-h-[160px] overflow-y-auto border border-hlpBorder bg-hlpInverseBg p-3 text-[10px] leading-[1.6] text-hlpPanel/85'>
+          {(snap?.tape ?? [])
+            .slice()
+            .reverse()
+            .map((t) => `${fmtTime(t.ts)} ${t.role.padEnd(3)} ${t.message}`)
+            .join('\n') || '— no activity —'}
+        </pre>
+      </section>
     </main>
   )
 }

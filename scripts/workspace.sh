@@ -4,17 +4,16 @@ set -euo pipefail
 TASK="$1"
 shift || true
 
+# v2: sentiment-driven outcome market agents.
+# Legacy v1 workspaces under legacy/ are intentionally excluded.
 WORKSPACES=(
   packages/contracts
   packages/event-bus
-  packages/plugin-sdk
-  packages/agent-sdk
-  packages/risk-engine
   packages/hl-client
-  apps/api
-  apps/runtime
-  apps/agent-runner
-  apps/ws-gateway
+  packages/outcome-engine
+  packages/outcome-risk
+  apps/sentinel
+  apps/oracle
   apps/web
 )
 
