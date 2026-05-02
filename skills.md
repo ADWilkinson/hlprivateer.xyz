@@ -17,7 +17,11 @@ Hyperliquid. Outcome contracts are binary — they settle to 0 or 1 in USDH on
 the same CLOB as spot/perp, and the trading price ∈ [0,1] is the market's
 implied probability of YES. The agent estimates a probability `pHat` from
 weighted sentiment signals and trades the gap when it exceeds an edge
-threshold and clears 13 fail-closed risk gates.
+threshold and clears 14 fail-closed risk gates.
+
+Hyperliquid is the source of truth for accountancy: positions and equity
+are read from `clearinghouseState`, not maintained locally. There are no
+fallbacks or simulators in the production code path.
 
 ## Public endpoints
 
@@ -25,9 +29,10 @@ Base URL: `https://api.hlprivateer.xyz`
 
 | Endpoint                       | Description                                              |
 |--------------------------------|----------------------------------------------------------|
-| `GET /healthz`                 | Health check + runtime mode (`INIT` / `READY` / `HALT`)  |
+| `GET /healthz`                 | Mode (`INIT` / `READY` / `HALT`) + metrics + equityUsd   |
+| `GET /metrics`                 | Prometheus 0.0.4: mode + equity gauge + 6 counters       |
 | `GET /v1/public/markets`       | Markets with `yesPrice`, `pHat`, `edge`, `topicTags`     |
-| `GET /v1/public/floor`         | Mode + markets + recent role tape                        |
+| `GET /v1/public/floor`         | Mode + markets + recent role tape + pnlPct (vs baseline) |
 | `GET /v1/public/floor-tape`    | Recent role tape only (last ~50 lines)                   |
 
 ### `GET /v1/public/markets` shape
