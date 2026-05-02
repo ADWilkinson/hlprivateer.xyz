@@ -20,6 +20,10 @@ secrets/*
 config/secrets.*.plain.yaml
 config/secrets.*.enc.yaml
 .sops.yaml
+config/strategy.json
+config/strategy.local.json
+config/strategy.*.json
+!config/strategy.template.json
 *.tsbuildinfo
 *.lockb
 firebase-debug.log

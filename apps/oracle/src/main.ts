@@ -1,26 +1,13 @@
 import { InMemoryEventBus, RedisEventBus, type EventBus } from '@hl/privateer-event-bus'
-import type { ProbabilityEstimate, RiskConfig } from '@hl/privateer-contracts'
+import type { ProbabilityEstimate } from '@hl/privateer-contracts'
+import { loadStrategy } from '@hl/privateer-strategy'
 import { createOrchestrator, FixtureMarketProvider, DryRunRouter, startHttpServer } from './index'
 
-const env = (k: string, d: number) => Number(process.env[k] ?? d)
-
-const DEFAULT_RISK: RiskConfig = {
-  maxSentimentAgeSec: 900,
-  minSecondsToResolution: 3600,
-  maxSecondsToResolution: 60 * 24 * 3600,
-  challengeWindowBufferSec: 0,
-  bankrollUsd: env('ORACLE_BANKROLL_USD', 10_000),
-  maxStakePerMarketUsd: env('ORACLE_MAX_STAKE_PER_MARKET_USD', 250),
-  maxConcurrentMarkets: env('ORACLE_MAX_CONCURRENT_MARKETS', 10),
-  maxGrossExposureUsd: env('ORACLE_MAX_GROSS_USD', 2_500),
-  maxCorrelatedClusterUsd: env('ORACLE_MAX_CLUSTER_USD', 1_000),
-  minEdgeBps: env('ORACLE_MIN_EDGE_BPS', 200),
-  minBookDepthUsd: env('ORACLE_MIN_BOOK_DEPTH_USD', 250),
-  kellyCap: env('ORACLE_KELLY_CAP', 0.2),
-  haltAll: false
-}
+const log = (msg: string, meta?: unknown) => console.log(`[oracle] ${msg}`, meta ?? '')
 
 async function main(): Promise<void> {
+  const strategy = await loadStrategy({ log: (m) => log(m) })
+
   const bus: EventBus = process.env.ORACLE_REDIS_URL
     ? new RedisEventBus(process.env.ORACLE_REDIS_URL, 'hlpv2', 'oracle')
     : new InMemoryEventBus()
@@ -32,24 +19,28 @@ async function main(): Promise<void> {
     bus,
     markets,
     router: new DryRunRouter(),
-    riskConfig: DEFAULT_RISK,
-    log: (msg, meta) => console.log(`[oracle] ${msg}`, meta ?? '')
+    riskConfig: strategy.risk,
+    engine: {
+      halfLifeSec: strategy.estimation.halfLifeSec,
+      evidenceWeight: strategy.estimation.evidenceWeight,
+      sourceTrust: strategy.sources.trust
+    },
+    marketFilter: strategy.marketFilter,
+    log
   })
 
   const estimates = new Map<string, { pHat: number; edge: number }>()
-  await bus.consume('hlpv2.estimates', '$', async (envv) => {
-    const e = envv.payload as ProbabilityEstimate
+  await bus.consume('hlpv2.estimates', '$', async (env) => {
+    const e = env.payload as ProbabilityEstimate
     estimates.set(e.marketId, { pHat: e.pHat, edge: e.edge })
   })
 
   const stop = await orchestrator.start()
-  const port = env('ORACLE_HTTP_PORT', 4100)
+  const port = Number(process.env.ORACLE_HTTP_PORT ?? 4100)
   const operatorToken = process.env.ORACLE_OPERATOR_TOKEN
-  if (!operatorToken) {
-    console.warn('[oracle] ORACLE_OPERATOR_TOKEN unset — /v1/operator/* disabled')
-  }
+  if (!operatorToken) log('ORACLE_OPERATOR_TOKEN unset — /v1/operator/* disabled')
   const http = startHttpServer({ port, orchestrator, markets, bus, estimates, operatorToken })
-  console.log(`[oracle] http listening on :${port}`)
+  log(`http listening on :${port}`)
 
   const shutdown = async () => {
     await stop()

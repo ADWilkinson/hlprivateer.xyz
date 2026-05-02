@@ -98,6 +98,44 @@ describe('orchestrator', () => {
     await stop()
   })
 
+  it('skips markets blocked by topicTagBlocklist', async () => {
+    const bus = new InMemoryEventBus()
+    const markets = new InMemoryMarketProvider([market])
+    const orchestrator = createOrchestrator({
+      bus,
+      markets,
+      router: new DryRunRouter(),
+      riskConfig,
+      marketFilter: { topicTagBlocklist: ['macro'] }
+    })
+    const stop = await orchestrator.start()
+    await injectSignals(bus, 5)
+    await flush(5)
+    const proposals = await bus.readBatch('hlpv2.proposals', '0-0', 50)
+    const fills = await bus.readBatch('hlpv2.fills', '0-0', 50)
+    expect(proposals).toHaveLength(0)
+    expect(fills).toHaveLength(0)
+    await stop()
+  })
+
+  it('skips markets not in topicTagAllowlist', async () => {
+    const bus = new InMemoryEventBus()
+    const markets = new InMemoryMarketProvider([market])
+    const orchestrator = createOrchestrator({
+      bus,
+      markets,
+      router: new DryRunRouter(),
+      riskConfig,
+      marketFilter: { topicTagAllowlist: ['something-else'] }
+    })
+    const stop = await orchestrator.start()
+    await injectSignals(bus, 5)
+    await flush(5)
+    const fills = await bus.readBatch('hlpv2.fills', '0-0', 50)
+    expect(fills).toHaveLength(0)
+    await stop()
+  })
+
   it('serializes concurrent evaluations so exposure never exceeds the cap', async () => {
     // The invariant: under any concurrency, total filled exposure ≤
     // maxGrossExposureUsd. Without the mutex, two concurrent evals both

@@ -93,6 +93,7 @@ packages/
 ├── contracts/           Zod schemas (single source of truth)
 ├── outcome-engine/      Pure math: aggregate, estimate, edge, Kelly, propose
 ├── outcome-risk/        Pure fail-closed risk gates
+├── strategy/            Strategy config loader (gitignored JSON + template)
 ├── event-bus/           Redis Streams abstraction (in-memory fallback)
 └── hl-client/           Hyperliquid HTTP transport (rate-limited, cached)
 
@@ -123,14 +124,31 @@ curl http://127.0.0.1:4100/v1/public/floor
 The orchestrator uses two pluggable adapters:
 
 - **`OutcomeMarketProvider`** — `apps/oracle/src/markets.ts`. The default is
-  `FixtureMarketProvider` (JSON file). `HyperliquidMarketProvider` is wired to
-  `@hl/privateer-hl-client` and waits on `@nktkas/hyperliquid` exposing the
-  HIP-4 info endpoint.
+  `FixtureMarketProvider` (JSON file). A live HL provider is a one-file add
+  once `@nktkas/hyperliquid` exposes the HIP-4 info endpoint.
 - **`OrderRouter`** — `apps/oracle/src/order-router.ts`. The default is
-  `DryRunRouter` (immediate fill at limit price, $0 fee). `HyperliquidOrderRouter`
-  is the live wire-up; same SDK gating.
+  `DryRunRouter` (immediate fill at limit price, $0 fee). The live router is
+  another one-file add against the same SDK.
 
-When the SDK supports HIP-4 order types, both stubs become one-line drop-ins.
+## Strategy (private, gitignored)
+
+The repo is public; the strategy isn't. Risk knobs, the LLM system prompt,
+source-trust priors, estimation parameters, and the market filter all live
+in a single file:
+
+```bash
+cp config/strategy.template.json config/strategy.json
+$EDITOR config/strategy.json   # gitignored — your real strategy goes here
+```
+
+Resolution order at startup (first hit wins): `STRATEGY_CONFIG_PATH` env →
+`config/strategy.json` → `config/strategy.template.json` → schema defaults.
+
+Every field in the JSON is optional; missing keys fall back to the Zod
+defaults in `StrategyConfigSchema` (see `packages/contracts/src/index.ts`).
+
+The framework — gates, orchestrator, audit chain, schemas, HTTP API,
+sentinel scaffolding — stays public.
 
 ## Tech stack
 

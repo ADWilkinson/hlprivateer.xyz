@@ -50,24 +50,27 @@ export class HeuristicScorer implements SentimentScorer {
 
 export type LlmCompleter = (prompt: string) => Promise<string>
 
-const LLM_PROMPT = (item: RawSentimentItem, q?: string) =>
-  [
-    `You are a sentiment scorer for binary outcome markets on Hyperliquid.`,
-    `Output ONLY a JSON object: {"polarity": number in [-1,1], "confidence": number in [0,1]}.`,
-    `Polarity is +1 if the item strongly implies YES (the event will occur),`,
-    `-1 if NO. Confidence is the model's reliability for this datum.`,
-    q ? `Market question: ${q}` : '',
-    `Source: ${item.source}`,
-    `Item: ${item.summary}`
-  ]
-    .filter(Boolean)
-    .join('\n')
+export const DEFAULT_SYSTEM_PROMPT =
+  `You are a sentiment scorer for binary outcome markets on Hyperliquid.\n` +
+  `Output ONLY a JSON object: {"polarity": number in [-1,1], "confidence": number in [0,1]}.\n` +
+  `Polarity is +1 if the item strongly implies YES (the event will occur),\n` +
+  `-1 if NO. Confidence is the model's reliability for this datum.`
 
 export class LlmScorer implements SentimentScorer {
-  constructor(private readonly complete: LlmCompleter) {}
+  constructor(
+    private readonly complete: LlmCompleter,
+    private readonly systemPrompt: string = DEFAULT_SYSTEM_PROMPT
+  ) {}
 
   async score(item: RawSentimentItem, ctx?: { question: string }): Promise<ScoredSentiment> {
-    return parseScore(await this.complete(LLM_PROMPT(item, ctx?.question)))
+    const userPart = [
+      ctx?.question ? `Market question: ${ctx.question}` : '',
+      `Source: ${item.source}`,
+      `Item: ${item.summary}`
+    ]
+      .filter(Boolean)
+      .join('\n')
+    return parseScore(await this.complete(`${this.systemPrompt}\n\n${userPart}`))
   }
 }
 
