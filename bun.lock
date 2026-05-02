@@ -27,6 +27,7 @@
         "@hl/privateer-hl-client": "workspace:*",
         "@hl/privateer-outcome-engine": "workspace:*",
         "@hl/privateer-outcome-risk": "workspace:*",
+        "@hl/privateer-strategy": "workspace:*",
         "ulid": "^2.3.0",
       },
       "devDependencies": {
@@ -42,6 +43,7 @@
       "dependencies": {
         "@hl/privateer-contracts": "workspace:*",
         "@hl/privateer-event-bus": "workspace:*",
+        "@hl/privateer-strategy": "workspace:*",
         "ulid": "^2.3.0",
       },
       "devDependencies": {
@@ -128,6 +130,18 @@
         "zod": "^3.24.1",
       },
     },
+    "packages/strategy": {
+      "name": "@hl/privateer-strategy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@hl/privateer-contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.3",
+        "vitest": "^2.1.8",
+        "zod": "^3.24.1",
+      },
+    },
   },
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
@@ -199,6 +213,8 @@
     "@hl/privateer-outcome-risk": ["@hl/privateer-outcome-risk@workspace:packages/outcome-risk"],
 
     "@hl/privateer-sentinel": ["@hl/privateer-sentinel@workspace:apps/sentinel"],
+
+    "@hl/privateer-strategy": ["@hl/privateer-strategy@workspace:packages/strategy"],
 
     "@hl/privateer-web": ["@hl/privateer-web@workspace:apps/web"],
 

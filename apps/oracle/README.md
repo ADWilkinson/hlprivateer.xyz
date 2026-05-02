@@ -38,6 +38,7 @@ ORACLE_FIXTURE_MARKETS=path/to/markets.json
 ORACLE_OPERATOR_TOKEN=...      # enables /v1/operator/*
 ```
 
-Risk knobs: `ORACLE_BANKROLL_USD`, `ORACLE_MAX_STAKE_PER_MARKET_USD`,
-`ORACLE_MAX_GROSS_USD`, `ORACLE_MAX_CLUSTER_USD`, `ORACLE_MIN_EDGE_BPS`,
-`ORACLE_MIN_BOOK_DEPTH_USD`, `ORACLE_KELLY_CAP`, `ORACLE_MAX_CONCURRENT_MARKETS`.
+Risk knobs, estimation parameters, source trust, and the market filter are
+all read from `config/strategy.json` (gitignored) — see the root README and
+`config/strategy.template.json` for the shape. Override the path via
+`STRATEGY_CONFIG_PATH`.

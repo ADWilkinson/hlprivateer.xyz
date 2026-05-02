@@ -18,6 +18,7 @@
     "@hl/privateer-hl-client": "workspace:*",
     "@hl/privateer-outcome-engine": "workspace:*",
     "@hl/privateer-outcome-risk": "workspace:*",
+    "@hl/privateer-strategy": "workspace:*",
     "ulid": "^2.3.0"
   },
   "devDependencies": {

@@ -173,11 +173,11 @@ export const RiskConfigSchema = z.object({
   minSecondsToResolution: z.number().int().nonnegative().default(3600),
   maxSecondsToResolution: z.number().int().positive().default(60 * 24 * 3600),
   challengeWindowBufferSec: z.number().int().nonnegative().default(0),
-  bankrollUsd: z.number().positive(),
-  maxStakePerMarketUsd: z.number().positive(),
+  bankrollUsd: z.number().positive().default(1000),
+  maxStakePerMarketUsd: z.number().positive().default(25),
   maxConcurrentMarkets: z.number().int().positive().default(20),
-  maxGrossExposureUsd: z.number().positive(),
-  maxCorrelatedClusterUsd: z.number().positive(),
+  maxGrossExposureUsd: z.number().positive().default(250),
+  maxCorrelatedClusterUsd: z.number().positive().default(100),
   minEdgeBps: z.number().nonnegative().default(200),
   minBookDepthUsd: z.number().nonnegative().default(500),
   kellyCap: z.number().min(0).max(1).default(0.25),
@@ -212,3 +212,33 @@ export const FloorSnapshotSchema = z.object({
   tape: z.array(FloorTapeLineSchema)
 })
 export type FloorSnapshot = z.infer<typeof FloorSnapshotSchema>
+
+// The strategy is the swappable, gitignored slice: prompts, risk, source
+// trust priors, estimation params, market filter. Everything else (gates,
+// orchestrator, audit, schemas) stays public.
+export const StrategyConfigSchema = z.object({
+  risk: RiskConfigSchema.default({}),
+  prompts: z
+    .object({
+      sentimentScorer: z.string().optional()
+    })
+    .default({}),
+  sources: z
+    .object({
+      trust: z.record(SentimentSourceSchema, z.number().min(0).max(1)).default({})
+    })
+    .default({}),
+  estimation: z
+    .object({
+      halfLifeSec: z.number().int().positive().default(1800),
+      evidenceWeight: z.number().min(0).max(1).default(0.4)
+    })
+    .default({}),
+  marketFilter: z
+    .object({
+      topicTagAllowlist: z.array(z.string()).optional(),
+      topicTagBlocklist: z.array(z.string()).optional()
+    })
+    .default({})
+})
+export type StrategyConfig = z.infer<typeof StrategyConfigSchema>

@@ -17,6 +17,7 @@
       "@hl/privateer-hl-client": ["./packages/hl-client/src"],
       "@hl/privateer-outcome-engine": ["./packages/outcome-engine/src"],
       "@hl/privateer-outcome-risk": ["./packages/outcome-risk/src"],
+      "@hl/privateer-strategy": ["./packages/strategy/src"],
       "@hl/privateer-sentinel": ["./apps/sentinel/src"],
       "@hl/privateer-oracle": ["./apps/oracle/src"],
       "@hl/privateer-web": ["./apps/web/src"]

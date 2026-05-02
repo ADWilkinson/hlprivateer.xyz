@@ -12,6 +12,7 @@ WORKSPACES=(
   packages/hl-client
   packages/outcome-engine
   packages/outcome-risk
+  packages/strategy
   apps/sentinel
   apps/oracle
   apps/web

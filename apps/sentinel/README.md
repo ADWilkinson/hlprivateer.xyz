@@ -23,3 +23,10 @@ Fixture item shape:
   "observedAt": "2026-04-30T12:00:00Z"
 }
 ```
+
+## Strategy
+
+The LLM system prompt for `LlmScorer` is read from `strategy.prompts.sentimentScorer`
+in `config/strategy.json` (gitignored — see root README). The default scorer
+in `main.ts` is the deterministic `HeuristicScorer`; wire `resolveCompleter()`
+to your LLM of choice to use the prompt.

@@ -1,0 +1,40 @@
+{
+  "$comment": "Public defaults. Copy to config/strategy.json (gitignored) and edit for the real strategy. Every key is optional; missing fields fall back to schema defaults in @hl/privateer-contracts.",
+  "risk": {
+    "bankrollUsd": 1000,
+    "maxStakePerMarketUsd": 25,
+    "maxConcurrentMarkets": 10,
+    "maxGrossExposureUsd": 250,
+    "maxCorrelatedClusterUsd": 100,
+    "minEdgeBps": 200,
+    "minBookDepthUsd": 500,
+    "kellyCap": 0.2,
+    "maxSentimentAgeSec": 900,
+    "minSecondsToResolution": 3600,
+    "maxSecondsToResolution": 5184000,
+    "challengeWindowBufferSec": 0,
+    "haltAll": false
+  },
+  "prompts": {
+    "sentimentScorer": "You are a sentiment scorer for binary outcome markets on Hyperliquid.\nOutput ONLY a JSON object: {\"polarity\": number in [-1,1], \"confidence\": number in [0,1]}.\nPolarity is +1 if the item strongly implies YES (the event will occur),\n-1 if NO. Confidence is the model's reliability for this datum."
+  },
+  "sources": {
+    "trust": {
+      "news": 0.85,
+      "polymarket": 0.9,
+      "kalshi": 0.9,
+      "x": 0.45,
+      "farcaster": 0.5,
+      "reddit": 0.4,
+      "manual": 1.0
+    }
+  },
+  "estimation": {
+    "halfLifeSec": 1800,
+    "evidenceWeight": 0.4
+  },
+  "marketFilter": {
+    "topicTagAllowlist": [],
+    "topicTagBlocklist": []
+  }
+}

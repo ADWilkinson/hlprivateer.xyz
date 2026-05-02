@@ -8,7 +8,9 @@ import type {
   RiskConfig,
   RiskDecision,
   RuntimeMode,
-  SentimentSignal
+  SentimentSignal,
+  SentimentSource,
+  StrategyConfig
 } from '@hl/privateer-contracts'
 import { aggregateSentiment, estimateProbability, proposeOrder } from '@hl/privateer-outcome-engine'
 import { evaluate as evaluateRisk } from '@hl/privateer-outcome-risk'
@@ -17,11 +19,19 @@ import { ExposureLedger } from './exposure'
 import type { OrderRouter } from './order-router'
 import type { OutcomeMarketProvider } from './markets'
 
+export interface EngineOpts {
+  halfLifeSec?: number
+  evidenceWeight?: number
+  sourceTrust?: Partial<Record<SentimentSource, number>>
+}
+
 export interface OrchestratorConfig {
   bus: EventBus
   markets: OutcomeMarketProvider
   router: OrderRouter
   riskConfig: RiskConfig
+  engine?: EngineOpts
+  marketFilter?: StrategyConfig['marketFilter']
   signalBufferSize?: number
   log?: (msg: string, meta?: unknown) => void
 }
@@ -112,12 +122,20 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     if (mode !== 'READY') return {}
     const market = await config.markets.get(marketId)
     if (!market) return {}
+    if (!passesMarketFilter(market.topicTags, config.marketFilter)) return {}
     ledger.recordMarket(market)
     const signals = signalsByMarket.get(marketId) ?? []
     if (signals.length === 0) return {}
 
-    const agg = aggregateSentiment(signals)
-    const est = estimateProbability({ marketYesPrice: market.yesPrice, sentiment: agg })
+    const agg = aggregateSentiment(signals, {
+      halfLifeSec: config.engine?.halfLifeSec,
+      sourceTrust: config.engine?.sourceTrust
+    })
+    const est = estimateProbability({
+      marketYesPrice: market.yesPrice,
+      sentiment: agg,
+      evidenceWeight: config.engine?.evidenceWeight
+    })
     const estimate: ProbabilityEstimate = {
       id: `e-${ulid()}`,
       marketId,
@@ -249,3 +267,15 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
 
 const pct = (x: number): string => `${(x * 100).toFixed(1)}%`
 const pp = (x: number): string => `${(x * 100).toFixed(2)}pp`
+
+function passesMarketFilter(
+  tags: readonly string[],
+  filter: StrategyConfig['marketFilter'] | undefined
+): boolean {
+  if (!filter) return true
+  if (filter.topicTagBlocklist?.some((t) => tags.includes(t))) return false
+  if (filter.topicTagAllowlist && filter.topicTagAllowlist.length > 0) {
+    return filter.topicTagAllowlist.some((t) => tags.includes(t))
+  }
+  return true
+}
