@@ -1,281 +1,167 @@
 # HL Privateer
 
-Self-hosted, agentic Hyperliquid trading platform. Autonomous AI agents propose discretionary long/short trades, a deterministic risk engine hard-gates every execution, and a real-time ASCII trade floor streams it all live.
+> **v2 — Sentiment-driven outcome market trading agents on Hyperliquid (HIP-4).**
+>
+> v1 (discretionary perp trading desk) is concluded; the code is preserved
+> under `legacy/`. See [`/legacy/README.md`](legacy/README.md) for the v1
+> writeup and [`apps/web/app/v1/page.tsx`](apps/web/app/v1/page.tsx) for the
+> on-site retrospective.
 
 ```
 +--------------------------------------------------------------------------------+
-| HL PRIVATEER FLOOR | MODE: READY | PNL: +2.84% | DD: 1.2% | LAT: 142ms       |
+| HL PRIVATEER FLOOR // v2 // OUTCOME MARKETS                                    |
 +--------------------------------------------------------------------------------+
-| RCH [^]  "SOL momentum weakening, funding negative"                            |
-| RSK [!]  "Exposure within limits, drawdown 1.2%"                               |
-| EXE [>]  "Placed BUY HYPE 4.32 @ 23.14"                                       |
-| OPS [#]  "Redis lag 8ms | WS clients 42"                                      |
+| SNT [^]  "mkt-fed-pause: pHat=68% (mkt 62%) edge +6.0pp"                       |
+| RSK [!]  "ALLOW $200 YES@0.620 (kelly 8.0% of cap 25%)"                        |
+| EXE [>]  "filled $200 @0.620 — 0 fees on open (HIP-4)"                         |
+| OPS [#]  "tracking 12 markets · sentiment 4.2 signals/min"                     |
 +--------------------------------------------------------------------------------+
 ```
 
-**Live**: [hlprivateer.xyz](https://hlprivateer.xyz) | **API**: [api.hlprivateer.xyz](https://api.hlprivateer.xyz) | **WebSocket**: `wss://ws.hlprivateer.xyz`
+**Live**: [hlprivateer.xyz](https://hlprivateer.xyz) · **Source**:
+[github.com/ADWilkinson/hlprivateer.xyz](https://github.com/ADWilkinson/hlprivateer.xyz)
 
-## How It Works
+---
 
-```
-                  ┌───────────────────────────────────────┐
-                  │           Cloudflare Edge              │
-                  │    hlprivateer.xyz / api.* / ws.*      │
-                  └──────────────────┬────────────────────┘
-                                     │ Tunnel
-┌────────────────────────────────────┼────────────────────────────────┐
-│ Home Server                        │                                │
-│                                    v                                │
-│ ┌────────────┐  ┌────────────┐  ┌──────────────┐  ┌─────────────┐ │
-│ │  Web UI    │◄─│ WS Gateway │◄─│Redis Streams │──│Agent Runner │ │
-│ │  :3000     │  │ :4100      │  │ (event bus)  │  │ (LLM crew)  │ │
-│ └────────────┘  └─────┬──────┘  └──────┬───────┘  └──────┬──────┘ │
-│                       │                │                  │        │
-│ ┌────────────┐  ┌─────┴──────┐  ┌──────┴───────┐         │        │
-│ │  REST API  │◄─│  Runtime   │──│ Risk Engine  │         │        │
-│ │  :4000     │  │  (OMS +    │  │ (pure, fail- │         │        │
-│ │  x402/JWT  │  │   state    │  │  closed)     │         │        │
-│ └────────────┘  │   machine) │  └──────────────┘         │        │
-│                 └─────┬──────┘                            │        │
-│                       │                                   │        │
-│                 ┌─────┴──────┐                            │        │
-│                 │  Postgres  │◄───────────────────────────┘        │
-│                 │  (orders,  │                                     │
-│                 │  audit,    │                                     │
-│                 │  PnL)      │                                     │
-│                 └────────────┘                                     │
-└────────────────────────┬──────────────────────────────────────────-┘
-                         │
-          ┌──────────────┼──────────────┐
-          v              v              v
-    Hyperliquid    x402 Verifier   OTel/Prom/Loki
-    API + WS       (Base USDC)    (observability)
-```
+## What this is
 
-### Data Flow
+An experiment in trading [HIP-4 outcome
+contracts](https://blog.quicknode.com/hip4-hyperliquid-outcome-contracts/) on
+Hyperliquid using sentiment as the edge signal.
+
+Outcome contracts are binary: they settle to **0 or 1 in USDH** based on a
+real-world event, and trade between the two on the same CLOB as spot/perp.
+Price is implied probability. Sentiment is a fuzzier estimate of the same
+thing. The experiment is whether the gap between them is tradeable.
+
+The pipeline:
 
 ```
-Agent Runner ──proposals──> Runtime ──risk eval──> Risk Engine
-                               |                       |
-                               |<──── ALLOW/DENY ──────┘
-                               |
-                               |──orders──> Hyperliquid
-                               |
-                               |──> hlp.ui.events ──> WS Gateway ──> Web UI
-                               |──> hlp.audit.events ──> API (audit trail)
-                               └──< hlp.commands <── API/WS (operator commands)
+news/x/farcaster ──► apps/sentinel ──► hlpv2.sentiment ──► apps/oracle
+                       (LLM scorer)                          │
+                                                             │ SNT → estimate
+                                                             │ EXE → proposal
+                                                             │ RSK → fail-closed gates
+                                                             ▼
+                                                       Hyperliquid HIP-4
 ```
 
-### Agent Crew (7 Roles)
+## How it works
 
-| Role | Code | Job |
-|------|------|-----|
-| Scout | `SCT` | Tick collection, feed freshness, watchlist |
-| Research | `RCH` | Regime analysis, macro context, trade hypotheses |
-| Risk | `RSK` | Explains risk posture (advisory; hard-gated by engine) |
-| Strategist | `STR` | Proposes long/short directives with sizing, SL/TP |
-| Execution | `EXE` | Transforms plans into structured `StrategyProposal` orders |
-| Scribe | `SCR` | Audit narrative synthesis per proposal |
-| Ops | `OPS` | Service health, floor stability, auto-halt watchdog |
+- **Sentinel** (`apps/sentinel`) polls pluggable sources, scores each item via
+  an LLM (Claude/Codex), and emits a `SentimentSignal` per item onto the
+  `hlpv2.sentiment` Redis stream.
+- **Oracle** (`apps/oracle`) is the orchestrator. It consumes sentiment, runs
+  three roles, and serves the public HTTP/WS surface in one process:
+  - **SNT** aggregates signals and estimates a probability `p̂` per market.
+  - **EXE** builds an `OutcomeProposal` (side, limit, Kelly-sized stake).
+  - **RSK** evaluates the proposal through 13 fail-closed gates. ALLOW or DENY.
+- **outcome-engine** is the pure-math core: weighted sentiment aggregation,
+  Bayesian-style probability update, edge calculation, binary Kelly.
+- **outcome-risk** is the deterministic gate library: pure functions, no I/O,
+  fail-closed, single-failure short-circuit.
 
-### State Machine
+## Risk gates (13)
 
-```
-INIT ──► WARMUP ──► READY ◄──► IN_TRADE
-                      │            │
-                      ▼            ▼
-                   SAFE_MODE     HALT
-```
+In order, cheapest first:
 
-- **READY**: flat, watching for opportunities
-- **IN_TRADE**: active positions with SL/TP on exchange
-- **SAFE_MODE**: dependency failure -- only risk-reducing actions allowed
-- **HALT**: operator kill-switch -- no new orders
+1. `OPERATOR_HALT`
+2. `INVALID_PROPOSAL`
+3. `STALE_SENTIMENT`
+4. `MARKET_NOT_TRADING`
+5. `RESOLUTION_TOO_SOON`
+6. `RESOLUTION_TOO_FAR`
+7. `CHALLENGE_WINDOW_OPEN`
+8. `EDGE_TOO_THIN`
+9. `STAKE_PER_MARKET`
+10. `CONCURRENT_MARKETS`
+11. `CORRELATED_EXPOSURE`
+12. `BANKROLL_DEPLETED`
+13. `LOW_LIQUIDITY`
 
-## Key Design Decisions
+Any failure = **DENY**.
 
-- **AI proposes, never executes.** Every trade passes through deterministic risk gates (pure functions, no I/O, fail-closed).
-- **Fire-and-forget trades.** SL/TP placed on Hyperliquid at entry. No trailing stops or runtime rebalancing.
-- **Event-sourced.** All inter-service communication via typed Redis Streams with correlation IDs.
-- **Hash-chained audit trail.** SHA-256 chained audit events for every proposal, decision, and execution.
-- **Privacy by default.** Public endpoints expose PnL percentage only. No raw positions or notionals.
-
-## Monorepo Structure
+## Monorepo
 
 ```
 apps/
-├── runtime/          Core trading orchestrator, OMS, state machine
-├── api/              Fastify REST API (operator, agent, public routes)
-├── ws-gateway/       WebSocket real-time event fanout
-├── agent-runner/     LLM agent orchestration (7 roles, structured output)
-└── web/              Next.js ASCII UI (operator dashboard + landing)
+├── oracle/              Orchestrator (3-role crew + HTTP API + WS broadcast)
+├── sentinel/            Sentiment ingestion + LLM scoring
+└── web/                 Next.js landing + /floor + /v1 retrospective
 
 packages/
-├── contracts/        Zod schemas + shared types (single source of truth)
-├── risk-engine/      Deterministic risk evaluation (pure functions, fail-closed)
-├── event-bus/        Redis Streams abstraction + in-memory fallback
-├── plugin-sdk/       External plugin contract + signal types
-└── agent-sdk/        External agent client (handshake, x402, commands)
+├── contracts/           Zod schemas (single source of truth)
+├── outcome-engine/      Pure math: aggregate, estimate, edge, Kelly, propose
+├── outcome-risk/        Pure fail-closed risk gates
+├── event-bus/           Redis Streams abstraction (in-memory fallback)
+└── hl-client/           Hyperliquid HTTP transport (rate-limited, cached)
 
-infra/
-├── docker/           Multi-stage Dockerfile
-├── systemd/          Service units for bare-metal deployment
-├── cloudflared/      Cloudflare Tunnel ingress config
-└── observability/    OTel + Prometheus + Loki + Grafana
+legacy/
+├── apps/                v1: runtime, api, agent-runner, ws-gateway
+├── packages/            v1: risk-engine, plugin-sdk, agent-sdk, erc8004, contracts-v1
+└── docs/                v1: SPEC, AGENT_RUNNER, GO_LIVE, X402_SELLER_QUICKSTART, audit
 ```
 
-## Tech Stack
-
-| Layer | Choice |
-|-------|--------|
-| Runtime | Bun, TypeScript 5.7 |
-| Build | Turborepo |
-| API | Fastify |
-| Database | Postgres 16 (Drizzle ORM) |
-| Event Bus | Redis 7 (Streams) |
-| Exchange | Hyperliquid (`@nktkas/hyperliquid`) |
-| Agent LLMs | Claude CLI + Codex CLI (structured output) |
-| Web | Next.js 15, Tailwind, ASCII aesthetic |
-| Payments | x402 protocol (USDC on Base) |
-| Observability | OpenTelemetry, Prometheus, Grafana, Loki |
-| Deployment | Docker Compose or systemd, Cloudflare Tunnel |
-
-## Quick Start
+## Quick start
 
 ```bash
-# 1. Clone and install
-git clone https://github.com/ADWilkinson/hlprivateer.xyz.git
-cd hlprivateer.xyz
 bun install
+bun run typecheck      # all v2 packages + apps
+bun run test           # vitest across the workspace
 
-# 2. Configure
-cp config/.env.example config/.env
-# Edit config/.env with your settings
+# Run the full pipeline locally (in-memory bus, fixture markets, dry-run router)
+(cd apps/oracle && bun run dev) &
+(cd apps/sentinel && SENTINEL_FIXTURE=apps/sentinel/fixtures/items.json bun run dev) &
 
-# 3. Deploy (Docker Compose -- recommended)
-npm run deploy:docker
-
-# 4. Verify
-npm run compose:ps
-curl -sf http://127.0.0.1:4000/healthz
-curl -sf http://127.0.0.1:4000/v1/public/pnl
-
-# 5. Open the UI
-open http://127.0.0.1:3000
+# Inspect
+curl http://127.0.0.1:4100/v1/public/markets
+curl http://127.0.0.1:4100/v1/public/floor
 ```
 
-### Local Development
+### Wire up real markets / orders
 
-```bash
-bun run dev          # Start all services in parallel
-bun run build        # Build all packages + apps
-bun run test         # Run tests (Vitest)
-bun run typecheck    # TypeScript check
-```
+The orchestrator uses two pluggable adapters:
 
-### Deployment Options
+- **`OutcomeMarketProvider`** — `apps/oracle/src/markets.ts`. The default is
+  `FixtureMarketProvider` (JSON file). `HyperliquidMarketProvider` is wired to
+  `@hl/privateer-hl-client` and waits on `@nktkas/hyperliquid` exposing the
+  HIP-4 info endpoint.
+- **`OrderRouter`** — `apps/oracle/src/order-router.ts`. The default is
+  `DryRunRouter` (immediate fill at limit price, $0 fee). `HyperliquidOrderRouter`
+  is the live wire-up; same SDK gating.
 
-**Docker Compose** (recommended):
-```bash
-npm run deploy:docker          # Full stack
-npm run compose:logs           # Tail logs
-npm run compose:ps             # Service status
-npm run compose:down           # Stop everything
-```
+When the SDK supports HIP-4 order types, both stubs become one-line drop-ins.
 
-**Cloudflare Pages** (web frontend only):
-```bash
-bun run deploy:web:cloudflare  # Static export + deploy
-```
+## Tech stack
 
-**systemd** (bare-metal):
-See `infra/systemd/` for service unit files.
+| Layer       | Choice                                    |
+|-------------|-------------------------------------------|
+| Runtime     | Bun, TypeScript 5.7                       |
+| Build       | Turborepo                                 |
+| Schemas     | Zod                                       |
+| Event bus   | Redis 7 (Streams) with in-memory fallback |
+| Exchange    | Hyperliquid (`@nktkas/hyperliquid`)       |
+| Agent LLMs  | Claude / Codex (structured output)        |
+| Web         | Next.js 15, Tailwind, ASCII aesthetic     |
 
-## API
+## Key design invariants (ported from v1)
 
-Full API documentation: [`API.md`](API.md)
-
-### Free Endpoints
-
-| Endpoint | Response |
-|----------|----------|
-| `GET /v1/public/pnl` | PnL% and mode |
-| `GET /v1/public/floor-snapshot` | Mode, PnL%, health, positions, ops tape |
-| `GET /v1/public/floor-tape` | Recent ops log lines |
-| `GET /healthz` | Health check |
-
-### Agent Endpoints (x402 pay-per-call)
-
-| Endpoint | Price | Data |
-|----------|-------|------|
-| `/v1/agent/stream/snapshot` | $0.01 | Mode, PnL%, health, positions, ops tape |
-| `/v1/agent/positions` | $0.01 | Full position array |
-| `/v1/agent/orders` | $0.01 | Open orders |
-| `/v1/agent/analysis` | $0.01 | AI strategist analysis |
-| `/v1/agent/insights?scope=market` | $0.02 | Risk config, signals, account snapshot |
-| `/v1/agent/insights?scope=ai` | $0.02 | Full AI dashboard |
-| `/v1/agent/copy/trade?kind=signals` | $0.03 | Proposal + risk audit trail |
-| `/v1/agent/copy/trade?kind=positions` | $0.03 | Copy-trade position data |
-
-Payment: x402 v2 (USDC on Base). No API keys. No sign-ups.
-
-### WebSocket
-
-Connect to `wss://ws.hlprivateer.xyz` for real-time events:
-
-```json
-{ "type": "sub.add", "channel": "public.tape" }
-```
-
-### Operator
-
-JWT-authenticated endpoints for status, positions, orders, audit, replay, commands (`/halt`, `/resume`, `/flatten`), and risk config.
-
-## Risk Engine
-
-The risk engine is a pure function library with zero runtime dependencies. Every execution must pass 11 sequential checks:
-
-1. **DEPENDENCY_FAILURE** -- external deps unavailable
-2. **SYSTEM_GATED** -- system in HALT state
-3. **ACTOR_NOT_ALLOWED** -- external agents blocked from execution
-4. **INVALID_PROPOSAL** -- no actionable orders
-5. **SLIPPAGE_BREACH** -- exceeds max slippage bps
-6. **LEVERAGE** -- exceeds max leverage
-7. **DRAWDOWN** -- exceeds max drawdown %
-8. **EXPOSURE** -- exceeds max gross exposure USD
-9. **LIQUIDITY** -- order size exceeds L2 book depth
-10. **SAFE_MODE** -- would increase exposure during safe mode
-11. **STALE_DATA** -- tick age exceeds threshold
-
-Any check failure = **DENY**. No exceptions.
-
-## Security
-
-See [`SECURITY.md`](SECURITY.md) for the full threat model.
-
-- Secrets loaded via `*_FILE` env pattern (never in `.env` or git history)
-- Deterministic risk engine hard-gate before every execution
-- Fail-closed on any dependency error
-- Public surface limited to PnL% and obfuscated metadata
-- External agents gated by tier entitlements and x402 verification
-- Hash-chained audit trail for tamper evidence
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [`API.md`](API.md) | REST + WebSocket endpoint contracts |
-| [`SECURITY.md`](SECURITY.md) | Threat model, safeguards, key rotation |
-| [`RUNBOOK.md`](RUNBOOK.md) | Operational runbook, deployment, incident response |
-| [`docs/SPEC.md`](docs/SPEC.md) | Full architecture + technical design |
-| [`docs/GO_LIVE.md`](docs/GO_LIVE.md) | Live trading checklist |
-| [`docs/AGENT_RUNNER.md`](docs/AGENT_RUNNER.md) | LLM agent development guide |
-| [`llms.txt`](llms.txt) | LLM-oriented overview for agent consumption |
-| [`skills.md`](skills.md) | Agent skill definition |
+- **AI proposes, never executes.** `outcome-risk.evaluate()` is the only path
+  to ALLOW; `OrderRouter.place()` is the only path to a fill.
+- **Fail-closed.** Any dependency error or failed gate denies the proposal.
+  Single-failure short-circuit by design.
+- **Hash-chained audit.** Every estimate / proposal / decision / fill is
+  appended to `hlpv2.audit` with a SHA-256 prev-hash chain.
+- **Privacy by default.** Public HTTP exposes pHat / edge / question only —
+  no positions, no notional, no bankroll.
+- **Pure-function gates.** `outcome-risk` and `outcome-engine` have zero I/O
+  and a deterministic test surface.
 
 ## Disclaimer
 
-This is experimental software for research and operational automation. It is not financial advice. All trading decisions and losses are the sole responsibility of the operator. Use at your own risk.
+This is experimental software for research and operational automation. It is
+not financial advice. All trading decisions and losses are the sole
+responsibility of the operator. Use at your own risk.
 
 ## License
 

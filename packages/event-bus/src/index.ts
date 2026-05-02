@@ -36,30 +36,32 @@ export interface RedisEventBusConfig {
   consumerGroup?: string
 }
 
-const defaultStreamPrefix = 'hlp'
+const defaultStreamPrefix = 'hlpv2'
 
 /**
  * Approximate MAXLEN caps per stream. Keeps Redis bounded without losing
- * data that consumers actually need.  `0` means no trim (audit/compliance).
+ * data that consumers actually need. `0` means no trim (audit/compliance).
  *
- * market.normalized  ~5 msg/s → 72 000 ≈ 4 h
- * ui.events          bursty   → 50 000 ≈ 30-60 min
- * audit.events       replay   → 0 (never trim – operator compliance)
- * execution.*        low vol  → 100 000 ≈ months
- * everything else    low vol  → 10 000
+ * sentiment   bursty   → 50 000
+ * markets     low      → 10 000
+ * estimates   low      → 10 000
+ * proposals   low      → 10 000
+ * decisions   low      → 10 000
+ * fills       low      → 100 000 ≈ months
+ * audit       replay   → 0 (never trim — operator compliance)
+ * ui          bursty   → 50 000
+ * commands    low      → 10 000
  */
 const streamMaxLen: Partial<Record<StreamName, number>> = {
-  'hlp.market.normalized': 72_000,
-  'hlp.market.watchlist': 10_000,
-  'hlp.strategy.proposals': 10_000,
-  'hlp.plugin.signals': 10_000,
-  'hlp.risk.decisions': 10_000,
-  'hlp.execution.commands': 100_000,
-  'hlp.execution.fills': 100_000,
-  'hlp.audit.events': 0,
-  'hlp.ui.events': 50_000,
-  'hlp.payments.events': 10_000,
-  'hlp.commands': 10_000,
+  'hlpv2.markets': 10_000,
+  'hlpv2.sentiment': 50_000,
+  'hlpv2.estimates': 10_000,
+  'hlpv2.proposals': 10_000,
+  'hlpv2.decisions': 10_000,
+  'hlpv2.fills': 100_000,
+  'hlpv2.audit': 0,
+  'hlpv2.ui': 50_000,
+  'hlpv2.commands': 10_000
 }
 
 function normalizeBound(value: string): string {
@@ -128,8 +130,8 @@ export class RedisEventBus implements EventBus {
 
   private stream(stream: StreamName): string {
     StreamNameSchema.parse(stream)
-    // StreamName values already include the 'hlp.' prefix (e.g. 'hlp.audit.events'),
-    // so only prepend the configured prefix when it differs from the default embedded one.
+    // StreamName values already embed the 'hlpv2.' prefix (e.g. 'hlpv2.audit').
+    // Only prepend the configured prefix when it differs from the default.
     if (this.prefix === defaultStreamPrefix && stream.startsWith(`${defaultStreamPrefix}.`)) {
       return stream
     }
@@ -147,7 +149,7 @@ export class RedisEventBus implements EventBus {
     archiver: AuditArchiver,
     retainMs = 7 * 24 * 60 * 60 * 1000
   ): Promise<AuditArchiveResult> {
-    const key = this.stream('hlp.audit.events')
+    const key = this.stream('hlpv2.audit')
     const cutoffMs = Date.now() - retainMs
     const cutoffId = `${cutoffMs}-0`
     const batchSize = 500
@@ -192,8 +194,7 @@ export class RedisEventBus implements EventBus {
       actorId: event.actorId,
       payload: event.payload,
       signature: event.signature,
-      riskMode: event.riskMode,
-      sensitive: event.sensitive
+      riskMode: event.riskMode
     }
 
     EventEnvelopeSchema.parse(envelope)
@@ -408,8 +409,7 @@ export class InMemoryEventBus implements EventBus {
       actorId: event.actorId,
       payload: event.payload,
       signature: event.signature,
-      riskMode: event.riskMode,
-      sensitive: event.sensitive
+      riskMode: event.riskMode
     }
 
     const parsed = EventEnvelopeSchema.parse(envelope) as EnvelopeRecord

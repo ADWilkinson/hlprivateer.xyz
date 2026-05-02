@@ -1,70 +1,76 @@
-# HL Privateer — Open Hyperliquid Discretionary Desk
+# HL Privateer — v2: sentiment-driven outcome market trading on Hyperliquid HIP-4
 # https://hlprivateer.xyz
 
-## What is this?
-HL Privateer is an open, agentic discretionary trading desk on Hyperliquid.
-A fund of autonomous agents making discretionary calls based on live data —
-positions, analysis, signals, and risk state — all accessible to any inbound
-agent via paid x402 endpoints.
+## What this is
 
-You are an agent. You can follow our trades, read our analysis, copy our
-positions, or integrate our signals into your own strategy. Pay per call.
-No API keys. No sign-ups. Just x402.
+An experimental, self-hosted trading agent for HIP-4 outcome contracts on
+Hyperliquid. Sentiment in, probability estimate out, fail-closed risk gates,
+order placement on ALLOW.
 
-## Quick Start (for agents)
-1. Discover endpoints: `GET https://api.hlprivateer.xyz/v1/agent/stream/snapshot` → returns 402 with payment challenge
-2. Pay the challenge using x402 (USDC on Base, network eip155:8453)
-3. Receive live data in the 200 response
+Outcome contracts are binary: settle 0 or 1 in USDH on the same CLOB as
+spot/perp. Price ∈ [0,1] is implied probability.
 
-## x402 Endpoints (all GET, all pay-per-call)
+The previous experiment (v1, perp discretionary trading desk with a 7-role
+crew) is concluded and preserved under /legacy in the repo.
 
-| Endpoint | Price | What you get |
-|----------|-------|-------------|
-| `/v1/agent/stream/snapshot` | $0.01 | Mode, PnL%, health, open positions, recent ops tape |
-| `/v1/agent/positions` | $0.01 | Full position array — symbols, sides, sizes, entries, PnL |
-| `/v1/agent/orders` | $0.01 | Open orders on the book |
-| `/v1/agent/analysis?latest=true` | $0.01 | Latest AI strategist analysis with thesis + signals |
-| `/v1/agent/analysis` | $0.01 | Analysis history (filterable by correlationId, limit) |
-| `/v1/agent/insights?scope=market` | $0.02 | Risk config + signal timeline + account snapshot |
-| `/v1/agent/insights?scope=ai` | $0.02 | Full dashboard: floor state + risk + analysis + copy summary |
-| `/v1/agent/copy/trade?kind=signals` | $0.03 | Audit trail of proposals, analysis, risk, basket events |
-| `/v1/agent/copy/trade?kind=positions` | $0.03 | Position data formatted for copy-trading |
+## Architecture
 
-## Free Endpoints (no payment required)
+- apps/sentinel — pluggable source adapters + LLM scorer; emits `SentimentSignal`
+  envelopes onto the `hlpv2.sentiment` Redis stream.
+- apps/oracle — orchestrator + HTTP API + WS broadcast. Runs three roles:
+  - SNT: aggregate sentiment → `ProbabilityEstimate` (pHat, edge, confidence)
+  - EXE: build `OutcomeProposal` (side, limit, Kelly-sized stake)
+  - RSK: 13 fail-closed gates → `RiskDecision`
+- packages/outcome-engine — pure math: aggregateSentiment, estimateProbability,
+  computeEdge, kellyFraction, proposeOrder.
+- packages/outcome-risk — pure gates: evaluate(RiskContext) → RiskDecision.
+- packages/contracts — Zod schemas for OutcomeMarket, SentimentSignal,
+  ProbabilityEstimate, OutcomeProposal, RiskDecision, OutcomeFill, RiskConfig.
+- packages/event-bus — Redis Streams abstraction with in-memory fallback.
+- packages/hl-client — Hyperliquid HTTP transport (kept from v1).
 
-| Endpoint | What you get |
-|----------|-------------|
-| `/v1/public/pnl` | Current PnL% and mode |
-| `/v1/public/floor-snapshot` | Mode, PnL%, health, account value, positions, ops tape |
-| `/v1/public/floor-tape` | Recent ops log lines |
-| `/healthz` | Service health check |
+## Agent endpoints (v2)
 
-## Payment Details
-- Network: Base (eip155:8453)
-- Asset: USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)
-- Facilitator: https://facilitator.payai.network
-- Protocol: x402 v2 (exact scheme)
+Free:
+- GET /healthz
+- GET /v1/public/markets       — list of markets with pHat + edge (no sizes)
+- GET /v1/public/floor         — mode + markets + recent role tape
+- GET /v1/public/floor-tape    — recent role tape
 
-## How It Works
-HL Privateer runs a fund of agents on a single Hyperliquid account:
-- **Strategist agent**: scans markets, generates trade proposals with thesis
-- **Research agent**: regime hypotheses and macro context
-- **Risk agent**: explains risk posture (hard-gated by deterministic engine)
-- **Execution agent**: suggests tactics, annotates slippage
-- **Ops agent**: monitors feeds, service health, circuit breakers
+(Agent-paid x402 endpoints from v1 are archived. v2 may add a smaller agent
+surface — `/v1/agent/edges`, `/v1/agent/markets` — but is not yet wired in.)
 
-All agent proposals pass through a deterministic risk engine before execution.
-No agent can bypass risk limits. The human operator holds kill-switch authority.
+## Risk gates (in evaluation order)
 
-## Agent Resources
-- Agent skill (agentskills.io): https://hlprivateer.xyz/skills.md
-- Agent skill (ClawHub): https://hlprivateer.xyz/skills/hl-privateer.md
-- Full API docs: https://hlprivateer.xyz/API.md
-- x402 seller guide: https://hlprivateer.xyz/docs/X402_SELLER_QUICKSTART.md
-- Agent discovery: https://hlprivateer.xyz/.well-known/agents.json
-- WebSocket: wss://ws.hlprivateer.xyz (live floor tape stream)
+1. OPERATOR_HALT
+2. INVALID_PROPOSAL
+3. STALE_SENTIMENT
+4. MARKET_NOT_TRADING
+5. RESOLUTION_TOO_SOON
+6. RESOLUTION_TOO_FAR
+7. CHALLENGE_WINDOW_OPEN
+8. EDGE_TOO_THIN
+9. STAKE_PER_MARKET
+10. CONCURRENT_MARKETS
+11. CORRELATED_EXPOSURE
+12. BANKROLL_DEPLETED
+13. LOW_LIQUIDITY
 
-## Mandatory Constraints
-- Public responses expose PnL percent only and obfuscated fields.
-- External agents should respect capability gates and dynamic risk policy adjustments.
-- Payment entitlement is checked before every agent endpoint invocation.
+Any failure → DENY (fail-closed, single-failure short-circuit).
+
+## Key invariants (ported from v1)
+
+- AI proposes, never executes. The risk engine is the only ALLOW path.
+- Pure-function gates. Zero I/O. Deterministic.
+- Hash-chained audit (SHA-256 prev-hash chain on hlpv2.audit).
+- Privacy by default — public surface omits positions and notional.
+
+## Repository documentation
+
+- README.md         — repo overview and setup commands.
+- packages/contracts/README.md     — Zod contracts for v2 messages.
+- packages/outcome-engine/README.md — pure math API.
+- packages/outcome-risk/README.md   — gate ordering and semantics.
+- apps/sentinel/README.md           — sentiment ingestion service.
+- apps/oracle/README.md             — orchestrator + HTTP/WS surface.
+- legacy/README.md                  — v1 archive index.

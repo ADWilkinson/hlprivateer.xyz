@@ -14,14 +14,11 @@
     "paths": {
       "@hl/privateer-contracts": ["./packages/contracts/src"],
       "@hl/privateer-event-bus": ["./packages/event-bus/src"],
-      "@hl/privateer-risk-engine": ["./packages/risk-engine/src"],
-      "@hl/privateer-plugin-sdk": ["./packages/plugin-sdk/src"],
-      "@hl/privateer-agent-sdk": ["./packages/agent-sdk/src"],
-      "@hl/privateer-erc8004": ["./packages/erc8004/src"],
       "@hl/privateer-hl-client": ["./packages/hl-client/src"],
-      "@hl/privateer-runtime": ["./apps/runtime/src"],
-      "@hl/privateer-api": ["./apps/api/src"],
-      "@hl/privateer-ws-gateway": ["./apps/ws-gateway/src"],
+      "@hl/privateer-outcome-engine": ["./packages/outcome-engine/src"],
+      "@hl/privateer-outcome-risk": ["./packages/outcome-risk/src"],
+      "@hl/privateer-sentinel": ["./apps/sentinel/src"],
+      "@hl/privateer-oracle": ["./apps/oracle/src"],
       "@hl/privateer-web": ["./apps/web/src"]
     }
   }
