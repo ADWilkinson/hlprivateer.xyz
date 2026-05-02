@@ -3,7 +3,6 @@ import type { EventBus } from '@hl/privateer-event-bus'
 import type {
   EventEnvelope,
   FloorTapeLine,
-  OutcomeMarket,
   OutcomeProposal,
   ProbabilityEstimate,
   RiskConfig,
@@ -11,11 +10,7 @@ import type {
   RuntimeMode,
   SentimentSignal
 } from '@hl/privateer-contracts'
-import {
-  aggregateSentiment,
-  estimateProbability,
-  proposeOrder
-} from '@hl/privateer-outcome-engine'
+import { aggregateSentiment, estimateProbability, proposeOrder } from '@hl/privateer-outcome-engine'
 import { evaluate as evaluateRisk } from '@hl/privateer-outcome-risk'
 import { AuditChain } from './audit'
 import { ExposureLedger } from './exposure'
@@ -27,11 +22,7 @@ export interface OrchestratorConfig {
   markets: OutcomeMarketProvider
   router: OrderRouter
   riskConfig: RiskConfig
-  /** Sentiment buffer per market — keeps the freshest N signals. Default 20. */
   signalBufferSize?: number
-  /** Re-poll markets every N ms. Default 30s. */
-  marketRefreshMs?: number
-  /** Logger. */
   log?: (msg: string, meta?: unknown) => void
 }
 
@@ -45,7 +36,6 @@ export interface OrchestratorMetrics {
 }
 
 export interface OrchestratorHandle {
-  /** Process one estimate→proposal→risk→fill cycle for `marketId`. */
   evaluateMarket(marketId: string): Promise<{
     estimate?: ProbabilityEstimate
     proposal?: OutcomeProposal
@@ -64,13 +54,11 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
   const ledger = new ExposureLedger()
   const signalsByMarket = new Map<string, SentimentSignal[]>()
   const tape: FloorTapeLine[] = []
+  const bufferSize = config.signalBufferSize ?? 20
   let mode: RuntimeMode = 'INIT'
 
-  const bufferSize = config.signalBufferSize ?? 20
-
-  // Per-market mutex: serialize evaluateMarket so two near-simultaneous
-  // signals for the same market can't race each other and double-fill before
-  // the ExposureLedger updates.
+  // Per-market mutex: serialize evaluateMarket so two near-simultaneous signals
+  // for the same market can't race past the ExposureLedger and over-fill.
   const inflight = new Map<string, Promise<unknown>>()
 
   const metrics: OrchestratorMetrics = {
@@ -102,8 +90,6 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     metrics.signalsIngested++
     const arr = signalsByMarket.get(sig.marketId) ?? []
     arr.push(sig)
-    // Keep freshest at index 0. `freshnessSec` is publish-time only — the
-    // engine and gates re-derive age from `signal.ts` at evaluation time.
     arr.sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
     if (arr.length > bufferSize) arr.length = bufferSize
     signalsByMarket.set(sig.marketId, arr)
@@ -118,27 +104,20 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     try {
       return await next
     } finally {
-      // Clear the slot only if no later run has chained on top.
       if (inflight.get(marketId) === next) inflight.delete(marketId)
     }
   }
 
   async function doEvaluateMarket(marketId: string): ReturnType<OrchestratorHandle['evaluateMarket']> {
     if (mode !== 'READY') return {}
-
     const market = await config.markets.get(marketId)
     if (!market) return {}
     ledger.recordMarket(market)
-
     const signals = signalsByMarket.get(marketId) ?? []
     if (signals.length === 0) return {}
 
-    // SNT: aggregate → estimate
     const agg = aggregateSentiment(signals)
-    const est = estimateProbability({
-      marketYesPrice: market.yesPrice,
-      sentiment: agg
-    })
+    const est = estimateProbability({ marketYesPrice: market.yesPrice, sentiment: agg })
     const estimate: ProbabilityEstimate = {
       id: `e-${ulid()}`,
       marketId,
@@ -150,7 +129,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
       rationale: est.rationale,
       ts: new Date().toISOString()
     }
-    pushTape('SNT', `${marketId}: pHat=${(est.pHat * 100).toFixed(1)}% (mkt ${(market.yesPrice * 100).toFixed(1)}%) edge ${(est.edge * 100).toFixed(2)}pp`)
+    pushTape('SNT', `${marketId}: pHat=${pct(est.pHat)} (mkt ${pct(market.yesPrice)}) edge ${pp(est.edge)}`)
     metrics.estimatesEmitted++
     await config.bus.publish<ProbabilityEstimate>('hlpv2.estimates', {
       type: 'estimate.emitted',
@@ -163,7 +142,6 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     })
     await audit.append({ type: 'estimate.emitted', correlationId: estimate.id, payload: estimate })
 
-    // EXE: build proposal
     const proposal = proposeOrder({
       market,
       estimate,
@@ -186,7 +164,6 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     })
     await audit.append({ type: 'proposal.emitted', correlationId: proposal.id, payload: proposal })
 
-    // RSK: evaluate
     const decision = evaluateRisk({
       proposal,
       estimate,
@@ -210,12 +187,10 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
 
     if (decision.decision === 'DENY') {
       metrics.decisionsDeny++
-      const why = decision.failures.map((f) => f.code).join(',')
-      pushTape('RSK', `${marketId}: DENY ${why}`)
+      pushTape('RSK', `${marketId}: DENY ${decision.failures.map((f) => f.code).join(',')}`)
       return { estimate, proposal, decision }
     }
 
-    // EXE: place
     metrics.decisionsAllow++
     pushTape('RSK', `${marketId}: ALLOW $${proposal.sizeUsd.toFixed(0)} ${proposal.side}@${proposal.limitPrice.toFixed(3)}`)
     try {
@@ -244,15 +219,14 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     mode = 'READY'
     pushTape('OPS', 'oracle online')
 
-    // Subscribe to sentiment + commands
     const stopSentiment = await config.bus.consume('hlpv2.sentiment', '$', async (env) => {
       ingestSignal(env as EventEnvelope<SentimentSignal>)
       await evaluateMarket((env.payload as SentimentSignal).marketId)
     })
     const stopCommands = await config.bus.consume('hlpv2.commands', '$', async (env) => {
       const cmd = (env.payload as { command?: string }).command
-      if (cmd === 'halt') setMode('HALT')
-      if (cmd === 'resume') setMode('READY')
+      if (cmd === 'halt') mode = 'HALT'
+      if (cmd === 'resume') mode = 'READY'
       pushTape('OPS', `command: ${cmd ?? 'unknown'} → mode=${mode}`)
     })
 
@@ -263,16 +237,15 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     }
   }
 
-  function setMode(m: RuntimeMode): void {
-    mode = m
-  }
-
   return {
     evaluateMarket,
     start,
     mode: () => mode,
-    setMode,
+    setMode: (m) => { mode = m },
     tape: () => tape,
     metrics: () => ({ ...metrics })
   }
 }
+
+const pct = (x: number): string => `${(x * 100).toFixed(1)}%`
+const pp = (x: number): string => `${(x * 100).toFixed(2)}pp`

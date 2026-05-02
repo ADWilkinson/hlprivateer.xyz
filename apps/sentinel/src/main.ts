@@ -1,6 +1,3 @@
-// Sentinel entry point. In dev: in-memory bus + fixture source + heuristic
-// scorer. In prod: env-driven Redis bus + real sources + LLM scorer.
-
 import { InMemoryEventBus, RedisEventBus, type EventBus } from '@hl/privateer-event-bus'
 import { createSentinel, FixtureSource, HeuristicScorer, type SentimentSource } from './index'
 
@@ -10,12 +7,7 @@ async function main(): Promise<void> {
     : new InMemoryEventBus()
 
   const sources: SentimentSource[] = []
-  if (process.env.SENTINEL_FIXTURE) {
-    sources.push(new FixtureSource(process.env.SENTINEL_FIXTURE))
-  }
-  if (sources.length === 0) {
-    console.log('sentinel: no sources configured; idle')
-  }
+  if (process.env.SENTINEL_FIXTURE) sources.push(new FixtureSource(process.env.SENTINEL_FIXTURE))
 
   const sentinel = createSentinel({
     bus,

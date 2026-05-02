@@ -5,7 +5,7 @@ import { SentimentSignalSchema } from '@hl/privateer-contracts'
 import type { SentimentScorer } from './scorer'
 import type { SentimentSource } from './sources'
 
-export type { RawSentimentItem, SentimentScorer, ScoredSentiment } from './scorer'
+export type { RawSentimentItem, SentimentScorer, ScoredSentiment, LlmCompleter } from './scorer'
 export { HeuristicScorer, LlmScorer, parseScore } from './scorer'
 export { FixtureSource, InMemorySource } from './sources'
 export type { SentimentSource } from './sources'
@@ -14,18 +14,13 @@ export interface SentinelConfig {
   bus: EventBus
   sources: readonly SentimentSource[]
   scorer: SentimentScorer
-  /** Lookup market context (for richer LLM prompts). Optional. */
   marketContext?: (marketId: string) => Promise<{ question: string } | undefined>
-  /** Poll interval in ms. Default 30s. */
   intervalMs?: number
-  /** Logger. Defaults to no-op. */
   log?: (msg: string, meta?: unknown) => void
 }
 
 export interface SentinelHandle {
-  /** Run a single poll/score/publish cycle. Returns count of signals emitted. */
   tick(): Promise<number>
-  /** Start the periodic loop. Returns a stop function. */
   start(): () => Promise<void>
 }
 
@@ -36,15 +31,13 @@ export function createSentinel(config: SentinelConfig): SentinelHandle {
   async function tick(): Promise<number> {
     let emitted = 0
     for (const source of config.sources) {
-      let items
+      let items: Awaited<ReturnType<typeof source.poll>>
       try {
         items = await source.poll()
       } catch (err) {
         log(`source ${source.name} failed`, err)
         continue
       }
-      if (items.length === 0) continue
-
       for (const item of items) {
         try {
           const ctx = config.marketContext ? await config.marketContext(item.marketId) : undefined
@@ -53,7 +46,6 @@ export function createSentinel(config: SentinelConfig): SentinelHandle {
           const freshnessSec = Number.isFinite(observedMs)
             ? Math.max(0, Math.floor((Date.now() - observedMs) / 1000))
             : 0
-
           const signal: SentimentSignal = SentimentSignalSchema.parse({
             id: ulid(),
             marketId: item.marketId,
@@ -65,7 +57,6 @@ export function createSentinel(config: SentinelConfig): SentinelHandle {
             url: item.url,
             ts: new Date().toISOString()
           })
-
           await config.bus.publish<SentimentSignal>('hlpv2.sentiment', {
             type: 'sentiment.signal',
             stream: 'hlpv2.sentiment',
@@ -81,31 +72,26 @@ export function createSentinel(config: SentinelConfig): SentinelHandle {
         }
       }
     }
-    if (emitted > 0) log(`sentinel: emitted ${emitted} signals`)
+    if (emitted > 0) log(`emitted ${emitted} signals`)
     return emitted
   }
 
   function start(): () => Promise<void> {
     let running = true
-    const loop = async () => {
+    void (async () => {
       while (running) {
         try {
           await tick()
         } catch (err) {
-          log(`sentinel tick failed`, err)
+          log(`tick failed`, err)
         }
-        await sleep(interval)
+        await new Promise((res) => setTimeout(res, interval))
       }
-    }
-    void loop()
+    })()
     return async () => {
       running = false
     }
   }
 
   return { tick, start }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((res) => setTimeout(res, ms))
 }

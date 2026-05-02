@@ -7,24 +7,15 @@ export interface AuditEntry {
   payload: unknown
 }
 
-/**
- * Hash-chained audit appender. Each new entry stores `prevHash = sha256(prev
- * canonical envelope payload)`; replay can re-walk and detect tamper.
- *
- * Ports the v1 pattern with a smaller surface — no separate signer, no
- * Postgres archive. Audit retention is the bus's `hlpv2.audit` MAXLEN=0 (never
- * trimmed).
- */
 export class AuditChain {
   private prevHash: string = '0'.repeat(64)
 
   constructor(private readonly bus: EventBus, private readonly source: string) {}
 
   async append(entry: AuditEntry): Promise<string> {
-    const ts = new Date().toISOString()
     const body = {
       type: entry.type,
-      ts,
+      ts: new Date().toISOString(),
       prevHash: this.prevHash,
       payload: entry.payload
     }
