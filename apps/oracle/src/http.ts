@@ -1,25 +1,18 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { ulid } from 'ulid'
 import type { EventBus } from '@hl/privateer-event-bus'
 import type { FloorSnapshot, PublicMarket } from '@hl/privateer-contracts'
-import { ulid } from 'ulid'
 import type { OrchestratorHandle } from './orchestrator'
 import type { OutcomeMarketProvider } from './markets'
 
-/**
- * Tiny built-in HTTP server. v1 used Fastify; v2's surface is small enough
- * that the std-lib server is fine and one less dependency.
- */
 export interface HttpServerConfig {
   port: number
   orchestrator: OrchestratorHandle
   markets: OutcomeMarketProvider
   bus: EventBus
-  /** Map marketId → most recent estimate (pHat, edge). */
   estimates: Map<string, { pHat: number; edge: number }>
-  /**
-   * Bearer token required for /v1/operator/* routes. When unset, operator
-   * routes return 503 (intentionally — fail-closed; never default-open).
-   */
+  // Bearer token required for /v1/operator/* routes. When unset, those routes
+  // return 401 (fail-closed; never default-open).
   operatorToken?: string
 }
 
@@ -118,10 +111,8 @@ function publicView(
 function authorizeOperator(req: IncomingMessage, cfg: HttpServerConfig): boolean {
   if (!cfg.operatorToken) return false
   const header = req.headers['authorization']
-  if (typeof header !== 'string') return false
-  if (!header.startsWith('Bearer ')) return false
-  const token = header.slice('Bearer '.length).trim()
-  return constantTimeEq(token, cfg.operatorToken)
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false
+  return constantTimeEq(header.slice('Bearer '.length).trim(), cfg.operatorToken)
 }
 
 function constantTimeEq(a: string, b: string): boolean {
@@ -145,11 +136,10 @@ async function emitCommand(bus: EventBus, command: 'halt' | 'resume'): Promise<v
 
 function renderPrometheus(orch: OrchestratorHandle): string {
   const m = orch.metrics()
-  const mode = orch.mode()
-  const lines = [
+  return [
     '# HELP hlpv2_runtime_mode 1 if oracle is in READY mode.',
     '# TYPE hlpv2_runtime_mode gauge',
-    `hlpv2_runtime_mode ${mode === 'READY' ? 1 : 0}`,
+    `hlpv2_runtime_mode ${orch.mode() === 'READY' ? 1 : 0}`,
     '# HELP hlpv2_signals_ingested_total Sentiment signals ingested.',
     '# TYPE hlpv2_signals_ingested_total counter',
     `hlpv2_signals_ingested_total ${m.signalsIngested}`,
@@ -165,16 +155,13 @@ function renderPrometheus(orch: OrchestratorHandle): string {
     `hlpv2_decisions_total{decision="DENY"} ${m.decisionsDeny}`,
     '# HELP hlpv2_fills_confirmed_total Confirmed fills.',
     '# TYPE hlpv2_fills_confirmed_total counter',
-    `hlpv2_fills_confirmed_total ${m.fillsConfirmed}`
-  ]
-  return lines.join('\n') + '\n'
+    `hlpv2_fills_confirmed_total ${m.fillsConfirmed}`,
+    ''
+  ].join('\n')
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    'content-type': 'application/json',
-    'access-control-allow-origin': '*'
-  })
+  res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
   res.end(JSON.stringify(body))
 }
 

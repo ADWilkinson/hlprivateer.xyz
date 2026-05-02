@@ -2,15 +2,9 @@ import { readFile } from 'node:fs/promises'
 import type { RawSentimentItem } from './scorer'
 
 export interface SentimentSource {
-  /** Stable name for logging. */
   name: string
-  /** Pull a batch since the last poll. Implementations are responsible for de-dup. */
   poll(): Promise<RawSentimentItem[]>
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// Fixture source — reads a JSON file. Used for tests and dev mode.
-// ────────────────────────────────────────────────────────────────────────────
 
 export class FixtureSource implements SentimentSource {
   readonly name = 'fixture'
@@ -36,10 +30,6 @@ export class FixtureSource implements SentimentSource {
     return fresh
   }
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// In-memory source — used by tests to inject items synchronously.
-// ────────────────────────────────────────────────────────────────────────────
 
 export class InMemorySource implements SentimentSource {
   readonly name = 'memory'

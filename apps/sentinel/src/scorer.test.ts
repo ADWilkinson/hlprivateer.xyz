@@ -3,9 +3,7 @@ import { LlmScorer, parseScore } from './scorer'
 
 describe('LlmScorer', () => {
   it('uses the supplied completer and parses JSON', async () => {
-    const scorer = new LlmScorer(async () => ({
-      text: 'Reasoning omitted. {"polarity": -0.3, "confidence": 0.4}'
-    }))
+    const scorer = new LlmScorer(async () => 'Reasoning omitted. {"polarity": -0.3, "confidence": 0.4}')
     const r = await scorer.score({
       marketId: 'm',
       source: 'news',
@@ -17,7 +15,7 @@ describe('LlmScorer', () => {
   })
 
   it('returns zero polarity when LLM emits garbage', async () => {
-    const scorer = new LlmScorer(async () => ({ text: 'no idea' }))
+    const scorer = new LlmScorer(async () => 'no idea')
     const r = await scorer.score({
       marketId: 'm',
       source: 'news',

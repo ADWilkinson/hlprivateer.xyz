@@ -1,9 +1,5 @@
 import { z } from 'zod'
 
-// ────────────────────────────────────────────────────────────────────────────
-// Bus envelope (carried over from v1; perp-specific stream names removed)
-// ────────────────────────────────────────────────────────────────────────────
-
 export const ActorTypeSchema = z.enum(['human', 'internal_agent', 'external_agent', 'system'])
 export type ActorType = z.infer<typeof ActorTypeSchema>
 
@@ -38,17 +34,8 @@ export type EventEnvelope<T = unknown> = Omit<z.infer<typeof EventEnvelopeSchema
   payload: T
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Runtime mode (simplified from v1's 6-state machine)
-// ────────────────────────────────────────────────────────────────────────────
-
 export const RuntimeModeSchema = z.enum(['INIT', 'READY', 'HALT'])
 export type RuntimeMode = z.infer<typeof RuntimeModeSchema>
-
-// ────────────────────────────────────────────────────────────────────────────
-// Outcome markets (HIP-4)
-// Binary contracts settling 0 or 1 in USDH; price ∈ [0,1] is implied probability.
-// ────────────────────────────────────────────────────────────────────────────
 
 export const MarketStatusSchema = z.enum([
   'auction',
@@ -79,10 +66,6 @@ export const OutcomeMarketSchema = z.object({
 })
 export type OutcomeMarket = z.infer<typeof OutcomeMarketSchema>
 
-// ────────────────────────────────────────────────────────────────────────────
-// Sentiment signals
-// ────────────────────────────────────────────────────────────────────────────
-
 export const SentimentSourceSchema = z.enum([
   'news',
   'x',
@@ -107,10 +90,6 @@ export const SentimentSignalSchema = z.object({
 })
 export type SentimentSignal = z.infer<typeof SentimentSignalSchema>
 
-// ────────────────────────────────────────────────────────────────────────────
-// Probability estimate (output of Sentinel role)
-// ────────────────────────────────────────────────────────────────────────────
-
 export const ProbabilityEstimateSchema = z.object({
   id: z.string().min(1),
   marketId: z.string().min(1),
@@ -123,10 +102,6 @@ export const ProbabilityEstimateSchema = z.object({
   ts: z.string().datetime()
 })
 export type ProbabilityEstimate = z.infer<typeof ProbabilityEstimateSchema>
-
-// ────────────────────────────────────────────────────────────────────────────
-// Proposal (Execution role's structured order intent)
-// ────────────────────────────────────────────────────────────────────────────
 
 export const OutcomeSideSchema = z.enum(['YES', 'NO'])
 export type OutcomeSide = z.infer<typeof OutcomeSideSchema>
@@ -145,10 +120,6 @@ export const OutcomeProposalSchema = z.object({
   ts: z.string().datetime()
 })
 export type OutcomeProposal = z.infer<typeof OutcomeProposalSchema>
-
-// ────────────────────────────────────────────────────────────────────────────
-// Risk decision (fail-closed gate evaluation)
-// ────────────────────────────────────────────────────────────────────────────
 
 export const RiskGateCodeSchema = z.enum([
   'STALE_SENTIMENT',
@@ -184,10 +155,6 @@ export const RiskDecisionSchema = z.object({
 })
 export type RiskDecision = z.infer<typeof RiskDecisionSchema>
 
-// ────────────────────────────────────────────────────────────────────────────
-// Fill (post-execution confirmation)
-// ────────────────────────────────────────────────────────────────────────────
-
 export const OutcomeFillSchema = z.object({
   id: z.string().min(1),
   proposalId: z.string().min(1),
@@ -200,10 +167,6 @@ export const OutcomeFillSchema = z.object({
   ts: z.string().datetime()
 })
 export type OutcomeFill = z.infer<typeof OutcomeFillSchema>
-
-// ────────────────────────────────────────────────────────────────────────────
-// Risk config
-// ────────────────────────────────────────────────────────────────────────────
 
 export const RiskConfigSchema = z.object({
   maxSentimentAgeSec: z.number().int().positive().default(900),
@@ -221,10 +184,6 @@ export const RiskConfigSchema = z.object({
   haltAll: z.boolean().default(false)
 })
 export type RiskConfig = z.infer<typeof RiskConfigSchema>
-
-// ────────────────────────────────────────────────────────────────────────────
-// Floor / public surface (privacy by default — sizes obfuscated)
-// ────────────────────────────────────────────────────────────────────────────
 
 export const FloorTapeLineSchema = z.object({
   ts: z.string().datetime(),

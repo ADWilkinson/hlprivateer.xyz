@@ -9,21 +9,13 @@ export interface RawSentimentItem {
 }
 
 export interface ScoredSentiment {
-  polarity: number     // [-1, 1]
-  confidence: number   // [0, 1]
+  polarity: number
+  confidence: number
 }
 
 export interface SentimentScorer {
   score(item: RawSentimentItem, marketContext?: { question: string }): Promise<ScoredSentiment>
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// Heuristic scorer
-//
-// Lexicon-based polarity. Deterministic, no I/O, used as the test/dev default
-// and as the fallback when no LLM is configured. The production stack swaps
-// this for an LLM adapter (see `LlmScorer` below).
-// ────────────────────────────────────────────────────────────────────────────
 
 const POSITIVE = [
   'beat', 'beats', 'rally', 'surge', 'jump', 'gain', 'gains', 'positive', 'bull',
@@ -40,8 +32,7 @@ const NEGATIVE = [
 
 export class HeuristicScorer implements SentimentScorer {
   async score(item: RawSentimentItem): Promise<ScoredSentiment> {
-    const text = item.summary.toLowerCase()
-    const tokens = text.split(/[^a-z]+/).filter(Boolean)
+    const tokens = item.summary.toLowerCase().split(/[^a-z]+/).filter(Boolean)
     let pos = 0
     let neg = 0
     for (const t of tokens) {
@@ -49,31 +40,15 @@ export class HeuristicScorer implements SentimentScorer {
       if (NEGATIVE.includes(t)) neg++
     }
     const total = pos + neg
-    if (total === 0) {
-      return { polarity: 0, confidence: 0.1 }
+    if (total === 0) return { polarity: 0, confidence: 0.1 }
+    return {
+      polarity: (pos - neg) / total,
+      confidence: Math.min(0.9, 0.3 + total * 0.1)
     }
-    const polarity = (pos - neg) / total
-    // Confidence rises with hit count, saturates fast.
-    const confidence = Math.min(0.9, 0.3 + total * 0.1)
-    return { polarity, confidence }
   }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// LLM scorer adapter
-//
-// Wired to a caller-supplied `complete()` so this package stays I/O-free in
-// tests. The `LlmCompleter` shape matches what Claude/Codex CLIs already
-// produce in v1's agent-runner; ports forward unchanged.
-// ────────────────────────────────────────────────────────────────────────────
-
-export interface LlmCompletion {
-  text: string
-}
-
-export interface LlmCompleter {
-  (prompt: string): Promise<LlmCompletion>
-}
+export type LlmCompleter = (prompt: string) => Promise<string>
 
 const LLM_PROMPT = (item: RawSentimentItem, q?: string) =>
   [
@@ -92,8 +67,7 @@ export class LlmScorer implements SentimentScorer {
   constructor(private readonly complete: LlmCompleter) {}
 
   async score(item: RawSentimentItem, ctx?: { question: string }): Promise<ScoredSentiment> {
-    const { text } = await this.complete(LLM_PROMPT(item, ctx?.question))
-    return parseScore(text)
+    return parseScore(await this.complete(LLM_PROMPT(item, ctx?.question)))
   }
 }
 
@@ -102,9 +76,10 @@ export function parseScore(text: string): ScoredSentiment {
   if (!match) return { polarity: 0, confidence: 0 }
   try {
     const obj = JSON.parse(match[0]) as { polarity?: number; confidence?: number }
-    const polarity = clamp(obj.polarity ?? 0, -1, 1)
-    const confidence = clamp(obj.confidence ?? 0, 0, 1)
-    return { polarity, confidence }
+    return {
+      polarity: clamp(obj.polarity ?? 0, -1, 1),
+      confidence: clamp(obj.confidence ?? 0, 0, 1)
+    }
   } catch {
     return { polarity: 0, confidence: 0 }
   }

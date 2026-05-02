@@ -14,15 +14,10 @@ export interface RiskContext {
   estimate: ProbabilityEstimate
   market: OutcomeMarket
   config: RiskConfig
-  /** Most recent contributing sentiment signals; freshest first. */
   recentSignals: readonly SentimentSignal[]
-  /** Currently-open exposure across all markets, USD. */
   openExposureUsd: number
-  /** Number of markets we currently have an open position in. */
   openMarketCount: number
-  /** Sum of open exposure within the same topic-tag cluster as `market`, USD. */
   clusterExposureUsd: number
-  /** Caller-provided wall clock (ms). Default Date.now(). */
   nowMs?: number
 }
 
@@ -51,7 +46,7 @@ export function evaluate(ctx: RiskContext): RiskDecision {
     const f = gate(ctx)
     if (f) {
       failures.push(f)
-      break // fail-closed, short-circuit
+      break
     }
   }
   return {
@@ -61,10 +56,6 @@ export function evaluate(ctx: RiskContext): RiskDecision {
     evaluatedAt: new Date(ctx.nowMs ?? Date.now()).toISOString()
   }
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// Gates
-// ────────────────────────────────────────────────────────────────────────────
 
 function gateOperatorHalt(ctx: RiskContext): RiskGateFailure | null {
   return ctx.config.haltAll
@@ -101,9 +92,6 @@ function gateStaleSentiment(ctx: RiskContext): RiskGateFailure | null {
     }
   }
   const now = ctx.nowMs ?? Date.now()
-  // Compute age from each signal's `ts` so signals decay while sitting in
-  // the orchestrator's buffer; fall back to the publish-time snapshot when
-  // ts is unparseable.
   const minAge = Math.min(
     ...ctx.recentSignals.map((s) => {
       const tsMs = Date.parse(s.ts)
@@ -189,8 +177,6 @@ function gateChallengeWindowOpen(ctx: RiskContext): RiskGateFailure | null {
       threshold: 'trading'
     }
   }
-  // Optional buffer: if very close to resolution and a challenge window exists,
-  // refuse to open new positions that could enter during challenge.
   if (ctx.market.challengeWindowSec > 0) {
     const sec = secondsTo(ctx.market.resolutionAt, ctx.nowMs)
     const buffer = ctx.config.challengeWindowBufferSec + ctx.market.challengeWindowSec
@@ -292,10 +278,6 @@ function gateLowLiquidity(ctx: RiskContext): RiskGateFailure | null {
   }
   return null
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// internal
-// ────────────────────────────────────────────────────────────────────────────
 
 function secondsTo(iso: string, nowMs?: number): number {
   return Math.floor((Date.parse(iso) - (nowMs ?? Date.now())) / 1000)
