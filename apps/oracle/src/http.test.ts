@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { InMemoryEventBus } from '@hl/privateer-event-bus'
 import type { OutcomeMarket, RiskConfig } from '@hl/privateer-contracts'
+import { LocalAccountant } from './accountant'
 import { createOrchestrator } from './orchestrator'
 import { InMemoryMarketProvider } from './markets'
 import { DryRunRouter } from './order-router'
@@ -45,10 +46,12 @@ interface Setup {
 async function setup(operatorToken?: string): Promise<Setup> {
   const bus = new InMemoryEventBus()
   const markets = new InMemoryMarketProvider([market])
+  const accountant = new LocalAccountant()
   const orch = createOrchestrator({
     bus,
     markets,
     router: new DryRunRouter(),
+    accountant,
     riskConfig
   })
   await orch.start()
@@ -58,6 +61,7 @@ async function setup(operatorToken?: string): Promise<Setup> {
     markets,
     bus,
     estimates: new Map(),
+    accountant,
     operatorToken
   })
   // node:http listen(0) picks a free port; address() returns it.

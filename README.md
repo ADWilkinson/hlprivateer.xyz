@@ -119,16 +119,42 @@ curl http://127.0.0.1:4100/v1/public/markets
 curl http://127.0.0.1:4100/v1/public/floor
 ```
 
+### Lean on Hyperliquid for accountancy
+
+Positions, equity, and fills are exchange truth — we don't reinvent them.
+The orchestrator depends on an **`Accountant`** interface; two implementations:
+
+- **`HyperliquidAccountant`** (default when `ORACLE_HL_USER` is set) — reads
+  `clearinghouseState` from Hyperliquid for positions and equity, with a
+  TTL cache so risk gates don't stampede the info endpoint. On startup,
+  `warmup()` reconciles in-process state with the exchange. Degrades
+  gracefully when HL is unreachable: serves last-known values rather than
+  failing.
+- **`LocalAccountant`** (fallback for dev / DryRun) — in-process state
+  driven by simulated fills. No HL connection required.
+
+Risk gates ask the accountant; nothing in our code is a "source of truth"
+for what's open on the exchange.
+
+```bash
+ORACLE_HL_USER=0xYourWallet         # enables HyperliquidAccountant
+ORACLE_HL_TESTNET=1                 # optional — point at testnet
+ORACLE_HL_API_URL=...               # optional — override base URL
+ORACLE_HL_INFO_URL=...              # optional — override /info URL
+ORACLE_HL_RPM=1000                  # rate limit (default 1000/min)
+ORACLE_HL_TTL_MS=4000               # accountant cache TTL
+ORACLE_PNL_BASELINE_USD=10000       # baseline for /v1/public/floor pnlPct%
+```
+
 ### Wire up real markets / orders
 
-The orchestrator uses two pluggable adapters:
+Two remaining adapters that go live when `@nktkas/hyperliquid` surfaces
+HIP-4 endpoints:
 
-- **`OutcomeMarketProvider`** — `apps/oracle/src/markets.ts`. The default is
-  `FixtureMarketProvider` (JSON file). A live HL provider is a one-file add
-  once `@nktkas/hyperliquid` exposes the HIP-4 info endpoint.
-- **`OrderRouter`** — `apps/oracle/src/order-router.ts`. The default is
-  `DryRunRouter` (immediate fill at limit price, $0 fee). The live router is
-  another one-file add against the same SDK.
+- **`OutcomeMarketProvider`** (`apps/oracle/src/markets.ts`) — currently
+  `FixtureMarketProvider` (JSON). Live HL provider is a one-file add.
+- **`OrderRouter`** (`apps/oracle/src/order-router.ts`) — currently
+  `DryRunRouter` (simulated fill). Live router is another one-file add.
 
 ## Strategy (private, gitignored)
 
