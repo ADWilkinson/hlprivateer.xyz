@@ -1,11 +1,98 @@
 import { describe, expect, it } from 'vitest'
 import { ulid } from 'ulid'
 import { InMemoryEventBus } from '@hl/privateer-event-bus'
-import type { OutcomeMarket, RiskConfig, SentimentSignal } from '@hl/privateer-contracts'
-import { LocalAccountant } from './accountant'
+import type {
+  OutcomeFill,
+  OutcomeMarket,
+  OutcomeProposal,
+  RiskConfig,
+  SentimentSignal
+} from '@hl/privateer-contracts'
+import type { Accountant, OpenPosition } from './accountant'
 import { createOrchestrator } from './orchestrator'
 import { InMemoryMarketProvider } from './markets'
-import { DryRunRouter } from './order-router'
+import type { OrderRouter } from './order-router'
+
+// Test-only: a router that completes the proposal at its limit price.
+// Production wires the real HL router via apps/oracle/wiring.ts.
+class TestRouter implements OrderRouter {
+  async place(p: OutcomeProposal): Promise<OutcomeFill> {
+    return {
+      id: `f-${ulid()}`,
+      proposalId: p.id,
+      marketId: p.marketId,
+      side: p.side,
+      fillPrice: p.limitPrice,
+      fillSizeUsd: p.sizeUsd,
+      feeUsd: 0,
+      ts: new Date().toISOString()
+    }
+  }
+}
+
+// Test-only accountant whose state mutates from observed fills. The orchestrator
+// reads through this; it lets us test the policy layer without a live HL.
+class TestAccountant implements Accountant {
+  private byMarket = new Map<string, OpenPosition>()
+  private marketTags = new Map<string, string[]>()
+  recordMarket(market: OutcomeMarket): void {
+    this.marketTags.set(market.id, market.topicTags)
+  }
+  applyFill(fill: OutcomeFill): void {
+    const existing = this.byMarket.get(fill.marketId)
+    if (!existing) {
+      this.byMarket.set(fill.marketId, {
+        marketId: fill.marketId,
+        side: fill.side,
+        sizeUsd: fill.fillSizeUsd
+      })
+      return
+    }
+    if (existing.side === fill.side) existing.sizeUsd += fill.fillSizeUsd
+  }
+  async positions(): Promise<readonly OpenPosition[]> {
+    return [...this.byMarket.values()]
+  }
+  async equityUsd(): Promise<number> {
+    return 0
+  }
+  async openExposureUsd(): Promise<number> {
+    let s = 0
+    for (const p of this.byMarket.values()) s += p.sizeUsd
+    return s
+  }
+  async openMarketCount(): Promise<number> {
+    return this.byMarket.size
+  }
+  async clusterExposureUsd(market: OutcomeMarket): Promise<number> {
+    if (market.topicTags.length === 0) return 0
+    const tags = new Set(market.topicTags)
+    let s = 0
+    for (const p of this.byMarket.values()) {
+      if (p.marketId === market.id) continue
+      const otherTags = this.marketTags.get(p.marketId) ?? []
+      if (otherTags.some((t) => tags.has(t))) s += p.sizeUsd
+    }
+    return s
+  }
+  async warmup(): Promise<void> {}
+  async recentFills(): Promise<never[]> {
+    return []
+  }
+}
+
+// A router that wires its fills back into the test accountant so the
+// per-market mutex test can observe exposure mounting between calls.
+function trackingRouter(accountant: TestAccountant): OrderRouter {
+  const inner = new TestRouter()
+  return {
+    place: async (p) => {
+      const f = await inner.place(p)
+      accountant.applyFill(f)
+      return f
+    }
+  }
+}
 
 const market: OutcomeMarket = {
   id: 'mkt-1',
@@ -39,8 +126,8 @@ const riskConfig: RiskConfig = {
 async function buildSetup() {
   const bus = new InMemoryEventBus()
   const markets = new InMemoryMarketProvider([market])
-  const router = new DryRunRouter()
-  const accountant = new LocalAccountant()
+  const accountant = new TestAccountant()
+  const router = trackingRouter(accountant)
   const orchestrator = createOrchestrator({ bus, markets, router, accountant, riskConfig })
   return { bus, markets, orchestrator, accountant }
 }
@@ -103,11 +190,12 @@ describe('orchestrator', () => {
   it('skips markets blocked by topicTagBlocklist', async () => {
     const bus = new InMemoryEventBus()
     const markets = new InMemoryMarketProvider([market])
+    const accountant = new TestAccountant()
     const orchestrator = createOrchestrator({
       bus,
       markets,
-      router: new DryRunRouter(),
-      accountant: new LocalAccountant(),
+      router: trackingRouter(accountant),
+      accountant,
       riskConfig,
       marketFilter: { topicTagBlocklist: ['macro'] }
     })
@@ -124,11 +212,12 @@ describe('orchestrator', () => {
   it('skips markets not in topicTagAllowlist', async () => {
     const bus = new InMemoryEventBus()
     const markets = new InMemoryMarketProvider([market])
+    const accountant = new TestAccountant()
     const orchestrator = createOrchestrator({
       bus,
       markets,
-      router: new DryRunRouter(),
-      accountant: new LocalAccountant(),
+      router: trackingRouter(accountant),
+      accountant,
       riskConfig,
       marketFilter: { topicTagAllowlist: ['something-else'] }
     })
@@ -141,10 +230,6 @@ describe('orchestrator', () => {
   })
 
   it('serializes concurrent evaluations so exposure never exceeds the cap', async () => {
-    // The invariant: under any concurrency, total filled exposure ≤
-    // maxGrossExposureUsd. Without the mutex, two concurrent evals both
-    // see pre-fill exposure and would over-fill. With it, each successive
-    // eval observes the updated ledger.
     const cap = 2000
     const tightConfig: RiskConfig = {
       ...riskConfig,
@@ -153,12 +238,11 @@ describe('orchestrator', () => {
     }
     const bus = new InMemoryEventBus()
     const markets = new InMemoryMarketProvider([market])
-    const router = new DryRunRouter()
-    const accountant = new LocalAccountant()
+    const accountant = new TestAccountant()
     const orchestrator = createOrchestrator({
       bus,
       markets,
-      router,
+      router: trackingRouter(accountant),
       accountant,
       riskConfig: tightConfig
     })
@@ -186,12 +270,11 @@ describe('orchestrator', () => {
     const haltedConfig: RiskConfig = { ...riskConfig, haltAll: true }
     const bus = new InMemoryEventBus()
     const markets = new InMemoryMarketProvider([market])
-    const router = new DryRunRouter()
-    const accountant = new LocalAccountant()
+    const accountant = new TestAccountant()
     const orchestrator = createOrchestrator({
       bus,
       markets,
-      router,
+      router: trackingRouter(accountant),
       accountant,
       riskConfig: haltedConfig
     })

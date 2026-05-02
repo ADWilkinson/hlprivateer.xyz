@@ -6,7 +6,7 @@ import type { SentimentScorer } from './scorer'
 import type { SentimentSource } from './sources'
 
 export type { RawSentimentItem, SentimentScorer, ScoredSentiment, LlmCompleter } from './scorer'
-export { HeuristicScorer, LlmScorer, parseScore } from './scorer'
+export { LlmScorer, parseScore, DEFAULT_SYSTEM_PROMPT } from './scorer'
 export { FixtureSource, InMemorySource } from './sources'
 export type { SentimentSource } from './sources'
 

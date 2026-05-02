@@ -2,43 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryEventBus } from '@hl/privateer-event-bus'
 import {
   createSentinel,
-  HeuristicScorer,
   InMemorySource,
-  parseScore
+  LlmScorer,
+  parseScore,
+  type SentimentScorer
 } from './index'
 
-describe('HeuristicScorer', () => {
-  it('returns neutral on empty lexicon hits', async () => {
-    const r = await new HeuristicScorer().score({
-      marketId: 'm',
-      source: 'news',
-      summary: 'unrelated lorem ipsum',
-      observedAt: new Date().toISOString()
-    })
-    expect(r.polarity).toBe(0)
-  })
-
-  it('returns positive polarity on bullish lexicon', async () => {
-    const r = await new HeuristicScorer().score({
-      marketId: 'm',
-      source: 'news',
-      summary: 'Fed approves expansion. Strong gains.',
-      observedAt: new Date().toISOString()
-    })
-    expect(r.polarity).toBeGreaterThan(0)
-    expect(r.confidence).toBeGreaterThan(0.3)
-  })
-
-  it('returns negative polarity on bearish lexicon', async () => {
-    const r = await new HeuristicScorer().score({
-      marketId: 'm',
-      source: 'news',
-      summary: 'Sanctions and lawsuit; recession concerns.',
-      observedAt: new Date().toISOString()
-    })
-    expect(r.polarity).toBeLessThan(0)
-  })
-})
+// Test-only: a deterministic scorer that maps a lexicon hit to a polarity.
+// Production wires LlmScorer + a real shell-out completer.
+class StubScorer implements SentimentScorer {
+  async score(item: { summary: string }): Promise<{ polarity: number; confidence: number }> {
+    if (item.summary.toLowerCase().includes('strong')) return { polarity: 0.7, confidence: 0.8 }
+    if (item.summary.toLowerCase().includes('crash')) return { polarity: -0.7, confidence: 0.8 }
+    return { polarity: 0, confidence: 0.1 }
+  }
+}
 
 describe('parseScore', () => {
   it('extracts JSON from messy text', () => {
@@ -56,6 +34,24 @@ describe('parseScore', () => {
   })
 })
 
+describe('LlmScorer', () => {
+  it('passes the system prompt through to the completer', async () => {
+    let prompt = ''
+    const scorer = new LlmScorer(async (p) => {
+      prompt = p
+      return '{"polarity": 0.1, "confidence": 0.5}'
+    }, 'CUSTOM PROMPT MARKER')
+    await scorer.score({
+      marketId: 'm',
+      source: 'news',
+      summary: 'x',
+      observedAt: new Date().toISOString()
+    })
+    expect(prompt).toContain('CUSTOM PROMPT MARKER')
+    expect(prompt).toContain('Source: news')
+  })
+})
+
 describe('createSentinel.tick', () => {
   it('publishes a SentimentSignal envelope per source item', async () => {
     const bus = new InMemoryEventBus()
@@ -70,7 +66,7 @@ describe('createSentinel.tick', () => {
     const sentinel = createSentinel({
       bus,
       sources: [source],
-      scorer: new HeuristicScorer()
+      scorer: new StubScorer()
     })
 
     const emitted = await sentinel.tick()

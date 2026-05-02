@@ -1,4 +1,4 @@
-import type { OutcomeFill, OutcomeMarket, OutcomeSide } from '@hl/privateer-contracts'
+import type { OutcomeMarket, OutcomeSide } from '@hl/privateer-contracts'
 import {
   accountValueUsd,
   clearinghouseState,
@@ -14,94 +14,17 @@ export interface OpenPosition {
   sizeUsd: number
 }
 
-// The Accountant owns every "what does the exchange say is true right now?"
-// query the orchestrator might ask. It is intentionally read-mostly —
-// risk gates and the floor view consult it; orders flow through OrderRouter
-// and become visible here on the next refresh.
-//
-// `LocalAccountant` simulates an HL account in process for dev/tests.
-// `HyperliquidAccountant` is the live HL-backed implementation.
 export interface Accountant {
   positions(): Promise<readonly OpenPosition[]>
-  equityUsd(): Promise<number | null>
+  equityUsd(): Promise<number>
   openExposureUsd(): Promise<number>
   openMarketCount(): Promise<number>
   clusterExposureUsd(market: OutcomeMarket): Promise<number>
-  // Called by DryRunRouter / test code only. Live accountant ignores.
-  notifyLocalFill(fill: OutcomeFill): void
   recordMarket(market: OutcomeMarket): void
-  // Refresh from the exchange (no-op for local).
   warmup(): Promise<void>
+  recentFills(): Promise<UserFill[]>
 }
 
-export class LocalAccountant implements Accountant {
-  private byMarket = new Map<string, OpenPosition>()
-  private marketTags = new Map<string, string[]>()
-
-  recordMarket(market: OutcomeMarket): void {
-    this.marketTags.set(market.id, market.topicTags)
-  }
-
-  notifyLocalFill(fill: OutcomeFill): void {
-    if (fill.fillSizeUsd <= 0) return
-    const existing = this.byMarket.get(fill.marketId)
-    if (!existing) {
-      this.byMarket.set(fill.marketId, {
-        marketId: fill.marketId,
-        side: fill.side,
-        sizeUsd: fill.fillSizeUsd
-      })
-      return
-    }
-    if (existing.side === fill.side) {
-      existing.sizeUsd += fill.fillSizeUsd
-      return
-    }
-    const net = existing.sizeUsd - fill.fillSizeUsd
-    if (net > 0) existing.sizeUsd = net
-    else if (net < 0) {
-      existing.side = fill.side
-      existing.sizeUsd = -net
-    } else this.byMarket.delete(fill.marketId)
-  }
-
-  async positions(): Promise<readonly OpenPosition[]> {
-    return [...this.byMarket.values()]
-  }
-
-  async equityUsd(): Promise<number | null> {
-    return null
-  }
-
-  async openExposureUsd(): Promise<number> {
-    let s = 0
-    for (const p of this.byMarket.values()) s += p.sizeUsd
-    return s
-  }
-
-  async openMarketCount(): Promise<number> {
-    return this.byMarket.size
-  }
-
-  async clusterExposureUsd(market: OutcomeMarket): Promise<number> {
-    if (market.topicTags.length === 0) return 0
-    const tags = new Set(market.topicTags)
-    let s = 0
-    for (const p of this.byMarket.values()) {
-      if (p.marketId === market.id) continue
-      const otherTags = this.marketTags.get(p.marketId) ?? []
-      if (otherTags.some((t) => tags.has(t))) s += p.sizeUsd
-    }
-    return s
-  }
-
-  async warmup(): Promise<void> {}
-}
-
-// HL-backed accountant. Treats HL's `clearinghouseState` as the source of
-// truth for positions and equity, with a TTL cache so risk gates don't
-// stampede the info endpoint. `marketTags` is still tracked locally — HL
-// doesn't know about our topic tagging.
 export interface HyperliquidAccountantConfig {
   hl: HlClient
   user: string
@@ -109,6 +32,11 @@ export interface HyperliquidAccountantConfig {
   log?: (msg: string, meta?: unknown) => void
 }
 
+// HL-backed accountant. Treats `clearinghouseState` as the source of truth
+// for positions and equity, with a TTL cache so risk gates don't stampede
+// the info endpoint. Throws on HL errors — no graceful degradation.
+// `marketTags` is the only piece we track locally because HL doesn't know
+// about our topic tagging.
 export class HyperliquidAccountant implements Accountant {
   private cached: ClearinghouseState | null = null
   private cachedAt = 0
@@ -128,20 +56,18 @@ export class HyperliquidAccountant implements Accountant {
     this.marketTags.set(market.id, market.topicTags)
   }
 
-  // Kept on the interface for test hooks; the live path observes fills via
-  // `userFillsByTime` on refresh, so this is a no-op here.
-  notifyLocalFill(_fill: OutcomeFill): void {}
-
   async positions(): Promise<readonly OpenPosition[]> {
     await this.refresh()
     return [...this.positionsByMarket.values()]
   }
 
-  async equityUsd(): Promise<number | null> {
+  async equityUsd(): Promise<number> {
     await this.refresh()
-    if (!this.cached) return null
-    const v = accountValueUsd(this.cached)
-    return Number.isFinite(v) ? v : null
+    const v = accountValueUsd(this.cached!)
+    if (!Number.isFinite(v)) {
+      throw new Error('clearinghouseState returned a non-finite accountValue')
+    }
+    return v
   }
 
   async openExposureUsd(): Promise<number> {
@@ -176,8 +102,12 @@ export class HyperliquidAccountant implements Accountant {
     this.fillSinceMs = Date.now()
     this.log('accountant warmup complete', {
       positions: this.positionsByMarket.size,
-      equityUsd: this.cached ? accountValueUsd(this.cached) : null
+      equityUsd: accountValueUsd(this.cached!)
     })
+  }
+
+  async recentFills(): Promise<UserFill[]> {
+    return userFillsByTime(this.config.hl, this.config.user, this.fillSinceMs)
   }
 
   private async refresh(): Promise<void> {
@@ -189,19 +119,11 @@ export class HyperliquidAccountant implements Accountant {
         this.cached = state
         this.cachedAt = Date.now()
         this.positionsByMarket = positionsFromClearinghouse(state)
-      } catch (err) {
-        this.log('accountant refresh failed; serving last known', err)
       } finally {
         this.inflight = null
       }
     })()
     await this.inflight
-  }
-
-  // Optional: ingest recent fills since `fillSinceMs` so callers can audit
-  // post-execution truth. Not used in core gating today; exposed for tooling.
-  async recentFills(): Promise<UserFill[]> {
-    return userFillsByTime(this.config.hl, this.config.user, this.fillSinceMs)
   }
 }
 

@@ -214,7 +214,6 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     pushTape('RSK', `${marketId}: ALLOW $${proposal.sizeUsd.toFixed(0)} ${proposal.side}@${proposal.limitPrice.toFixed(3)}`)
     try {
       const fill = await config.router.place(proposal)
-      config.accountant.notifyLocalFill(fill)
       metrics.fillsConfirmed++
       await config.bus.publish('hlpv2.fills', {
         type: 'fill.confirmed',

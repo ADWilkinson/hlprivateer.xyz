@@ -24,6 +24,8 @@ config/strategy.json
 config/strategy.local.json
 config/strategy.*.json
 !config/strategy.template.json
+apps/oracle/wiring.ts
+!apps/oracle/wiring.template.ts
 *.tsbuildinfo
 *.lockb
 firebase-debug.log

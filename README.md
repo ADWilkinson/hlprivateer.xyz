@@ -107,37 +107,41 @@ legacy/
 
 ```bash
 bun install
-bun run typecheck      # all v2 packages + apps
-bun run test           # vitest across the workspace
+bun run typecheck    # all v2 packages + apps
+bun run test         # vitest across the workspace
+bun run build        # production build
 
-# Run the full pipeline locally (in-memory bus, fixture markets, dry-run router)
+# Wire HL access (oracle refuses to start without these):
+export ORACLE_HL_USER=0xYourWalletAddress
+export SENTINEL_LLM_COMMAND="claude -p"      # any command that takes prompt
+                                             # on stdin, emits JSON on stdout
+cp apps/oracle/wiring.template.ts apps/oracle/wiring.ts
+$EDITOR apps/oracle/wiring.ts                # implement against HL HIP-4
+
+cp config/strategy.template.json config/strategy.json
+$EDITOR config/strategy.json                 # private strategy
+
+# Run
 (cd apps/oracle && bun run dev) &
-(cd apps/sentinel && SENTINEL_FIXTURE=apps/sentinel/fixtures/items.json bun run dev) &
+(cd apps/sentinel && SENTINEL_FIXTURE=path/to/items.json bun run dev) &
 
-# Inspect
-curl http://127.0.0.1:4100/v1/public/markets
 curl http://127.0.0.1:4100/v1/public/floor
 ```
 
-### Lean on Hyperliquid for accountancy
+There are no fallbacks, simulators, or fake data sources in this repo.
+Production paths require real Hyperliquid access; tests inline their own
+fakes where they need them.
 
-Positions, equity, and fills are exchange truth — we don't reinvent them.
-The orchestrator depends on an **`Accountant`** interface; two implementations:
+### Hyperliquid is the source of truth
 
-- **`HyperliquidAccountant`** (default when `ORACLE_HL_USER` is set) — reads
-  `clearinghouseState` from Hyperliquid for positions and equity, with a
-  TTL cache so risk gates don't stampede the info endpoint. On startup,
-  `warmup()` reconciles in-process state with the exchange. Degrades
-  gracefully when HL is unreachable: serves last-known values rather than
-  failing.
-- **`LocalAccountant`** (fallback for dev / DryRun) — in-process state
-  driven by simulated fills. No HL connection required.
-
-Risk gates ask the accountant; nothing in our code is a "source of truth"
-for what's open on the exchange.
+Positions, equity, fills — exchange truth. The orchestrator depends on the
+**`Accountant`** interface, implemented by `HyperliquidAccountant` which
+reads `clearinghouseState` (TTL-cached) and `userFillsByTime`. HL errors
+are not swallowed — they propagate, the orchestrator fails the call, and
+the operator's monitoring catches it.
 
 ```bash
-ORACLE_HL_USER=0xYourWallet         # enables HyperliquidAccountant
+ORACLE_HL_USER=0xYourWallet         # required
 ORACLE_HL_TESTNET=1                 # optional — point at testnet
 ORACLE_HL_API_URL=...               # optional — override base URL
 ORACLE_HL_INFO_URL=...              # optional — override /info URL
@@ -146,15 +150,19 @@ ORACLE_HL_TTL_MS=4000               # accountant cache TTL
 ORACLE_PNL_BASELINE_USD=10000       # baseline for /v1/public/floor pnlPct%
 ```
 
-### Wire up real markets / orders
+### Operator wiring (markets + router)
 
-Two remaining adapters that go live when `@nktkas/hyperliquid` surfaces
-HIP-4 endpoints:
+`@nktkas/hyperliquid` does not yet surface HIP-4 outcome-market endpoints,
+so the `OutcomeMarketProvider` and `OrderRouter` are operator-owned. Copy
+the template and implement against your HL access:
 
-- **`OutcomeMarketProvider`** (`apps/oracle/src/markets.ts`) — currently
-  `FixtureMarketProvider` (JSON). Live HL provider is a one-file add.
-- **`OrderRouter`** (`apps/oracle/src/order-router.ts`) — currently
-  `DryRunRouter` (simulated fill). Live router is another one-file add.
+```bash
+cp apps/oracle/wiring.template.ts apps/oracle/wiring.ts   # gitignored
+```
+
+`apps/oracle/wiring.ts` exports `makeMarketProvider(hl)` and
+`makeOrderRouter(hl)`. Oracle main refuses to start until the file exists
+and both are implemented. There is no shipped fake.
 
 ## Strategy (private, gitignored)
 
