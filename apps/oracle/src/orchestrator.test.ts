@@ -98,6 +98,41 @@ describe('orchestrator', () => {
     await stop()
   })
 
+  it('serializes concurrent evaluations so exposure never exceeds the cap', async () => {
+    // The invariant: under any concurrency, total filled exposure ≤
+    // maxGrossExposureUsd. Without the mutex, two concurrent evals both
+    // see pre-fill exposure and would over-fill. With it, each successive
+    // eval observes the updated ledger.
+    const cap = 2000
+    const tightConfig: RiskConfig = {
+      ...riskConfig,
+      maxStakePerMarketUsd: cap,
+      maxGrossExposureUsd: cap
+    }
+    const bus = new InMemoryEventBus()
+    const markets = new InMemoryMarketProvider([market])
+    const router = new DryRunRouter()
+    const orchestrator = createOrchestrator({ bus, markets, router, riskConfig: tightConfig })
+    const stop = await orchestrator.start()
+
+    await injectSignals(bus, 5)
+    await Promise.all([
+      orchestrator.evaluateMarket('mkt-1'),
+      orchestrator.evaluateMarket('mkt-1'),
+      orchestrator.evaluateMarket('mkt-1')
+    ])
+    await flush(5)
+
+    const fills = await bus.readBatch('hlpv2.fills', '0-0', 50)
+    const total = fills.reduce(
+      (acc, e) => acc + (e.envelope.payload as { fillSizeUsd: number }).fillSizeUsd,
+      0
+    )
+    expect(total).toBeLessThanOrEqual(cap + 1e-6)
+
+    await stop()
+  })
+
   it('emits decision DENY when operator halts mid-stream', async () => {
     const haltedConfig: RiskConfig = { ...riskConfig, haltAll: true }
     const bus = new InMemoryEventBus()

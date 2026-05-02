@@ -163,7 +163,8 @@ export const RiskGateCodeSchema = z.enum([
   'EDGE_TOO_THIN',
   'BANKROLL_DEPLETED',
   'OPERATOR_HALT',
-  'INVALID_PROPOSAL'
+  'INVALID_PROPOSAL',
+  'PROPOSAL_EXPIRED'
 ])
 export type RiskGateCode = z.infer<typeof RiskGateCodeSchema>
 

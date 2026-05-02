@@ -67,16 +67,16 @@ const estimate: ProbabilityEstimate = {
   ts: new Date(NOW).toISOString()
 }
 
-const signals = (freshnessSec = 60): SentimentSignal[] => [
+const signals = (ageSec = 60): SentimentSignal[] => [
   {
     id: 's-1',
     marketId: 'mkt-1',
     source: 'news',
     polarity: 0.7,
     confidence: 0.8,
-    freshnessSec,
+    freshnessSec: ageSec,
     summary: '',
-    ts: new Date(NOW).toISOString()
+    ts: new Date(NOW - ageSec * 1000).toISOString()
   }
 ]
 
@@ -114,6 +114,25 @@ describe('outcome-risk evaluate', () => {
   it('DENYs stale sentiment', () => {
     const d = evaluate(baseCtx({ recentSignals: signals(2000) }))
     expect(d.failures[0].code).toBe('STALE_SENTIMENT')
+  })
+
+  it('DENYs sentiment that is fresh by counter but old by ts', () => {
+    const oldTs = new Date(NOW - 1_500_000).toISOString() // 25 min ago
+    const sig = signals(60).map((s) => ({ ...s, ts: oldTs }))
+    const d = evaluate(baseCtx({ recentSignals: sig }))
+    expect(d.failures[0].code).toBe('STALE_SENTIMENT')
+  })
+
+  it('DENYs an expired proposal', () => {
+    const expired = proposal({ expiresAt: new Date(NOW - 1000).toISOString() })
+    const d = evaluate(baseCtx({ proposal: expired }))
+    expect(d.failures[0].code).toBe('PROPOSAL_EXPIRED')
+  })
+
+  it('DENYs a proposal with malformed expiresAt', () => {
+    const bad = proposal({ expiresAt: 'not-a-date' })
+    const d = evaluate(baseCtx({ proposal: bad }))
+    expect(d.failures[0].code).toBe('PROPOSAL_EXPIRED')
   })
 
   it('DENYs no signals', () => {

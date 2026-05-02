@@ -35,6 +35,15 @@ export interface OrchestratorConfig {
   log?: (msg: string, meta?: unknown) => void
 }
 
+export interface OrchestratorMetrics {
+  estimatesEmitted: number
+  proposalsEmitted: number
+  decisionsAllow: number
+  decisionsDeny: number
+  fillsConfirmed: number
+  signalsIngested: number
+}
+
 export interface OrchestratorHandle {
   /** Process one estimate→proposal→risk→fill cycle for `marketId`. */
   evaluateMarket(marketId: string): Promise<{
@@ -46,6 +55,7 @@ export interface OrchestratorHandle {
   mode(): RuntimeMode
   setMode(m: RuntimeMode): void
   tape(): readonly FloorTapeLine[]
+  metrics(): OrchestratorMetrics
 }
 
 export function createOrchestrator(config: OrchestratorConfig): OrchestratorHandle {
@@ -57,6 +67,20 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
   let mode: RuntimeMode = 'INIT'
 
   const bufferSize = config.signalBufferSize ?? 20
+
+  // Per-market mutex: serialize evaluateMarket so two near-simultaneous
+  // signals for the same market can't race each other and double-fill before
+  // the ExposureLedger updates.
+  const inflight = new Map<string, Promise<unknown>>()
+
+  const metrics: OrchestratorMetrics = {
+    estimatesEmitted: 0,
+    proposalsEmitted: 0,
+    decisionsAllow: 0,
+    decisionsDeny: 0,
+    fillsConfirmed: 0,
+    signalsIngested: 0
+  }
 
   function pushTape(role: FloorTapeLine['role'], message: string): void {
     const line: FloorTapeLine = { ts: new Date().toISOString(), role, message }
@@ -75,14 +99,31 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
 
   function ingestSignal(env: EventEnvelope<SentimentSignal>): void {
     const sig = env.payload
+    metrics.signalsIngested++
     const arr = signalsByMarket.get(sig.marketId) ?? []
     arr.push(sig)
-    arr.sort((a, b) => a.freshnessSec - b.freshnessSec)
+    // Keep freshest at index 0. `freshnessSec` is publish-time only — the
+    // engine and gates re-derive age from `signal.ts` at evaluation time.
+    arr.sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
     if (arr.length > bufferSize) arr.length = bufferSize
     signalsByMarket.set(sig.marketId, arr)
   }
 
   async function evaluateMarket(marketId: string): ReturnType<OrchestratorHandle['evaluateMarket']> {
+    const prev = inflight.get(marketId)
+    const next = (prev ? prev.catch(() => undefined) : Promise.resolve()).then(() =>
+      doEvaluateMarket(marketId)
+    )
+    inflight.set(marketId, next)
+    try {
+      return await next
+    } finally {
+      // Clear the slot only if no later run has chained on top.
+      if (inflight.get(marketId) === next) inflight.delete(marketId)
+    }
+  }
+
+  async function doEvaluateMarket(marketId: string): ReturnType<OrchestratorHandle['evaluateMarket']> {
     if (mode !== 'READY') return {}
 
     const market = await config.markets.get(marketId)
@@ -110,6 +151,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
       ts: new Date().toISOString()
     }
     pushTape('SNT', `${marketId}: pHat=${(est.pHat * 100).toFixed(1)}% (mkt ${(market.yesPrice * 100).toFixed(1)}%) edge ${(est.edge * 100).toFixed(2)}pp`)
+    metrics.estimatesEmitted++
     await config.bus.publish<ProbabilityEstimate>('hlpv2.estimates', {
       type: 'estimate.emitted',
       stream: 'hlpv2.estimates',
@@ -132,6 +174,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
       pushTape('EXE', `${marketId}: no proposal (edge or sizing below threshold)`)
       return { estimate }
     }
+    metrics.proposalsEmitted++
     await config.bus.publish<OutcomeProposal>('hlpv2.proposals', {
       type: 'proposal.emitted',
       stream: 'hlpv2.proposals',
@@ -166,16 +209,19 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     await audit.append({ type: 'risk.decision', correlationId: proposal.id, payload: decision })
 
     if (decision.decision === 'DENY') {
+      metrics.decisionsDeny++
       const why = decision.failures.map((f) => f.code).join(',')
       pushTape('RSK', `${marketId}: DENY ${why}`)
       return { estimate, proposal, decision }
     }
 
     // EXE: place
+    metrics.decisionsAllow++
     pushTape('RSK', `${marketId}: ALLOW $${proposal.sizeUsd.toFixed(0)} ${proposal.side}@${proposal.limitPrice.toFixed(3)}`)
     try {
       const fill = await config.router.place(proposal)
       ledger.applyFill(fill)
+      metrics.fillsConfirmed++
       await config.bus.publish('hlpv2.fills', {
         type: 'fill.confirmed',
         stream: 'hlpv2.fills',
@@ -226,6 +272,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     start,
     mode: () => mode,
     setMode,
-    tape: () => tape
+    tape: () => tape,
+    metrics: () => ({ ...metrics })
   }
 }

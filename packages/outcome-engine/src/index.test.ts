@@ -34,11 +34,33 @@ describe('aggregateSentiment', () => {
   })
 
   it('weights fresh signals more than stale', () => {
-    const fresh = baseSig({ id: 'a', polarity: 1, freshnessSec: 0 })
-    const stale = baseSig({ id: 'b', polarity: -1, freshnessSec: 7200 }) // 2h
-    const r = aggregateSentiment([fresh, stale], { halfLifeSec: 1800 })
+    const NOW = Date.now()
+    const fresh = baseSig({ id: 'a', polarity: 1, ts: new Date(NOW).toISOString() })
+    const stale = baseSig({ id: 'b', polarity: -1, ts: new Date(NOW - 7200_000).toISOString() })
+    const r = aggregateSentiment([fresh, stale], { halfLifeSec: 1800, nowMs: NOW })
     expect(r.polarity).toBeGreaterThan(0)
     expect(r.basisSignalIds[0]).toBe('a')
+  })
+
+  it('decays signals based on signal.ts vs nowMs (not stale freshnessSec)', () => {
+    const NOW = Date.parse('2026-05-01T12:00:00Z')
+    // Both signals were "fresh" at publish but a was published 2h ago, b 1m ago.
+    const a = baseSig({
+      id: 'a',
+      polarity: 1,
+      freshnessSec: 0, // pretends fresh, but ts shows it's old
+      ts: new Date(NOW - 7200_000).toISOString()
+    })
+    const b = baseSig({
+      id: 'b',
+      polarity: -1,
+      freshnessSec: 0,
+      ts: new Date(NOW - 60_000).toISOString()
+    })
+    const r = aggregateSentiment([a, b], { halfLifeSec: 1800, nowMs: NOW })
+    // b is fresher → polarity goes negative.
+    expect(r.polarity).toBeLessThan(0)
+    expect(r.basisSignalIds[0]).toBe('b')
   })
 
   it('saturates confidence with many signals', () => {

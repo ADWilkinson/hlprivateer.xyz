@@ -31,6 +31,7 @@ export type Gate = (ctx: RiskContext) => RiskGateFailure | null
 const GATES: Array<[RiskGateCode, Gate]> = [
   ['OPERATOR_HALT', gateOperatorHalt],
   ['INVALID_PROPOSAL', gateInvalidProposal],
+  ['PROPOSAL_EXPIRED', gateProposalExpired],
   ['STALE_SENTIMENT', gateStaleSentiment],
   ['MARKET_NOT_TRADING', gateMarketNotTrading],
   ['RESOLUTION_TOO_SOON', gateResolutionTooSoon],
@@ -99,13 +100,43 @@ function gateStaleSentiment(ctx: RiskContext): RiskGateFailure | null {
       threshold: 1
     }
   }
-  const minAge = Math.min(...ctx.recentSignals.map((s) => s.freshnessSec))
+  const now = ctx.nowMs ?? Date.now()
+  // Compute age from each signal's `ts` so signals decay while sitting in
+  // the orchestrator's buffer; fall back to the publish-time snapshot when
+  // ts is unparseable.
+  const minAge = Math.min(
+    ...ctx.recentSignals.map((s) => {
+      const tsMs = Date.parse(s.ts)
+      return Number.isNaN(tsMs) ? s.freshnessSec : Math.max(0, Math.floor((now - tsMs) / 1000))
+    })
+  )
   if (minAge > ctx.config.maxSentimentAgeSec) {
     return {
       code: 'STALE_SENTIMENT',
       reason: `freshest sentiment ${minAge}s > maxAge ${ctx.config.maxSentimentAgeSec}s`,
       observed: minAge,
       threshold: ctx.config.maxSentimentAgeSec
+    }
+  }
+  return null
+}
+
+function gateProposalExpired(ctx: RiskContext): RiskGateFailure | null {
+  const now = ctx.nowMs ?? Date.now()
+  const expiresMs = Date.parse(ctx.proposal.expiresAt)
+  if (Number.isNaN(expiresMs)) {
+    return {
+      code: 'PROPOSAL_EXPIRED',
+      reason: 'proposal.expiresAt is unparseable',
+      observed: ctx.proposal.expiresAt
+    }
+  }
+  if (expiresMs <= now) {
+    return {
+      code: 'PROPOSAL_EXPIRED',
+      reason: `proposal expired at ${ctx.proposal.expiresAt}`,
+      observed: ctx.proposal.expiresAt,
+      threshold: new Date(now).toISOString()
     }
   }
   return null

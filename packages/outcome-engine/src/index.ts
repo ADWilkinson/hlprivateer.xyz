@@ -31,6 +31,8 @@ export interface AggregateOpts {
   halfLifeSec?: number
   /** Per-source trust override (0..1). */
   sourceTrust?: Partial<Record<SentimentSource, number>>
+  /** Wall clock (ms) used to compute decay from `signal.ts`. Default Date.now(). */
+  nowMs?: number
 }
 
 export interface AggregatedSentiment {
@@ -44,6 +46,14 @@ export interface AggregatedSentiment {
   basisSignalIds: string[]
 }
 
+/**
+ * Decay is computed from the signal's actual age at evaluation time
+ * (`nowMs - Date.parse(signal.ts)`) rather than the publish-time
+ * `freshnessSec` snapshot — otherwise signals "freeze" at the freshness they
+ * had when first scored and never decay while sitting in the buffer.
+ *
+ * If `signal.ts` is unparseable, falls back to `freshnessSec`.
+ */
 export function aggregateSentiment(
   signals: readonly SentimentSignal[],
   opts: AggregateOpts = {}
@@ -53,6 +63,7 @@ export function aggregateSentiment(
   }
 
   const halfLife = opts.halfLifeSec ?? 1800
+  const now = opts.nowMs ?? Date.now()
   const trust = { ...DEFAULT_SOURCE_TRUST, ...(opts.sourceTrust ?? {}) }
 
   let weightedPolaritySum = 0
@@ -60,7 +71,8 @@ export function aggregateSentiment(
   const weighted: Array<{ id: string; w: number }> = []
 
   for (const s of signals) {
-    const decay = Math.pow(0.5, s.freshnessSec / halfLife)
+    const ageSec = signalAgeSec(s, now)
+    const decay = Math.pow(0.5, ageSec / halfLife)
     const w = clamp01(s.confidence) * decay * (trust[s.source] ?? 0.5)
     if (w <= 0) continue
     weightedPolaritySum += w * clamp(s.polarity, -1, 1)
@@ -77,6 +89,13 @@ export function aggregateSentiment(
   const confidence = clamp01(1 - Math.exp(-weightSum / 3))
   const basisSignalIds = weighted.sort((a, b) => b.w - a.w).map((x) => x.id)
   return { polarity, confidence, evidenceMass: weightSum, basisSignalIds }
+}
+
+/** Age of a signal in seconds, computed from `signal.ts` when parseable. */
+export function signalAgeSec(signal: SentimentSignal, nowMs: number = Date.now()): number {
+  const tsMs = Date.parse(signal.ts)
+  if (Number.isNaN(tsMs)) return Math.max(0, signal.freshnessSec)
+  return Math.max(0, Math.floor((nowMs - tsMs) / 1000))
 }
 
 // ────────────────────────────────────────────────────────────────────────────

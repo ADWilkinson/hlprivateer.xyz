@@ -50,7 +50,13 @@ async function main(): Promise<void> {
 
   const stop = await orchestrator.start()
   const port = Number(process.env.ORACLE_HTTP_PORT ?? 4100)
-  const http = startHttpServer({ port, orchestrator, markets, estimates })
+  const operatorToken = process.env.ORACLE_OPERATOR_TOKEN
+  if (!operatorToken) {
+    console.warn(
+      '[oracle] ORACLE_OPERATOR_TOKEN not set — /v1/operator/* endpoints disabled (fail-closed)'
+    )
+  }
+  const http = startHttpServer({ port, orchestrator, markets, bus, estimates, operatorToken })
   console.log(`[oracle] http listening on :${port}`)
 
   const shutdown = async () => {
