@@ -15,7 +15,7 @@ import type {
 import { aggregateSentiment, estimateProbability, proposeOrder } from '@hl/privateer-outcome-engine'
 import { evaluate as evaluateRisk } from '@hl/privateer-outcome-risk'
 import { AuditChain } from './audit'
-import { ExposureLedger } from './exposure'
+import type { Accountant } from './accountant'
 import type { OrderRouter } from './order-router'
 import type { OutcomeMarketProvider } from './markets'
 
@@ -29,6 +29,7 @@ export interface OrchestratorConfig {
   bus: EventBus
   markets: OutcomeMarketProvider
   router: OrderRouter
+  accountant: Accountant
   riskConfig: RiskConfig
   engine?: EngineOpts
   marketFilter?: StrategyConfig['marketFilter']
@@ -61,14 +62,13 @@ export interface OrchestratorHandle {
 export function createOrchestrator(config: OrchestratorConfig): OrchestratorHandle {
   const log = config.log ?? (() => undefined)
   const audit = new AuditChain(config.bus, 'oracle')
-  const ledger = new ExposureLedger()
   const signalsByMarket = new Map<string, SentimentSignal[]>()
   const tape: FloorTapeLine[] = []
   const bufferSize = config.signalBufferSize ?? 20
   let mode: RuntimeMode = 'INIT'
 
-  // Per-market mutex: serialize evaluateMarket so two near-simultaneous signals
-  // for the same market can't race past the ExposureLedger and over-fill.
+  // Per-market mutex: serialize evaluateMarket so two near-simultaneous
+  // signals can't race past the Accountant's exposure view and over-fill.
   const inflight = new Map<string, Promise<unknown>>()
 
   const metrics: OrchestratorMetrics = {
@@ -123,7 +123,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     const market = await config.markets.get(marketId)
     if (!market) return {}
     if (!passesMarketFilter(market.topicTags, config.marketFilter)) return {}
-    ledger.recordMarket(market)
+    config.accountant.recordMarket(market)
     const signals = signalsByMarket.get(marketId) ?? []
     if (signals.length === 0) return {}
 
@@ -160,11 +160,12 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     })
     await audit.append({ type: 'estimate.emitted', correlationId: estimate.id, payload: estimate })
 
+    const openExposureUsd = await config.accountant.openExposureUsd()
     const proposal = proposeOrder({
       market,
       estimate,
       riskConfig: config.riskConfig,
-      openExposureUsd: ledger.openExposureUsd()
+      openExposureUsd
     })
     if (!proposal) {
       pushTape('EXE', `${marketId}: no proposal (edge or sizing below threshold)`)
@@ -188,9 +189,9 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
       market,
       config: config.riskConfig,
       recentSignals: signals,
-      openExposureUsd: ledger.openExposureUsd(),
-      openMarketCount: ledger.openMarketCount(),
-      clusterExposureUsd: ledger.clusterExposureUsd(market)
+      openExposureUsd,
+      openMarketCount: await config.accountant.openMarketCount(),
+      clusterExposureUsd: await config.accountant.clusterExposureUsd(market)
     })
     await config.bus.publish<RiskDecision>('hlpv2.decisions', {
       type: decision.decision === 'ALLOW' ? 'risk.allow' : 'risk.deny',
@@ -213,7 +214,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
     pushTape('RSK', `${marketId}: ALLOW $${proposal.sizeUsd.toFixed(0)} ${proposal.side}@${proposal.limitPrice.toFixed(3)}`)
     try {
       const fill = await config.router.place(proposal)
-      ledger.applyFill(fill)
+      config.accountant.notifyLocalFill(fill)
       metrics.fillsConfirmed++
       await config.bus.publish('hlpv2.fills', {
         type: 'fill.confirmed',
@@ -234,6 +235,7 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorHand
   }
 
   async function start(): Promise<() => Promise<void>> {
+    await config.accountant.warmup()
     mode = 'READY'
     pushTape('OPS', 'oracle online')
 

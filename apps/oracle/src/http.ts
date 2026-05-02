@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { ulid } from 'ulid'
 import type { EventBus } from '@hl/privateer-event-bus'
 import type { FloorSnapshot, PublicMarket } from '@hl/privateer-contracts'
+import type { Accountant } from './accountant'
 import type { OrchestratorHandle } from './orchestrator'
 import type { OutcomeMarketProvider } from './markets'
 
@@ -10,7 +11,10 @@ export interface HttpServerConfig {
   orchestrator: OrchestratorHandle
   markets: OutcomeMarketProvider
   bus: EventBus
+  accountant: Accountant
   estimates: Map<string, { pHat: number; edge: number }>
+  // Baseline equity for PnL%; if unset, /v1/public/floor returns null pnlPct.
+  pnlBaselineUsd?: number
   // Bearer token required for /v1/operator/* routes. When unset, those routes
   // return 401 (fail-closed; never default-open).
   operatorToken?: string
@@ -46,12 +50,14 @@ async function route(req: IncomingMessage, res: ServerResponse, cfg: HttpServerC
     return send(res, 200, {
       ok: true,
       mode: cfg.orchestrator.mode(),
-      metrics: cfg.orchestrator.metrics()
+      metrics: cfg.orchestrator.metrics(),
+      equityUsd: await cfg.accountant.equityUsd(),
+      openMarkets: await cfg.accountant.openMarketCount()
     })
   }
 
   if (url === '/metrics') {
-    return sendText(res, 200, renderPrometheus(cfg.orchestrator))
+    return sendText(res, 200, renderPrometheus(cfg.orchestrator, await cfg.accountant.equityUsd()))
   }
 
   if (url === '/v1/public/markets' && method === 'GET') {
@@ -61,9 +67,13 @@ async function route(req: IncomingMessage, res: ServerResponse, cfg: HttpServerC
 
   if (url === '/v1/public/floor' && method === 'GET') {
     const ms = await cfg.markets.list()
+    const equity = await cfg.accountant.equityUsd()
     const snap: FloorSnapshot = {
       mode: cfg.orchestrator.mode(),
-      pnlPct: null,
+      pnlPct:
+        equity !== null && cfg.pnlBaselineUsd && cfg.pnlBaselineUsd > 0
+          ? (equity - cfg.pnlBaselineUsd) / cfg.pnlBaselineUsd
+          : null,
       marketsTracked: ms.length,
       markets: ms.slice(0, 12).map((m) => publicView(m, cfg.estimates.get(m.id))),
       tape: [...cfg.orchestrator.tape()].slice(-50)
@@ -134,12 +144,15 @@ async function emitCommand(bus: EventBus, command: 'halt' | 'resume'): Promise<v
   })
 }
 
-function renderPrometheus(orch: OrchestratorHandle): string {
+function renderPrometheus(orch: OrchestratorHandle, equityUsd: number | null): string {
   const m = orch.metrics()
   return [
     '# HELP hlpv2_runtime_mode 1 if oracle is in READY mode.',
     '# TYPE hlpv2_runtime_mode gauge',
     `hlpv2_runtime_mode ${orch.mode() === 'READY' ? 1 : 0}`,
+    '# HELP hlpv2_equity_usd Account equity in USD as reported by the accountant.',
+    '# TYPE hlpv2_equity_usd gauge',
+    equityUsd === null ? '# (equity unknown)' : `hlpv2_equity_usd ${equityUsd}`,
     '# HELP hlpv2_signals_ingested_total Sentiment signals ingested.',
     '# TYPE hlpv2_signals_ingested_total counter',
     `hlpv2_signals_ingested_total ${m.signalsIngested}`,

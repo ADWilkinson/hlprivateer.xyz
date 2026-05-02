@@ -12,6 +12,14 @@ export { getTtlForPayload, stableCacheKey } from './cache'
 export { createRateLimiter } from './rate-limiter'
 export { createResponseCache } from './cache'
 export { ThrottledTransport, type ThrottledTransportConfig } from './transport'
+export {
+  clearinghouseState,
+  userFills,
+  userFillsByTime,
+  accountValueUsd,
+  type ClearinghouseState,
+  type UserFill
+} from './info'
 
 const DEFAULT_INFO_URL = 'https://api.hyperliquid.xyz/info'
 const execFileAsync = promisify(execFile)

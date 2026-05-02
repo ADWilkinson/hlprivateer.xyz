@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ulid } from 'ulid'
 import { InMemoryEventBus } from '@hl/privateer-event-bus'
 import type { OutcomeMarket, RiskConfig, SentimentSignal } from '@hl/privateer-contracts'
+import { LocalAccountant } from './accountant'
 import { createOrchestrator } from './orchestrator'
 import { InMemoryMarketProvider } from './markets'
 import { DryRunRouter } from './order-router'
@@ -39,8 +40,9 @@ async function buildSetup() {
   const bus = new InMemoryEventBus()
   const markets = new InMemoryMarketProvider([market])
   const router = new DryRunRouter()
-  const orchestrator = createOrchestrator({ bus, markets, router, riskConfig })
-  return { bus, markets, orchestrator }
+  const accountant = new LocalAccountant()
+  const orchestrator = createOrchestrator({ bus, markets, router, accountant, riskConfig })
+  return { bus, markets, orchestrator, accountant }
 }
 
 const positiveSignal = (over: Partial<SentimentSignal> = {}): SentimentSignal => ({
@@ -105,6 +107,7 @@ describe('orchestrator', () => {
       bus,
       markets,
       router: new DryRunRouter(),
+      accountant: new LocalAccountant(),
       riskConfig,
       marketFilter: { topicTagBlocklist: ['macro'] }
     })
@@ -125,6 +128,7 @@ describe('orchestrator', () => {
       bus,
       markets,
       router: new DryRunRouter(),
+      accountant: new LocalAccountant(),
       riskConfig,
       marketFilter: { topicTagAllowlist: ['something-else'] }
     })
@@ -150,7 +154,14 @@ describe('orchestrator', () => {
     const bus = new InMemoryEventBus()
     const markets = new InMemoryMarketProvider([market])
     const router = new DryRunRouter()
-    const orchestrator = createOrchestrator({ bus, markets, router, riskConfig: tightConfig })
+    const accountant = new LocalAccountant()
+    const orchestrator = createOrchestrator({
+      bus,
+      markets,
+      router,
+      accountant,
+      riskConfig: tightConfig
+    })
     const stop = await orchestrator.start()
 
     await injectSignals(bus, 5)
@@ -176,7 +187,14 @@ describe('orchestrator', () => {
     const bus = new InMemoryEventBus()
     const markets = new InMemoryMarketProvider([market])
     const router = new DryRunRouter()
-    const orchestrator = createOrchestrator({ bus, markets, router, riskConfig: haltedConfig })
+    const accountant = new LocalAccountant()
+    const orchestrator = createOrchestrator({
+      bus,
+      markets,
+      router,
+      accountant,
+      riskConfig: haltedConfig
+    })
     const stop = await orchestrator.start()
 
     await injectSignals(bus, 5)
