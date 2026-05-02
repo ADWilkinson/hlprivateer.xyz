@@ -2,10 +2,11 @@
 
 > **v2 — Sentiment-driven outcome market trading agents on Hyperliquid (HIP-4).**
 >
-> v1 (discretionary perp trading desk) is concluded; the code is preserved
-> under `legacy/`. See [`/legacy/README.md`](legacy/README.md) for the v1
-> writeup and [`apps/web/app/v1/page.tsx`](apps/web/app/v1/page.tsx) for the
-> on-site retrospective.
+> v1 (discretionary perp trading desk) is concluded. The code is preserved
+> under [`legacy/`](legacy/), the on-site retrospective lives at
+> [`/v1`](https://hlprivateer.xyz/v1), and the writeup is in
+> [`legacy/README.md`](legacy/README.md). Read those if you want the
+> story of what came before.
 
 ```
 +--------------------------------------------------------------------------------+
@@ -49,35 +50,39 @@ news/x/farcaster ──► apps/sentinel ──► hlpv2.sentiment ──► app
 ## How it works
 
 - **Sentinel** (`apps/sentinel`) polls pluggable sources, scores each item via
-  an LLM (Claude/Codex), and emits a `SentimentSignal` per item onto the
-  `hlpv2.sentiment` Redis stream.
+  an LLM you wire in (`SENTINEL_LLM_COMMAND`), and emits a `SentimentSignal`
+  per item onto the `hlpv2.sentiment` Redis stream.
 - **Oracle** (`apps/oracle`) is the orchestrator. It consumes sentiment, runs
-  three roles, and serves the public HTTP/WS surface in one process:
+  three roles, and serves the public HTTP surface in one process:
   - **SNT** aggregates signals and estimates a probability `p̂` per market.
   - **EXE** builds an `OutcomeProposal` (side, limit, Kelly-sized stake).
-  - **RSK** evaluates the proposal through 13 fail-closed gates. ALLOW or DENY.
+  - **RSK** evaluates the proposal through 14 fail-closed gates. ALLOW or DENY.
 - **outcome-engine** is the pure-math core: weighted sentiment aggregation,
   Bayesian-style probability update, edge calculation, binary Kelly.
 - **outcome-risk** is the deterministic gate library: pure functions, no I/O,
   fail-closed, single-failure short-circuit.
+- **HyperliquidAccountant** is the source of truth for positions and equity —
+  it reads `clearinghouseState` from HL with a TTL cache. We don't maintain
+  parallel state.
 
-## Risk gates (13)
+## Risk gates (14)
 
 In order, cheapest first:
 
 1. `OPERATOR_HALT`
 2. `INVALID_PROPOSAL`
-3. `STALE_SENTIMENT`
-4. `MARKET_NOT_TRADING`
-5. `RESOLUTION_TOO_SOON`
-6. `RESOLUTION_TOO_FAR`
-7. `CHALLENGE_WINDOW_OPEN`
-8. `EDGE_TOO_THIN`
-9. `STAKE_PER_MARKET`
-10. `CONCURRENT_MARKETS`
-11. `CORRELATED_EXPOSURE`
-12. `BANKROLL_DEPLETED`
-13. `LOW_LIQUIDITY`
+3. `PROPOSAL_EXPIRED`
+4. `STALE_SENTIMENT`
+5. `MARKET_NOT_TRADING`
+6. `RESOLUTION_TOO_SOON`
+7. `RESOLUTION_TOO_FAR`
+8. `CHALLENGE_WINDOW_OPEN`
+9. `EDGE_TOO_THIN`
+10. `STAKE_PER_MARKET`
+11. `CONCURRENT_MARKETS`
+12. `CORRELATED_EXPOSURE`
+13. `BANKROLL_DEPLETED`
+14. `LOW_LIQUIDITY`
 
 Any failure = **DENY**.
 
@@ -85,54 +90,73 @@ Any failure = **DENY**.
 
 ```
 apps/
-├── oracle/              Orchestrator (3-role crew + HTTP API + WS broadcast)
-├── sentinel/            Sentiment ingestion + LLM scoring
+├── oracle/              Orchestrator (3-role crew + HTTP API) + wiring.template.ts
+├── sentinel/            Sentiment ingestion + LLM scoring (shell-out completer)
 └── web/                 Next.js landing + /floor + /v1 retrospective
 
 packages/
 ├── contracts/           Zod schemas (single source of truth)
 ├── outcome-engine/      Pure math: aggregate, estimate, edge, Kelly, propose
-├── outcome-risk/        Pure fail-closed risk gates
+├── outcome-risk/        Pure fail-closed risk gates (14)
 ├── strategy/            Strategy config loader (gitignored JSON + template)
-├── event-bus/           Redis Streams abstraction (in-memory fallback)
-└── hl-client/           Hyperliquid HTTP transport (rate-limited, cached)
+├── event-bus/           Redis Streams abstraction (in-memory test impl)
+└── hl-client/           Hyperliquid HTTP transport + typed info wrappers
+
+config/
+├── strategy.template.json   Public defaults (committed)
+└── strategy.json            Operator's real strategy (gitignored)
 
 legacy/
+├── README.md            v1 retrospective writeup
 ├── apps/                v1: runtime, api, agent-runner, ws-gateway
 ├── packages/            v1: risk-engine, plugin-sdk, agent-sdk, erc8004, contracts-v1
 └── docs/                v1: SPEC, AGENT_RUNNER, GO_LIVE, X402_SELLER_QUICKSTART, audit
 ```
+
+## No fallbacks
+
+There are no built-in simulators, fake data sources, or "kicks in if the
+real thing isn't configured" paths in this repo. Production paths require
+real Hyperliquid access. Tests inline their own fakes where they need them.
+
+What that means in practice:
+
+- **No `LocalAccountant`** — `HyperliquidAccountant` only. HL errors propagate.
+- **No `DryRunRouter`** — operator wires the real router in `apps/oracle/wiring.ts`.
+- **No `FixtureMarketProvider`** — operator wires the real market provider too.
+- **No `HeuristicScorer`** — sentinel requires `SENTINEL_LLM_COMMAND` (a shell
+  that pipes a prompt over stdin and emits the model response on stdout).
+
+If a required env var or wiring file is missing, the binary refuses to start.
 
 ## Quick start
 
 ```bash
 bun install
 bun run typecheck    # all v2 packages + apps
-bun run test         # vitest across the workspace
+bun run test         # 87 vitest cases across the workspace
 bun run build        # production build
 
-# Wire HL access (oracle refuses to start without these):
-export ORACLE_HL_USER=0xYourWalletAddress
-export SENTINEL_LLM_COMMAND="claude -p"      # any command that takes prompt
-                                             # on stdin, emits JSON on stdout
+# Wire HL access:
+export ORACLE_HL_USER=0xYourWalletAddress     # required
+export ORACLE_OPERATOR_TOKEN=...              # required for /v1/operator/*
+export SENTINEL_LLM_COMMAND="claude -p"       # required for sentinel
+
 cp apps/oracle/wiring.template.ts apps/oracle/wiring.ts
-$EDITOR apps/oracle/wiring.ts                # implement against HL HIP-4
+$EDITOR apps/oracle/wiring.ts                 # implement against HL HIP-4
 
 cp config/strategy.template.json config/strategy.json
-$EDITOR config/strategy.json                 # private strategy
+$EDITOR config/strategy.json                  # your real strategy
 
 # Run
 (cd apps/oracle && bun run dev) &
 (cd apps/sentinel && SENTINEL_FIXTURE=path/to/items.json bun run dev) &
 
+curl http://127.0.0.1:4100/healthz
 curl http://127.0.0.1:4100/v1/public/floor
 ```
 
-There are no fallbacks, simulators, or fake data sources in this repo.
-Production paths require real Hyperliquid access; tests inline their own
-fakes where they need them.
-
-### Hyperliquid is the source of truth
+## Hyperliquid is the source of truth
 
 Positions, equity, fills — exchange truth. The orchestrator depends on the
 **`Accountant`** interface, implemented by `HyperliquidAccountant` which
@@ -150,11 +174,11 @@ ORACLE_HL_TTL_MS=4000               # accountant cache TTL
 ORACLE_PNL_BASELINE_USD=10000       # baseline for /v1/public/floor pnlPct%
 ```
 
-### Operator wiring (markets + router)
+## Operator wiring (markets + router)
 
 `@nktkas/hyperliquid` does not yet surface HIP-4 outcome-market endpoints,
-so the `OutcomeMarketProvider` and `OrderRouter` are operator-owned. Copy
-the template and implement against your HL access:
+so `OutcomeMarketProvider` and `OrderRouter` are operator-owned. Copy the
+template and implement against your HL access:
 
 ```bash
 cp apps/oracle/wiring.template.ts apps/oracle/wiring.ts   # gitignored
@@ -184,17 +208,29 @@ defaults in `StrategyConfigSchema` (see `packages/contracts/src/index.ts`).
 The framework — gates, orchestrator, audit chain, schemas, HTTP API,
 sentinel scaffolding — stays public.
 
+## HTTP surface
+
+| Method | Path                         | Auth   | Notes                                  |
+|--------|------------------------------|--------|----------------------------------------|
+| GET    | `/healthz`                   | —      | mode + metrics + equity + open markets |
+| GET    | `/metrics`                   | —      | Prometheus 0.0.4 (mode + 6 counters)   |
+| GET    | `/v1/public/markets`         | —      | List with pHat + edge                  |
+| GET    | `/v1/public/floor`           | —      | Mode + markets + recent role tape      |
+| GET    | `/v1/public/floor-tape`      | —      | Recent role tape only                  |
+| POST   | `/v1/operator/halt`          | Bearer | 401 when token unset (fail-closed)     |
+| POST   | `/v1/operator/resume`        | Bearer | Same                                   |
+
 ## Tech stack
 
-| Layer       | Choice                                    |
-|-------------|-------------------------------------------|
-| Runtime     | Bun, TypeScript 5.7                       |
-| Build       | Turborepo                                 |
-| Schemas     | Zod                                       |
-| Event bus   | Redis 7 (Streams) with in-memory fallback |
-| Exchange    | Hyperliquid (`@nktkas/hyperliquid`)       |
-| Agent LLMs  | Claude / Codex (structured output)        |
-| Web         | Next.js 15, Tailwind, ASCII aesthetic     |
+| Layer       | Choice                                       |
+|-------------|----------------------------------------------|
+| Runtime     | Bun, TypeScript 5.7                          |
+| Build       | Turborepo                                    |
+| Schemas     | Zod                                          |
+| Event bus   | Redis 7 (Streams), in-memory impl for tests  |
+| Exchange    | Hyperliquid (`@nktkas/hyperliquid`)          |
+| Agent LLMs  | Claude / Codex (operator-supplied via shell) |
+| Web         | Next.js 15, Tailwind, ASCII aesthetic        |
 
 ## Key design invariants (ported from v1)
 
@@ -208,6 +244,21 @@ sentinel scaffolding — stays public.
   no positions, no notional, no bankroll.
 - **Pure-function gates.** `outcome-risk` and `outcome-engine` have zero I/O
   and a deterministic test surface.
+- **Hyperliquid is the source of truth.** Positions and equity are read from
+  HL, not maintained locally. No parallel ledger.
+
+## Documentation
+
+| Path | What |
+|------|------|
+| [`README.md`](README.md) | This file |
+| [`docs/SPEC.md`](docs/SPEC.md) | v2 architecture + invariants |
+| [`legacy/README.md`](legacy/README.md) | v1 retrospective |
+| [`apps/oracle/README.md`](apps/oracle/README.md) | Orchestrator + HTTP API |
+| [`apps/sentinel/README.md`](apps/sentinel/README.md) | Sentiment ingestion |
+| [`packages/*/README.md`](packages/) | Per-package docs |
+| [`llms.txt`](llms.txt) | LLM-friendly summary |
+| [`skills.md`](skills.md) | agentskills.io skill manifest |
 
 ## Disclaimer
 

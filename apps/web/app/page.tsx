@@ -80,7 +80,7 @@ export default function LandingPage() {
               <span className='text-hlpFg'>Sentinel ingestion</span> — pluggable adapters (news, X, Farcaster, Polymarket cross-reference) emit raw items per market.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>LLM scoring</span> — Claude/Codex score each item to {'{polarity, confidence}'} ∈ [-1,1] × [0,1]. Heuristic fallback for dev.
+              <span className='text-hlpFg'>LLM scoring</span> — operator-supplied completer (Claude / Codex CLI) maps each item to {'{polarity, confidence}'} ∈ [-1,1] × [0,1]. No shipped fallback scorer.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
               <span className='text-hlpFg'>Probability estimate</span> — weighted aggregation pulls a Bayesian-style estimate p̂ from the market price prior toward sentiment.
@@ -89,7 +89,10 @@ export default function LandingPage() {
               <span className='text-hlpFg'>Edge + Kelly</span> — proposals only fire when |p̂ − price| clears the edge threshold; size is Kelly-fraction × bankroll, capped per-market and per-cluster.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Fail-closed risk gates</span> — 13 sequential pure-function checks (resolution horizon, challenge window, correlated exposure, stale sentiment, edge threshold...). Any failure = DENY.
+              <span className='text-hlpFg'>Fail-closed risk gates</span> — 14 sequential pure-function checks (resolution horizon, challenge window, correlated exposure, stale sentiment, edge threshold, proposal expiry...). Any failure = DENY.
+            </li>
+            <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
+              <span className='text-hlpFg'>Hyperliquid is the source of truth</span> — positions, equity and fills are read from <code>clearinghouseState</code>; we don't maintain a parallel ledger.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
               <span className='text-hlpFg'>Hash-chained audit</span> — every estimate, proposal, decision, and fill is appended to <code>hlpv2.audit</code> with SHA-256 prev-hash chaining.
