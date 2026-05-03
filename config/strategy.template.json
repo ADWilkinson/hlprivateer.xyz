@@ -1,5 +1,5 @@
 {
-  "$comment": "Public defaults. Copy to config/strategy.json (gitignored) and edit for the real strategy. Every key is optional; missing fields fall back to schema defaults in @hl/privateer-contracts.",
+  "$comment": "Public defaults. Copy to config/strategy.json (gitignored) and edit for the real strategy. Every key is optional; missing fields fall back to schema defaults in apps/agent/src/contracts.ts.",
   "risk": {
     "bankrollUsd": 1000,
     "maxStakePerMarketUsd": 25,
@@ -13,28 +13,14 @@
     "minSecondsToResolution": 3600,
     "maxSecondsToResolution": 5184000,
     "challengeWindowBufferSec": 0,
+    "proposalTtlSec": 300,
     "haltAll": false
   },
   "prompts": {
-    "sentimentScorer": "You are a sentiment scorer for binary outcome markets on Hyperliquid.\nOutput ONLY a JSON object: {\"polarity\": number in [-1,1], \"confidence\": number in [0,1]}.\nPolarity is +1 if the item strongly implies YES (the event will occur),\n-1 if NO. Confidence is the model's reliability for this datum."
-  },
-  "sources": {
-    "trust": {
-      "news": 0.85,
-      "polymarket": 0.9,
-      "kalshi": 0.9,
-      "x": 0.45,
-      "farcaster": 0.5,
-      "reddit": 0.4,
-      "manual": 1.0
-    }
-  },
-  "estimation": {
-    "halfLifeSec": 1800,
-    "evidenceWeight": 0.4
+    "strategist": "You are an outcome-market trading strategist for Hyperliquid HIP-4.\n\nA binary outcome contract settles 0 or 1. Its price in [0,1] is the implied probability of YES. Given a market, the recent raw sentiment items, and the operator's risk knobs + current exposure, decide whether the gap between your view and the market is large enough to trade. The deterministic risk engine downstream will clip stake by Kelly + per-market + gross caps and deny anything thin or out of liquidity. You decide the SHAPE; the engine decides whether it survives.\n\nOutput ONLY one of:\n  {\"action\": \"skip\", \"reason\": \"<short reason>\"}\n  {\"action\": \"trade\", \"side\": \"YES\"|\"NO\", \"pHat\": <0..1>, \"sizeUsd\": <number>, \"limitPrice\": <0..1>, \"thesis\": \"<rationale>\", \"signalsConsideredAt\": \"<ISO ts>\"}\n\nPrefer skip. Never invent signals."
   },
   "marketFilter": {
-    "topicTagAllowlist": [],
-    "topicTagBlocklist": []
+    "allowTags": [],
+    "blockTags": []
   }
 }

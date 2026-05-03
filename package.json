@@ -1,15 +1,14 @@
 {
   "name": "hlprivateer.xyz",
   "private": true,
-  "version": "0.2.0",
-  "description": "Sentiment-driven outcome market trading agents on Hyperliquid (HIP-4)",
+  "version": "0.3.0",
+  "description": "Sentiment-driven outcome market trading agent on Hyperliquid (HIP-4)",
   "packageManager": "bun@1.2.19",
   "engines": {
     "node": ">=22.0.0"
   },
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev": "bash scripts/workspace.sh dev --parallel",
@@ -17,17 +16,14 @@
     "lint": "bash scripts/workspace.sh lint",
     "test": "bash scripts/workspace.sh test",
     "typecheck": "bash scripts/workspace.sh typecheck",
-    "format": "echo 'format not wired; run package-specific formatters as needed'",
     "deploy:web:cloudflare": "cd apps/web && NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://api.hlprivateer.xyz} bun run build:static && cd ../.. && $(command -v npx) --yes wrangler pages deploy apps/web/out --project-name hlprivateer-xyz --branch main"
   },
   "devDependencies": {
-    "@nktkas/hyperliquid": "0.31.0",
     "@types/node": "^22.13.1",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
-    "turbo": "^2.5.0",
     "typescript": "^5.7.3",
     "ulid": "^2.3.0",
     "vitest": "^2.1.8",

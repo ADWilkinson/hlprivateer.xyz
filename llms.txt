@@ -1,11 +1,13 @@
-# HL Privateer — v2: sentiment-driven outcome market trading on Hyperliquid HIP-4
+# HL Privateer — v3: agentic outcome-market trading on Hyperliquid HIP-4
 # https://hlprivateer.xyz
 
 ## What this is
 
 An experimental, self-hosted trading agent for HIP-4 outcome contracts on
-Hyperliquid. Sentiment in, probability estimate out, fail-closed risk gates,
-order placement on ALLOW.
+Hyperliquid. A StrategyAgent (LLM) reads market state + raw sentiment items
+and emits a proposal; deterministic Kelly + cap clipping + 14 fail-closed
+risk gates decide whether the proposal survives; the operator-supplied
+OrderRouter places it.
 
 Outcome contracts are binary: settle 0 or 1 in USDH on the same CLOB as
 spot/perp. Price ∈ [0,1] is implied probability.
@@ -14,39 +16,53 @@ The previous experiment (v1, perp discretionary trading desk with a 7-role
 crew) is concluded and preserved under /legacy. On-site retrospective at
 https://hlprivateer.xyz/v1.
 
+## v2 → v3 in one paragraph
+
+v2 ran two processes (sentinel + oracle) over Redis Streams, with six
+internal packages and a static aggregate-then-blend math pipeline. v3
+collapses everything into one app (apps/agent), drops the bus, drops the
+internal packages, and replaces the static math pipeline with a single
+StrategyAgent.propose() seam — the agent decides side / pHat / size /
+limit / thesis directly. Deterministic plumbing (size clip, 14 risk
+gates, accountant, HTTP) sits below it as a pure-function safety net.
+
 ## No fallbacks
 
 There are no built-in simulators, fake data sources, or "kicks in if real
 isn't configured" paths. Production paths require real Hyperliquid access:
 
-- ORACLE_HL_USER must be set (HyperliquidAccountant reads clearinghouseState).
-- apps/oracle/wiring.ts must exist (operator implements OutcomeMarketProvider
+- AGENT_HL_USER must be set (HyperliquidAccountant reads clearinghouseState).
+- apps/agent/wiring.ts must exist (operator implements OutcomeMarketProvider
   + OrderRouter against HL HIP-4 — gitignored, copy from wiring.template.ts).
-- SENTINEL_LLM_COMMAND must be set (shell that pipes prompt to stdin, reads
+- AGENT_LLM_COMMAND must be set (shell that pipes prompt to stdin, reads
   model response from stdout — e.g. `claude -p`).
 
 If any required piece is missing, the binary refuses to start. Tests inline
 their own fakes locally.
 
-## Architecture
+## Components (single app, single process)
 
-- apps/sentinel — pluggable source adapters + LlmScorer (shell-out completer);
-  emits SentimentSignal envelopes onto the hlpv2.sentiment Redis stream.
-- apps/oracle — orchestrator + HTTP API. Runs three roles:
-  - SNT: aggregate sentiment → ProbabilityEstimate (pHat, edge, confidence)
-  - EXE: build OutcomeProposal (side, limit, Kelly-sized stake)
-  - RSK: 14 fail-closed gates → RiskDecision
-- packages/outcome-engine — pure math: aggregateSentiment, estimateProbability,
-  computeEdge, kellyFraction, proposeOrder.
-- packages/outcome-risk — pure gates: evaluate(RiskContext) → RiskDecision.
-- packages/contracts — Zod schemas for OutcomeMarket, SentimentSignal,
-  ProbabilityEstimate, OutcomeProposal, RiskDecision, OutcomeFill, RiskConfig,
-  StrategyConfig.
-- packages/strategy — gitignored JSON loader (risk + prompts + sources +
-  estimation + market filter).
-- packages/event-bus — Redis Streams abstraction (in-memory test impl).
-- packages/hl-client — Hyperliquid HTTP transport + typed info wrappers
-  (clearinghouseState, userFills, userFillsByTime, accountValueUsd).
+apps/agent/src/
+  contracts.ts        Zod schemas for OutcomeMarket, SentimentItem,
+                      AgentProposal, OutcomeProposal, RiskDecision,
+                      OutcomeFill, RiskConfig, StrategyConfig, etc.
+  math.ts             Pure: edgeBps, kellyFraction, clipSize.
+  risk.ts             Pure: 14 fail-closed gates, evaluate(ctx).
+  strategy.ts         StrategyAgent interface, LlmStrategyAgent default,
+                      FixedAgent (test), parseAgentProposal.
+  sources.ts          SentimentSourceAdapter, FixtureSource, InMemorySource.
+  hl.ts               Minimal HL info client (postInfo, clearinghouseState).
+  accountant.ts       HyperliquidAccountant (TTL-cached state).
+  orchestrator.ts     evaluateMarket() loop with per-market mutex,
+                      ingest() entrypoint, tape, metrics.
+  http.ts             /healthz /metrics /v1/public/* /v1/operator/*.
+  audit.ts            Append-only JSONL log.
+  tape.ts             In-process role-tape buffer.
+  strategy-config.ts  config/strategy.json loader.
+  main.ts             Entrypoint: load strategy + wiring, start orchestrator
+                      + HTTP, poll sources every AGENT_INTERVAL_MS.
+
+apps/web/             Next.js public site. Reads /v1/public/floor.
 
 ## Hyperliquid is the source of truth
 
@@ -54,14 +70,14 @@ Positions, equity, and fills live on HL. We don't maintain parallel state.
 HyperliquidAccountant reads clearinghouseState (TTL-cached) and exposes:
 
 - positions(), equityUsd(), openExposureUsd(), openMarketCount(),
-  clusterExposureUsd(market), warmup(), recentFills().
+  clusterExposureUsd(market), warmup().
 
 HL errors propagate; no graceful-degradation fallback.
 
 ## Public endpoints
 
 - GET /healthz       — mode + metrics + equityUsd + openMarkets
-- GET /metrics       — Prometheus 0.0.4 (mode gauge + equity gauge + 6 counters)
+- GET /metrics       — Prometheus 0.0.4 (mode gauge + equity gauge + counters)
 - GET /v1/public/markets      — markets with pHat + edge (no sizes)
 - GET /v1/public/floor        — mode + markets + recent role tape
 - GET /v1/public/floor-tape   — recent role tape only
@@ -70,19 +86,19 @@ Operator (Bearer token):
 - POST /v1/operator/halt
 - POST /v1/operator/resume
 
-Both return 401 when ORACLE_OPERATOR_TOKEN is unset (fail-closed).
+Both return 401 when AGENT_OPERATOR_TOKEN is unset (fail-closed).
 
 ## Risk gates (14, evaluated cheapest-first)
 
-1. OPERATOR_HALT
-2. INVALID_PROPOSAL
-3. PROPOSAL_EXPIRED
-4. STALE_SENTIMENT
-5. MARKET_NOT_TRADING
-6. RESOLUTION_TOO_SOON
-7. RESOLUTION_TOO_FAR
-8. CHALLENGE_WINDOW_OPEN
-9. EDGE_TOO_THIN
+1.  OPERATOR_HALT
+2.  INVALID_PROPOSAL
+3.  PROPOSAL_EXPIRED
+4.  STALE_SENTIMENT
+5.  MARKET_NOT_TRADING
+6.  RESOLUTION_TOO_SOON
+7.  RESOLUTION_TOO_FAR
+8.  CHALLENGE_WINDOW_OPEN
+9.  EDGE_TOO_THIN
 10. STAKE_PER_MARKET
 11. CONCURRENT_MARKETS
 12. CORRELATED_EXPOSURE
@@ -91,24 +107,20 @@ Both return 401 when ORACLE_OPERATOR_TOKEN is unset (fail-closed).
 
 Any failure → DENY (fail-closed, single-failure short-circuit).
 
-## Key invariants (ported from v1)
+## Key invariants
 
-- AI proposes, never executes. The risk engine is the only ALLOW path.
-- Pure-function gates. Zero I/O. Deterministic.
-- Hash-chained audit (SHA-256 prev-hash chain on hlpv2.audit).
+- AI proposes, never executes. Risk gates are the only ALLOW path.
+- Pure-function gates and math. Zero I/O. Deterministic.
+- Append-only JSONL audit at data/audit.jsonl.
 - Privacy by default — public surface omits positions and notional.
 - Per-market evaluation mutex prevents over-fill under concurrent signals.
 - Hyperliquid is the source of truth — no parallel ledger.
+- The agent is the only dynamic piece; everything else is deterministic.
 
 ## Repository documentation
 
-- README.md                      — repo overview and setup commands.
-- docs/SPEC.md                   — v2 architecture + invariants.
-- legacy/README.md               — v1 retrospective.
-- apps/oracle/README.md          — orchestrator + HTTP API + wiring.ts.
-- apps/sentinel/README.md        — sentiment ingestion + LLM completer.
-- packages/contracts/README.md   — Zod contracts for v2 messages.
-- packages/outcome-engine/README.md — pure math API.
-- packages/outcome-risk/README.md   — gate ordering and semantics.
-- packages/strategy/README.md       — strategy config loader.
-- packages/event-bus/README.md      — Redis Streams abstraction.
+- README.md                    — repo overview and setup commands.
+- docs/SPEC.md                 — v3 architecture + invariants.
+- legacy/README.md             — v1 retrospective.
+- apps/agent/wiring.template.ts — operator-owned HL wiring stub.
+- config/strategy.template.json — gitignored strategy config template.
