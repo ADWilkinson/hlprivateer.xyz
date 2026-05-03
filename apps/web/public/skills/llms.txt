@@ -1,29 +1,15 @@
 # HL Privateer - Skills LLM Quick Start
 # https://hlprivateer.xyz/skills/hl-privateer.md
 
-## Flow
-1. POST /v1/agent/handshake
-2. POST /v1/agent/verify
-3. Use x-agent-entitlement for paid routes
-
-## Paid routes
-- GET /v1/agent/stream/snapshot ($0.01)
-- GET /v1/agent/analysis ($0.01)
-- GET /v1/agent/analysis/latest ($0.01)
-- GET /v1/agent/positions ($0.01)
-- GET /v1/agent/orders ($0.01)
-- GET /v1/agent/insights ($0.02)
-- GET /v1/agent/data/overview ($0.02)
-- GET /v1/agent/copy-trade/signals ($0.03)
-- GET /v1/agent/copy-trade/positions ($0.03)
-
-## Free routes
-- GET /v1/public/pnl
-- GET /v1/public/floor-snapshot
-- GET /v1/public/floor-tape
-- GET /v1/public/identity
+## Public routes
 - GET /healthz
+- GET /metrics
+- GET /v1/public/markets
+- GET /v1/public/floor
+- GET /v1/public/floor-tape
 
-## Current defaults
-- x402 network: eip155:8453
-- internal LLM default: claude (claude-sonnet-4-6)
+## What you can infer
+- Market price (`yesPrice`) is the market's implied probability.
+- `pHat` is the agent's current YES probability estimate when available.
+- `edge` is `pHat - yesPrice`.
+- Tape roles are AGT, RSK, EXE, and OPS.

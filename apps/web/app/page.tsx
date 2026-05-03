@@ -10,7 +10,7 @@ const TECH_STACK = [
   'Next.js',
   'Hyperliquid HIP-4',
   'Zod',
-  'Redis Streams',
+  'JSONL audit',
 ]
 
 const structuredData = {
@@ -46,14 +46,14 @@ export default function LandingPage() {
       <h1 className='sr-only'>HL Privateer - sentiment-driven outcome market trading on Hyperliquid</h1>
 
       <div className='flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-hlpMuted'>
-        EXPERIMENT v2 // SENTIMENT-DRIVEN OUTCOME MARKETS
+        EXPERIMENT v3 // SENTIMENT-DRIVEN OUTCOME MARKETS
       </div>
 
       <LandingAsciiDisplay className='w-full border border-hlpBorder p-2' />
 
       <section className='w-full space-y-6 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
         <p>
-          HL Privateer v2 is an experiment in trading{' '}
+          HL Privateer v3 is an experiment in trading{' '}
           <a
             href='https://blog.quicknode.com/hip4-hyperliquid-outcome-contracts/'
             target='_blank'
@@ -77,16 +77,16 @@ export default function LandingPage() {
           <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>How it works</div>
           <ul className='space-y-2 pl-4'>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Sentinel ingestion</span> — pluggable adapters (news, X, Farcaster, Polymarket cross-reference) emit raw items per market.
+              <span className='text-hlpFg'>Source ingestion</span> — pluggable adapters (news, X, Farcaster, manual fixtures, operator feeds) emit raw sentiment items per market.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>LLM scoring</span> — operator-supplied completer (Claude / Codex CLI) maps each item to {'{polarity, confidence}'} ∈ [-1,1] × [0,1]. No shipped fallback scorer.
+              <span className='text-hlpFg'>Single strategy seam</span> — an operator-supplied LLM reads raw items, market state, and exposure, then emits either skip or one JSON trade proposal.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Probability estimate</span> — weighted aggregation pulls a Bayesian-style estimate p̂ from the market price prior toward sentiment.
+              <span className='text-hlpFg'>Probability estimate</span> — the agent proposes p̂, side, limit, size, and thesis; deterministic code immediately clips size by Kelly, stake cap, and remaining gross exposure.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Edge + Kelly</span> — proposals only fire when |p̂ − price| clears the edge threshold; size is Kelly-fraction × bankroll, capped per-market and per-cluster.
+              <span className='text-hlpFg'>Edge + gates</span> — proposals only survive when edge clears the threshold and every ordered risk gate returns ALLOW.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
               <span className='text-hlpFg'>Fail-closed risk gates</span> — 14 sequential pure-function checks (resolution horizon, challenge window, correlated exposure, stale sentiment, edge threshold, proposal expiry...). Any failure = DENY.
@@ -95,49 +95,46 @@ export default function LandingPage() {
               <span className='text-hlpFg'>Hyperliquid is the source of truth</span> — positions, equity and fills are read from <code>clearinghouseState</code>; we don't maintain a parallel ledger.
             </li>
             <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-              <span className='text-hlpFg'>Hash-chained audit</span> — every estimate, proposal, decision, and fill is appended to <code>hlpv2.audit</code> with SHA-256 prev-hash chaining.
+              <span className='text-hlpFg'>Append-only audit</span> — every proposal, decision, and fill is appended to JSONL at <code>data/audit.jsonl</code>.
             </li>
           </ul>
         </div>
       </section>
 
       <section className='w-full text-center'>
-        <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim mb-3'>v2 data flow</div>
+        <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim mb-3'>v3 data flow</div>
         <pre className='inline-block text-left overflow-x-auto border border-hlpBorder bg-hlpInverseBg p-4 text-[9px] leading-[1.6] text-hlpPanel/85'>
-{`news/x/farcaster ──┐
-                   │  raw items
-                   ▼
-            +-------------------+
-            |   apps/sentinel   |
-            |  (LLM scorer)     |
-            +---------+---------+
-                      │ SentimentSignal
-                      ▼
-                hlpv2.sentiment  (Redis Streams)
-                      │
-                      ▼
-        +---------------------------------+
-        |          apps/oracle            |
-        |                                 |
-        |  SNT  → ProbabilityEstimate     |
-        |    │                            |
-        |    ▼                            |
-        |  EXE  → OutcomeProposal         |
-        |    │                            |
-        |    ▼                            |
-        |  RSK  → outcome-risk.evaluate() |
-        |    │                            |
-        |    ▼  ALLOW                     |
-        |  EXE  → router.place()  ────────────► Hyperliquid HIP-4
-        |    │                            |
-        |    ▼                            |
-        |  hlpv2.{fills,audit}            |
-        +---------------------------------+`}
+{`raw sentiment items
+        │
+        ▼
++-------------------------------+
+| apps/agent orchestrator       |
+|                               |
+| AGT  StrategyAgent.propose()  |
+|      skip | side / pHat / size|
+|        │                      |
+|        ▼                      |
+|      clipSize()               |
+|      Kelly + stake + gross cap|
+|        │                      |
+|        ▼                      |
+| RSK  14 fail-closed gates     |
+|      first failure = DENY     |
+|        │                      |
+|        ▼ ALLOW                |
+| EXE  OrderRouter.place() ─────────► Hyperliquid HIP-4
+|        │                      |
+|        ▼                      |
+| OPS  JSONL audit + public tape|
++-------------------------------+
+        ▲
+        │
+HyperliquidAccountant reads clearinghouseState`}
         </pre>
       </section>
 
       <section className='w-full space-y-3'>
-        <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>Agent crew (3 roles)</div>
+        <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>Runtime tape (4 roles)</div>
         <div className='border border-hlpBorder'>
           <table className='w-full text-[10px] tracking-wide text-hlpMuted'>
             <thead className='bg-hlpInverseBg text-hlpPanel/85'>
@@ -149,19 +146,24 @@ export default function LandingPage() {
             </thead>
             <tbody>
               <tr className='border-t border-hlpBorder'>
-                <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpFg'>Sentinel</td>
-                <td className='border-r border-hlpBorder px-3 py-1.5'>SNT</td>
-                <td className='px-3 py-1.5'>Aggregate sentiment signals → ProbabilityEstimate.</td>
+                <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpFg'>Agent</td>
+                <td className='border-r border-hlpBorder px-3 py-1.5'>AGT</td>
+                <td className='px-3 py-1.5'>Propose or skip from market state + raw sentiment.</td>
               </tr>
               <tr className='border-t border-hlpBorder'>
                 <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpFg'>Risk</td>
                 <td className='border-r border-hlpBorder px-3 py-1.5'>RSK</td>
-                <td className='px-3 py-1.5'>Evaluate proposals via fail-closed gates. Hard-gate.</td>
+                <td className='px-3 py-1.5'>Evaluate clipped proposals via 14 fail-closed gates.</td>
               </tr>
               <tr className='border-t border-hlpBorder'>
                 <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpFg'>Execution</td>
                 <td className='border-r border-hlpBorder px-3 py-1.5'>EXE</td>
-                <td className='px-3 py-1.5'>Build proposals from estimates; place ALLOW'd orders.</td>
+                <td className='px-3 py-1.5'>Place ALLOWed orders through operator wiring.</td>
+              </tr>
+              <tr className='border-t border-hlpBorder'>
+                <td className='border-r border-hlpBorder px-3 py-1.5 text-hlpFg'>Ops</td>
+                <td className='border-r border-hlpBorder px-3 py-1.5'>OPS</td>
+                <td className='px-3 py-1.5'>Mode changes, startup, halt, and resume events.</td>
               </tr>
             </tbody>
           </table>
@@ -196,7 +198,7 @@ export default function LandingPage() {
           <span className='text-hlpFg'>v1 — Discretionary perp trading desk</span> (concluded). A
           7-role LLM crew that proposed long/short trades on Hyperliquid perps,
           hard-gated by a deterministic risk engine. The pattern (AI proposes,
-          deterministic gates execute) ports to v2; the perp-specific code is
+          deterministic gates execute) carries forward to v3; the perp-specific code is
           archived under{' '}
           <a
             href={`${GITHUB_URL}/tree/main/legacy`}

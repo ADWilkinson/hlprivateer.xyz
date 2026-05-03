@@ -1,40 +1,22 @@
-# HL Privateer - LLM Agent Quick Start
+# HL Privateer - LLM Quick Start
 # https://hlprivateer.xyz
 
 ## Service Summary
-HL Privateer is an open agentic Hyperliquid discretionary desk.
-Use x402 entitlement flow for paid agent routes.
+HL Privateer is a sentiment-driven trading agent for Hyperliquid HIP-4
+outcome markets. Public routes expose only the privacy-safe floor: mode,
+markets, pHat, edge, and role tape.
 
 ## Base URLs
 - REST API: https://api.hlprivateer.xyz
-- WebSocket: wss://ws.hlprivateer.xyz
-- Discovery: https://hlprivateer.xyz/.well-known/agents.json
 
-## Agent Access (x402)
-1. POST https://api.hlprivateer.xyz/v1/agent/handshake
-2. POST https://api.hlprivateer.xyz/v1/agent/verify
-3. Call paid routes with header: x-agent-entitlement: <challengeId>
-
-## Core paid routes
-- GET /v1/agent/stream/snapshot ($0.01)
-- GET /v1/agent/analysis ($0.01)
-- GET /v1/agent/positions ($0.01)
-- GET /v1/agent/orders ($0.01)
-- GET /v1/agent/insights ($0.02)
-- GET /v1/agent/copy-trade/signals ($0.03)
-- GET /v1/agent/copy-trade/positions ($0.03)
-
-## Free routes
-- GET /v1/public/pnl
-- GET /v1/public/floor-snapshot
-- GET /v1/public/floor-tape
-- GET /v1/public/identity
+## Public routes
 - GET /healthz
+- GET /metrics
+- GET /v1/public/markets
+- GET /v1/public/floor
+- GET /v1/public/floor-tape
 
-## Identity
-- ERC-8004 chain: 8453
-- Registration: https://hlprivateer.xyz/.well-known/agent-registration.json
-
-## Model defaults
-- Internal agent runner default LLM: claude
-- Default model: claude-sonnet-4-6
+## System shape
+Raw sentiment -> StrategyAgent.propose() -> clipSize() -> 14 risk gates ->
+OrderRouter.place() -> Hyperliquid. HyperliquidAccountant reads
+clearinghouseState as the source of truth.

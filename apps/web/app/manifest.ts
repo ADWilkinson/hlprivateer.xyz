@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: '[HL] PRIVATEER',
     short_name: 'PRIVATEER',
     description:
-      'Open Hyperliquid discretionary desk with autonomous agents and live floor telemetry.',
+      'HIP-4 outcome-market trading agent with deterministic risk gates and live floor telemetry.',
     start_url: '/',
     display: 'standalone',
     background_color: '#ffffff',

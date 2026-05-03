@@ -141,16 +141,16 @@ export default function V1Page() {
         <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>What we learned</div>
         <ul className='space-y-2 pl-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>The hard-gate pattern is the right shape.</span> An LLM crew producing structured proposals + a deterministic engine that's the only path to ALLOW + a hash-chained audit trail = a system you can actually reason about. v2 keeps it intact, just with different gates and a smaller crew.
+            <span className='text-hlpFg'>The hard-gate pattern is the right shape.</span> An LLM crew producing structured proposals + a deterministic engine that's the only path to ALLOW + an audit trail = a system you can actually reason about. v3 keeps it intact, but collapses the crew into one strategy seam.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
             <span className='text-hlpFg'>Fire-and-forget was correct for perps.</span> Most "smart" runtime rebalancing makes the system fragile in ways the audit trail can't capture. Submit SL/TP at entry, let the exchange handle exits, treat fills as observations.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>7 roles was too many.</span> Scout / Research / Strategist / Scribe blurred together in practice. v2 is 3 roles (SNT / RSK / EXE) and the crew is tighter for it.
+            <span className='text-hlpFg'>7 roles was too many.</span> Scout / Research / Strategist / Scribe blurred together in practice. v3 has one dynamic role (AGT) and deterministic RSK / EXE plumbing below it.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>Maintaining parallel state is fragile.</span> v1 had its own positions ledger reconciled against Hyperliquid; the reconciliation was a constant source of drift bugs. v2 reads exchange state directly via <code>clearinghouseState</code> and never claims to know better.
+            <span className='text-hlpFg'>Maintaining parallel state is fragile.</span> v1 had its own positions ledger reconciled against Hyperliquid; the reconciliation was a constant source of drift bugs. v3 reads exchange state directly via <code>clearinghouseState</code> and never claims to know better.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
             <span className='text-hlpFg'>Discretionary perps weren't the venue.</span> Leveraged directional trading on a CLOB is a deeply competitive space. Outcome markets — binary, settled, sentiment-correlated — are a more interesting fit for an LLM-driven edge.
@@ -159,10 +159,10 @@ export default function V1Page() {
       </section>
 
       <section className='space-y-3'>
-        <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>What carried forward to v2</div>
+        <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>What carried forward to v3</div>
         <ul className='space-y-2 pl-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>The pattern</span> — AI proposes, deterministic gates execute, hash-chained audit. Re-implemented for binary 0–1 markets in <code>packages/outcome-risk</code>.
+            <span className='text-hlpFg'>The pattern</span> — AI proposes, deterministic gates execute, append-only audit. Re-implemented for binary 0-1 markets in <code>apps/agent</code>.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
             <span className='text-hlpFg'>Pure-function discipline</span> — gates and engine math have zero I/O, deterministic test surface, single-failure short-circuit.
@@ -171,7 +171,7 @@ export default function V1Page() {
             <span className='text-hlpFg'>Privacy by default</span> — public surface exposes pHat / edge / question only. No positions, no notional, no bankroll on the public API.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>The Redis Streams bus</span> — same envelope shape, new namespace (<code>hlpv2.*</code>).
+            <span className='text-hlpFg'>The role tape</span> — the public surface keeps the AGT / RSK / EXE / OPS narrative without leaking private trading state.
           </li>
         </ul>
       </section>
@@ -183,10 +183,10 @@ export default function V1Page() {
             <span className='text-hlpFg'>11 perp-specific risk gates</span> (leverage, drawdown%, slippage bps, exposure, etc.) — replaced with 14 outcome-market gates (resolution horizon, challenge window, edge threshold, proposal expiry, ...).
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>The 4 perp-flavoured services</span> (runtime + api + ws-gateway + agent-runner) — collapsed into a single <code>apps/oracle</code> process. Outcome trading is event-driven and stateless per proposal; the v1 split was overkill.
+            <span className='text-hlpFg'>The 4 perp-flavoured services</span> (runtime + api + ws-gateway + agent-runner) — collapsed into a single <code>apps/agent</code> process. Outcome trading is event-driven and stateless per proposal; the v1 split was overkill.
           </li>
           <li className='before:content-[">_"] before:mr-2 before:text-hlpDim'>
-            <span className='text-hlpFg'>x402 paid-data endpoints</span> — interesting experiment but a distraction from the trading question. v2 has a smaller free public surface; paid endpoints can come back if there's demand.
+            <span className='text-hlpFg'>x402 paid-data endpoints</span> — interesting experiment but a distraction from the trading question. v3 has a smaller free public surface; paid endpoints can come back if there's demand.
           </li>
         </ul>
       </section>
@@ -214,7 +214,7 @@ export default function V1Page() {
           href='/'
           className='inline-block border border-hlpBorder bg-hlpInverseBg px-4 py-2 text-[9px] uppercase tracking-[0.22em] text-hlpPanel transition-colors hover:bg-hlpFg hover:text-hlpBg'
         >
-          ← BACK TO v2
+          ← BACK TO v3
         </Link>
       </section>
     </main>

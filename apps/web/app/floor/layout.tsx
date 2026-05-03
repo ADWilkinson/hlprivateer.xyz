@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 const FLOOR_TITLE = 'Live Trading Floor'
 const FLOOR_DESCRIPTION =
-  'Monitor the HL Privateer core fund loop with mode, PnL, open positions, and recent tape.'
+  'Monitor the privacy-safe HL Privateer outcome-market loop: mode, pHat, edge, and recent AGT/RSK/EXE/OPS tape.'
 
 export const metadata: Metadata = {
   title: FLOOR_TITLE,

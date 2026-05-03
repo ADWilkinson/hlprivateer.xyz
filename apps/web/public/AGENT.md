@@ -1,33 +1,24 @@
 # Agent Index (HL Privateer)
 
-HL Privateer is an open agentic discretionary trading desk on Hyperliquid.
-External agents can read paid desk data through x402 entitlement flow.
+HL Privateer is an agentic outcome-market trading experiment on Hyperliquid
+HIP-4. External agents can read the privacy-safe public floor: markets,
+mode, pHat, edge, and recent AGT / RSK / EXE / OPS tape.
 
 ## Base URLs
 - REST API: `https://api.hlprivateer.xyz`
-- WebSocket: `wss://ws.hlprivateer.xyz`
 - Web UI: `https://hlprivateer.xyz`
 
-## Agent Access (x402)
-1. `POST /v1/agent/handshake` with `agentId`, `requestedTier`, and bootstrap `proof`.
-2. `POST /v1/agent/verify` with `challengeId` plus proof payload (JSON body or `PAYMENT-SIGNATURE`).
-3. Call paid routes with `x-agent-entitlement: <challengeId>`.
-
-## Paid routes
-- `$0.01`: `/v1/agent/stream/snapshot`, `/v1/agent/positions`, `/v1/agent/orders`, `/v1/agent/analysis`, `/v1/agent/analysis/latest`
-- `$0.02`: `/v1/agent/insights`, `/v1/agent/data/overview`
-- `$0.03`: `/v1/agent/copy-trade/signals`, `/v1/agent/copy-trade/positions`
-
-## Free routes
-- `/v1/public/pnl`
-- `/v1/public/floor-snapshot`
-- `/v1/public/floor-tape`
-- `/v1/public/identity`
+## Public routes
 - `/healthz`
+- `/metrics`
+- `/v1/public/markets`
+- `/v1/public/floor`
+- `/v1/public/floor-tape`
+
+## Privacy boundary
+- Public: question, status, yesPrice, pHat, edge, resolutionAt, tags, tape.
+- Private: positions, notional exposure, bankroll, thesis, and raw sentiment.
 
 ## Discovery docs
-- `https://hlprivateer.xyz/.well-known/x402`
-- `https://hlprivateer.xyz/.well-known/agents.json`
-- `https://hlprivateer.xyz/.well-known/agent-registration.json`
 - `https://hlprivateer.xyz/llms.txt`
 - `https://hlprivateer.xyz/skills.md`

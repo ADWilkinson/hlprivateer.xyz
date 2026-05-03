@@ -6,9 +6,9 @@ import { SiteNav } from './ui/SiteNav'
 
 const SITE_URL = 'https://hlprivateer.xyz'
 const SITE_NAME = '[HL] PRIVATEER'
-const SITE_TITLE = '[HL] PRIVATEER - An Agentic Open Fund Experiment'
+const SITE_TITLE = '[HL] PRIVATEER - HIP-4 Outcome Market Agent'
 const SITE_DESCRIPTION =
-  'An experiment in running an agentic open fund on Hyperliquid with x402 machine payments and LLM-driven trade proposals. Open-sourced for fun.'
+  'A sentiment-driven trading agent for Hyperliquid HIP-4 outcome markets: one LLM strategy seam, deterministic risk gates, and a privacy-safe public floor.'
 const SITE_SOCIAL_IMAGE = '/og-image.png'
 
 const terminalFont = IBM_Plex_Mono({
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     'risk engine',
     'LLM agents',
     'TypeScript',
-    'x402',
+    'outcome markets',
   ],
   authors: [{ name: 'HL Privateer', url: SITE_URL }],
   creator: 'HL Privateer',

@@ -16,7 +16,7 @@ type FloorMarket = {
 
 type FloorTapeLine = {
   ts: string
-  role: 'SNT' | 'RSK' | 'EXE' | 'OPS'
+  role: 'AGT' | 'RSK' | 'EXE' | 'OPS'
   message: string
 }
 

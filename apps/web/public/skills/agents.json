@@ -11,70 +11,37 @@
     "base_url": "https://api.hlprivateer.xyz",
     "docs": "https://hlprivateer.xyz/skills/api.md",
     "authentication": {
-      "type": "x402",
-      "flow": "handshake-verify-entitlement",
-      "network": "eip155:8453",
-      "asset": "USDC",
-      "facilitator": "https://facilitator.payai.network"
+      "type": "none",
+      "scope": "public-floor"
     }
   },
   "endpoints": [
     {
-      "path": "/v1/agent/handshake",
-      "method": "POST",
+      "path": "/healthz",
+      "method": "GET",
       "auth": "none",
       "price": "free"
     },
     {
-      "path": "/v1/agent/verify",
-      "method": "POST",
+      "path": "/metrics",
+      "method": "GET",
       "auth": "none",
-      "price": "proof-required"
+      "price": "free"
     },
     {
-      "path": "/v1/agent/stream/snapshot",
+      "path": "/v1/public/markets",
       "method": "GET",
-      "auth": "x402",
-      "price": "$0.01"
+      "auth": "none",
+      "price": "free"
     },
     {
-      "path": "/v1/agent/analysis",
+      "path": "/v1/public/floor",
       "method": "GET",
-      "auth": "x402",
-      "price": "$0.01"
+      "auth": "none",
+      "price": "free"
     },
     {
-      "path": "/v1/agent/positions",
-      "method": "GET",
-      "auth": "x402",
-      "price": "$0.01"
-    },
-    {
-      "path": "/v1/agent/orders",
-      "method": "GET",
-      "auth": "x402",
-      "price": "$0.01"
-    },
-    {
-      "path": "/v1/agent/insights",
-      "method": "GET",
-      "auth": "x402",
-      "price": "$0.02"
-    },
-    {
-      "path": "/v1/agent/copy-trade/signals",
-      "method": "GET",
-      "auth": "x402",
-      "price": "$0.03"
-    },
-    {
-      "path": "/v1/agent/copy-trade/positions",
-      "method": "GET",
-      "auth": "x402",
-      "price": "$0.03"
-    },
-    {
-      "path": "/v1/public/pnl",
+      "path": "/v1/public/floor-tape",
       "method": "GET",
       "auth": "none",
       "price": "free"
@@ -82,8 +49,7 @@
   ],
   "links": {
     "llms": "https://hlprivateer.xyz/skills/llms.txt",
-    "x402": "https://hlprivateer.xyz/skills/x402.md",
     "api": "https://hlprivateer.xyz/skills/api.md",
-    "wellKnown": "https://hlprivateer.xyz/.well-known/agents.json"
+    "skill": "https://hlprivateer.xyz/skills/hl-privateer.md"
   }
 }

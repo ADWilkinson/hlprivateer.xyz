@@ -10,14 +10,12 @@ const ROUTES = [
   '/API.md',
   '/skills.md',
   '/docs/SPEC.md',
-  '/docs/X402_SELLER_QUICKSTART.md',
   '/.well-known/agents.json',
   '/skills/SKILL.md',
   '/skills/agents.json',
   '/skills/hl-privateer.md',
   '/skills/llms.txt',
   '/skills/api.md',
-  '/skills/x402.md',
 ]
 
 export default function sitemap(): MetadataRoute.Sitemap {
