@@ -1,58 +1,38 @@
-# v2 minimal stack: Redis + oracle + sentinel.
-# v1 docker-compose, systemd units, Cloudflared/observability config are
-# preserved under legacy/infra/ for reference.
+# Build first: `bun run build`.
+# This compose file runs the compiled agent and Next standalone server.
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: hlpv2-redis
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
-  oracle:
+  agent:
     image: oven/bun:1.2.19
-    container_name: hlpv2-oracle
+    container_name: hlprivateer-agent
     restart: unless-stopped
     working_dir: /app
-    command: ["bun", "run", "apps/oracle/dist/main.js"]
-    environment:
-      ORACLE_REDIS_URL: redis://redis:6379
-      ORACLE_HTTP_PORT: "4100"
-      ORACLE_FIXTURE_MARKETS: /app/apps/oracle/fixtures/markets.json
-      ORACLE_BANKROLL_USD: "10000"
-      ORACLE_MAX_STAKE_PER_MARKET_USD: "250"
+    command: ["bun", "apps/agent/dist/main.js"]
+    env_file:
+      - ../config/.env
     volumes:
       - ./..:/app:ro
-      # writable build cache (mount a separate volume in real deploys)
-      - oracle_dist:/app/apps/oracle/dist
-    depends_on:
-      redis:
-        condition: service_healthy
+      # Operator-owned wiring and strategy are gitignored; mount them read-only.
+      - ../apps/agent/wiring.ts:/app/apps/agent/wiring.ts:ro
+      - ../config/strategy.json:/app/config/strategy.json:ro
+      # Audit output is mutable by design.
+      - ../data:/app/data
     ports:
       - "127.0.0.1:4100:4100"
 
-  sentinel:
+  web:
     image: oven/bun:1.2.19
-    container_name: hlpv2-sentinel
+    container_name: hlprivateer-web
     restart: unless-stopped
     working_dir: /app
-    command: ["bun", "run", "apps/sentinel/dist/main.js"]
+    command: ["bun", "apps/web/.next/standalone/apps/web/server.js"]
     environment:
-      SENTINEL_REDIS_URL: redis://redis:6379
-      SENTINEL_INTERVAL_MS: "30000"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://agent:4100}
     volumes:
       - ./..:/app:ro
-      - sentinel_dist:/app/apps/sentinel/dist
     depends_on:
-      redis:
-        condition: service_healthy
-
-volumes:
-  oracle_dist:
-  sentinel_dist:
+      - agent
+    ports:
+      - "127.0.0.1:3000:3000"
