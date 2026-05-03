@@ -6,7 +6,7 @@ import { AuditLog, InMemoryAuditLog } from './audit'
 
 describe('AuditLog (JSONL on disk)', () => {
   it('appends one JSON object per line', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'hlpv2-audit-'))
+    const dir = await mkdtemp(join(tmpdir(), 'hlp-v3-audit-'))
     const path = join(dir, 'audit.jsonl')
     const log = new AuditLog(path)
     await log.append({ type: 'a', correlationId: 'c-1', payload: { x: 1 } })

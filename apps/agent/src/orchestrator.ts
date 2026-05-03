@@ -129,7 +129,7 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
     const openMarketCount = await config.accountant.openMarketCount()
     const clusterExposureUsd = await config.accountant.clusterExposureUsd(market)
 
-    const agentProposal = await config.agent.propose({
+    const agentResult = await proposeFailClosed({
       market,
       signals,
       exposureUsd,
@@ -137,10 +137,11 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
       clusterExposureUsd,
       riskConfig: config.riskConfig
     })
+    const agentProposal = agentResult.proposal
 
     if (!agentProposal) {
       metrics.proposalsSkipped++
-      tape.push('AGT', `${marketId}: skip (agent declined)`)
+      if (!agentResult.failed) tape.push('AGT', `${marketId}: skip (agent declined)`)
       return {}
     }
 
@@ -221,8 +222,30 @@ export function createOrchestrator(config: OrchestratorConfig): Orchestrator {
       return { proposal, decision, fill }
     } catch (err) {
       tape.push('EXE', `${marketId}: order placement failed: ${String(err)}`)
+      await audit.append({
+        type: 'order.failed',
+        correlationId: proposal.id,
+        payload: { proposalId: proposal.id, marketId, error: String(err) }
+      })
       log('order placement error', err)
       return { proposal, decision }
+    }
+  }
+
+  async function proposeFailClosed(
+    ctx: Parameters<StrategyAgent['propose']>[0]
+  ): Promise<{ proposal: Awaited<ReturnType<StrategyAgent['propose']>>; failed: boolean }> {
+    try {
+      return { proposal: await config.agent.propose(ctx), failed: false }
+    } catch (err) {
+      tape.push('AGT', `${ctx.market.id}: skip (agent error: ${String(err)})`)
+      await audit.append({
+        type: 'agent.failed',
+        correlationId: ctx.market.id,
+        payload: { marketId: ctx.market.id, error: String(err) }
+      })
+      log('agent proposal error', err)
+      return { proposal: null, failed: true }
     }
   }
 

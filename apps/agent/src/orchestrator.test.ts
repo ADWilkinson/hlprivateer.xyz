@@ -139,6 +139,12 @@ function skipAgent(): FixedAgent {
   return new FixedAgent(() => null)
 }
 
+function throwingAgent(): FixedAgent {
+  return new FixedAgent(() => {
+    throw new Error('llm offline')
+  })
+}
+
 function buildSetup(opts: {
   agent?: FixedAgent
   riskConfig?: RiskConfig
@@ -187,6 +193,15 @@ describe('orchestrator', () => {
     const r = await orchestrator.ingest(positiveItem())
     expect(r.proposal).toBeUndefined()
     expect(orchestrator.metrics().proposalsSkipped).toBe(1)
+  })
+
+  it('fails closed when the agent throws', async () => {
+    const { orchestrator } = buildSetup({ agent: throwingAgent() })
+    await orchestrator.start()
+    const r = await orchestrator.ingest(positiveItem())
+    expect(r.proposal).toBeUndefined()
+    expect(orchestrator.metrics().proposalsSkipped).toBe(1)
+    expect(orchestrator.tape().recent().at(-1)?.message).toContain('agent error')
   })
 
   it('skips markets blocked by blockTags', async () => {

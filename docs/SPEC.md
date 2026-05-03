@@ -147,6 +147,7 @@ the per-market mutex and:
 4. Reads `exposureUsd`, `openMarketCount`, `clusterExposureUsd` from the
    accountant.
 5. Calls `agent.propose(ctx)`. If null → skip + tape.
+   If the agent throws → skip + tape + `agent.failed` audit entry.
 6. Computes `edgeBps` from the agent's `pHat` and the market price for
    the chosen side.
 7. Calls `clipSize` → final `sizeUsd` and `kellyFraction`.
@@ -155,7 +156,8 @@ the per-market mutex and:
 10. Audits `proposal.emitted`.
 11. Calls `risk.evaluate(...)`. Audits `risk.decision`. If DENY → tape +
     return.
-12. Calls `router.place(proposal)`. Audits `fill.confirmed`. Tape.
+12. Calls `router.place(proposal)`. Audits `fill.confirmed`. If placement
+    throws → tape + `order.failed` audit entry. Tape.
 
 ### `apps/agent/src/audit.ts`
 `AuditLog` appends one JSON object per line to `data/audit.jsonl`.
@@ -237,9 +239,10 @@ main refuses to start until that file exists.
 
 ## 9. Audit
 
-Every proposal / decision / fill is appended to `data/audit.jsonl` (or
-the path in `AGENT_AUDIT_PATH`) as one JSON object per line. Each line
-carries `{ ts, type, correlationId, payload }`.
+Every proposal, decision, fill, agent failure, and order-placement failure
+is appended to `data/audit.jsonl` (or the path in `AGENT_AUDIT_PATH`) as
+one JSON object per line. Each line carries
+`{ ts, type, correlationId, payload }`.
 
 ## 10. HTTP surface
 

@@ -145,16 +145,21 @@ describe('http server', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toMatch(/text\/plain/)
     const body = await res.text()
-    expect(body).toContain('hlpv2_runtime_mode 1')
-    expect(body).toContain('hlpv2_equity_usd 0')
-    expect(body).toContain('hlpv2_decisions_total{decision="ALLOW"}')
+    expect(body).toContain('hlp_v3_runtime_mode 1')
+    expect(body).toContain('hlp_v3_equity_usd 0')
+    expect(body).toContain('hlp_v3_decisions_total{decision="ALLOW"}')
   })
 
   it('GET /v1/public/markets returns the market list', async () => {
-    const res = await fetch(`${s.baseUrl}/v1/public/markets`)
+    const res = await fetch(`${s.baseUrl}/v1/public/markets?cacheBust=1`)
     const body = (await res.json()) as { markets: Array<{ id: string }> }
     expect(body.markets).toHaveLength(1)
     expect(body.markets[0].id).toBe('mkt-1')
+  })
+
+  it('POST /healthz is not accepted as a read route', async () => {
+    const res = await fetch(`${s.baseUrl}/healthz`, { method: 'POST' })
+    expect(res.status).toBe(404)
   })
 
   it('GET /v1/public/floor includes mode + tape', async () => {

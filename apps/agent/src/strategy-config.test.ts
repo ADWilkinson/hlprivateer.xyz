@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { loadStrategy } from './strategy-config'
 
 async function tmpFile(content: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'hlpv2-strategy-'))
+  const dir = await mkdtemp(join(tmpdir(), 'hlp-v3-strategy-'))
   const path = join(dir, 'strategy.json')
   await writeFile(path, content)
   return path
