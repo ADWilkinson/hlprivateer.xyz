@@ -3,32 +3,26 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const SIGNALS = [
-  'news: macro desk cites softer inflation print',
-  'farcaster: rate-cut chatter accelerates',
-  'manual: operator pins Fed September market',
-  'x: challenger claim resolved, book reopens',
+  'news: softer inflation internals',
+  'farcaster: rate-cut chatter',
+  'manual: September market pinned',
+  'x: book reopens after challenge',
 ]
 
 const TAPE = [
-  { role: 'AGT', line: 'pHat=68.0% (mkt 62.0%) YES@0.620 $200 edge +6.00pp' },
-  { role: 'RSK', line: 'ALLOW stake=200 gates=14/14 kelly=0.20' },
-  { role: 'EXE', line: 'filled $200 @0.620 fee=0.00' },
-  { role: 'OPS', line: 'audit appended proposal + decision + fill' },
+  { role: 'AGT', line: 'pHat 70.0 / mkt 62.0 / YES' },
+  { role: 'RSK', line: 'ALLOW / 14 fail-closed gates' },
+  { role: 'EXE', line: 'fill recorded / HIP-4 order' },
+  { role: 'OPS', line: 'public floor tape appended' },
 ] as const
 
-const STAGES = [
-  { label: 'raw items', value: '4 fresh signals' },
-  { label: 'strategy seam', value: 'trade / skip JSON' },
-  { label: 'deterministic clip', value: 'Kelly + caps' },
-  { label: 'risk gates', value: '14 fail-closed' },
-  { label: 'router', value: 'HIP-4 order' },
-] as const
+const STAGES = ['sentiment intake', 'AGT estimate', 'deterministic clip', 'RSK gates', 'EXE route'] as const
 
-function roleClass(role: (typeof TAPE)[number]['role']): string {
-  if (role === 'AGT') return 'text-hlpAccent'
-  if (role === 'RSK') return 'text-hlpWarning'
-  if (role === 'EXE') return 'text-hlpPositive'
-  return 'text-hlpPanel'
+function roleColor(role: (typeof TAPE)[number]['role']): string {
+  if (role === 'AGT') return '#78b8ff'
+  if (role === 'RSK') return '#ffb36b'
+  if (role === 'EXE') return '#78e08f'
+  return '#ffffff'
 }
 
 export function ProductPipelineDemo() {
@@ -37,90 +31,128 @@ export function ProductPipelineDemo() {
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (prefersReducedMotion) return
-    const intervalId = window.setInterval(() => setTick((n) => n + 1), 1800)
+    const intervalId = window.setInterval(() => setTick((n) => n + 1), 1700)
     return () => window.clearInterval(intervalId)
   }, [])
 
-  const signal = SIGNALS[tick % SIGNALS.length]
+  const activeSignal = tick % SIGNALS.length
   const activeTape = useMemo(() => TAPE.slice(0, (tick % TAPE.length) + 1), [tick])
   const activeStage = tick % STAGES.length
 
   return (
-    <div
-      className='absolute inset-0 overflow-hidden bg-hlpDeepBg text-hlpPanel'
-      aria-hidden='true'
-    >
-      <div className='absolute inset-0 opacity-75 scanline-overlay' />
-      <div className='absolute inset-x-0 top-0 h-px bg-hlpPanel/30' />
-      <div className='absolute left-1/2 top-1/2 h-[720px] w-[min(1100px,92vw)] -translate-x-1/2 -translate-y-1/2 border border-hlpPanel/15 bg-black/20' />
+    <div className='absolute inset-0 overflow-hidden bg-hlpDeepBg text-hlpPanel' aria-hidden='true'>
+      <div className='absolute inset-0 probability-field opacity-80' />
+      <svg
+        className='absolute left-1/2 top-[42%] h-[min(86svh,760px)] w-[min(1160px,96vw)] -translate-x-1/2 -translate-y-1/2 sm:top-1/2'
+        viewBox='0 0 1160 760'
+        role='img'
+      >
+        <defs>
+          <pattern id='micro-grid' width='28' height='28' patternUnits='userSpaceOnUse'>
+            <path d='M28 0H0v28' fill='none' stroke='rgba(255,255,255,0.055)' strokeWidth='1' />
+          </pattern>
+          <filter id='soft-glow' x='-40%' y='-40%' width='180%' height='180%'>
+            <feGaussianBlur stdDeviation='5' result='blur' />
+            <feMerge>
+              <feMergeNode in='blur' />
+              <feMergeNode in='SourceGraphic' />
+            </feMerge>
+          </filter>
+        </defs>
 
-      <div className='absolute left-1/2 top-[13%] grid w-[min(1100px,92vw)] -translate-x-1/2 gap-3 md:grid-cols-[1.1fr_0.9fr]'>
-        <div className='border border-hlpPanel/20 bg-black/60'>
-          <div className='flex items-center justify-between border-b border-hlpPanel/20 px-3 py-2 text-[9px] uppercase tracking-[0.2em] text-hlpPanel/55'>
-            <span>sentiment intake</span>
-            <span>poll 5s</span>
-          </div>
-          <div className='min-h-32 p-3 text-[10px] leading-relaxed text-hlpPanel/75'>
-            {SIGNALS.map((s, index) => (
-              <div
-                key={s}
-                className={`grid grid-cols-[22px_1fr] border-b border-hlpPanel/10 py-1.5 last:border-b-0 ${
-                  s === signal ? 'text-hlpPanel' : ''
-                }`}
-              >
-                <span className='text-hlpPanel/35'>{String(index + 1).padStart(2, '0')}</span>
-                <span>{s}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <rect width='1160' height='760' fill='url(#micro-grid)' />
+        <path
+          className='probability-orbit'
+          d='M137 382C276 204 445 156 580 246c135-90 304-42 443 136-139 178-308 226-443 136-135 90-304 42-443-136Z'
+          fill='none'
+          stroke='rgba(255,255,255,0.22)'
+          strokeWidth='1.5'
+        />
+        <path
+          className='probability-orbit probability-orbit-delay'
+          d='M209 382c110-117 247-151 371-83 124-68 261-34 371 83-110 117-247 151-371 83-124 68-261 34-371-83Z'
+          fill='none'
+          stroke='rgba(120,184,255,0.32)'
+          strokeWidth='1.5'
+        />
 
-        <div className='border border-hlpPanel/20 bg-black/60'>
-          <div className='flex items-center justify-between border-b border-hlpPanel/20 px-3 py-2 text-[9px] uppercase tracking-[0.2em] text-hlpPanel/55'>
-            <span>public floor tape</span>
-            <span>privacy-safe</span>
-          </div>
-          <div className='min-h-32 p-3 text-[10px] leading-relaxed'>
-            {activeTape.map((entry) => (
-              <div key={`${entry.role}-${entry.line}`} className='mb-2 grid grid-cols-[34px_1fr] gap-2'>
-                <span className={roleClass(entry.role)}>{entry.role}</span>
-                <span className='text-hlpPanel/80'>{entry.line}</span>
-              </div>
-            ))}
-            <span className='animate-hlp-cursor text-hlpPanel'>_</span>
-          </div>
-        </div>
-      </div>
+        <g className='probability-draw' filter='url(#soft-glow)'>
+          <path
+            d='M142 506C292 446 415 380 506 294c30-28 60-44 91-46 44-2 83 24 116 78 41 67 82 102 130 101 47-1 99-38 159-109'
+            fill='none'
+            stroke='rgba(120,184,255,0.9)'
+            strokeWidth='4'
+            strokeLinecap='round'
+          />
+          <path
+            d='M142 554c156-70 286-114 389-132 91-16 169-7 232 27 68 37 150 39 247 6'
+            fill='none'
+            stroke='rgba(120,224,143,0.72)'
+            strokeWidth='2'
+            strokeLinecap='round'
+          />
+        </g>
 
-      <div className='absolute left-1/2 top-[53%] hidden w-[min(1100px,92vw)] -translate-x-1/2 grid-cols-5 gap-0 border border-hlpPanel/20 bg-black/70 sm:grid'>
-        {STAGES.map((stage, index) => (
-          <div
-            key={stage.label}
-            className={`relative min-h-28 border-b border-hlpPanel/20 p-3 sm:border-b-0 sm:border-r sm:last:border-r-0 ${
-              index === activeStage ? 'bg-hlpPanel text-hlpFg' : ''
-            }`}
-          >
-            <div className='flex items-start justify-between gap-3'>
-              <span className='text-[9px] uppercase tracking-[0.2em] opacity-60'>
-                {stage.label}
-              </span>
-              <span className='text-[9px] opacity-45'>{String(index + 1).padStart(2, '0')}</span>
-            </div>
-            <div className='mt-5 text-[11px] leading-tight'>{stage.value}</div>
-            {index < STAGES.length - 1 && (
-              <span className='absolute -right-1.5 top-1/2 z-10 hidden h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-hlpPanel/40 bg-black sm:block' />
-            )}
-          </div>
-        ))}
-      </div>
+        <line x1='580' y1='154' x2='580' y2='616' stroke='rgba(255,255,255,0.18)' strokeDasharray='4 10' />
+        <text x='580' y='140' textAnchor='middle' className='fill-white/55 text-[11px] uppercase tracking-[0.35em]'>
+          pHat boundary
+        </text>
 
-      <div className='absolute bottom-[12%] right-[4vw] hidden w-64 border border-hlpPanel/20 bg-black/55 p-3 lg:block'>
-        <div className='text-[9px] uppercase tracking-[0.2em] text-hlpPanel/45'>privacy boundary</div>
-        <div className='mt-2 text-[12px] uppercase tracking-[0.12em] text-hlpPanel'>public floor only</div>
-        <div className='mt-1 text-[10px] leading-relaxed text-hlpPanel/55'>
-          no positions, no bankroll, no raw signals, no private thesis
-        </div>
-      </div>
+        <g transform='translate(486 288)'>
+          <circle className='probability-node' cx='94' cy='94' r='88' fill='rgba(255,255,255,0.035)' stroke='rgba(255,255,255,0.36)' />
+          <circle cx='94' cy='94' r='48' fill='rgba(255,255,255,0.9)' />
+          <text x='94' y='90' textAnchor='middle' className='fill-black text-[18px] font-bold tracking-[0.16em]'>
+            70.0
+          </text>
+          <text x='94' y='111' textAnchor='middle' className='fill-black/60 text-[9px] uppercase tracking-[0.24em]'>
+            pHat
+          </text>
+        </g>
+
+        <g transform='translate(90 126)'>
+          <text className='fill-white/45 text-[9px] uppercase tracking-[0.26em]'>sentiment intake</text>
+          {SIGNALS.map((signal, index) => (
+            <g key={signal} transform={`translate(0 ${34 + index * 28})`} opacity={activeSignal === index ? 1 : 0.45}>
+              <circle cx='4' cy='-4' r='3.5' fill={activeSignal === index ? '#ffffff' : 'rgba(255,255,255,0.32)'} />
+              <text x='18' y='0' className='fill-white/75 text-[11px]'>
+                {signal}
+              </text>
+            </g>
+          ))}
+        </g>
+
+        <g transform='translate(764 126)'>
+          <text className='fill-white/45 text-[9px] uppercase tracking-[0.26em]'>public floor tape</text>
+          {activeTape.map((entry, index) => (
+            <g key={`${entry.role}-${entry.line}`} transform={`translate(0 ${36 + index * 30})`}>
+              <text x='0' y='0' fill={roleColor(entry.role)} className='text-[12px] font-bold tracking-[0.18em]'>
+                {entry.role}
+              </text>
+              <text x='52' y='0' className='fill-white/78 text-[11px]'>
+                {entry.line}
+              </text>
+            </g>
+          ))}
+        </g>
+
+        <g transform='translate(158 634)'>
+          {STAGES.map((stage, index) => (
+            <g key={stage} transform={`translate(${index * 184} 0)`} opacity={activeStage === index ? 1 : 0.46}>
+              <line x1='0' y1='0' x2='124' y2='0' stroke={activeStage === index ? '#ffffff' : 'rgba(255,255,255,0.28)'} strokeWidth='2' />
+              <text x='0' y='25' className='fill-white/72 text-[9px] uppercase tracking-[0.24em]'>
+                {stage}
+              </text>
+              <text x='0' y='45' className='fill-white/36 text-[9px]'>
+                {String(index + 1).padStart(2, '0')}
+              </text>
+            </g>
+          ))}
+        </g>
+
+        <text x='90' y='710' className='fill-white/42 text-[10px] uppercase tracking-[0.3em]'>
+          privacy boundary: no positions / no bankroll / no raw signals / no private thesis
+        </text>
+      </svg>
     </div>
   )
 }

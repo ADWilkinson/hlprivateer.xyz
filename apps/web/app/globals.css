@@ -83,6 +83,14 @@ a:not([class*="bg-"]):not([class*="border"]):not([class*="inline-flex"]):focus {
 }
 
 @layer utilities {
+  .probability-field {
+    background:
+      radial-gradient(circle at 50% 45%, rgba(120, 184, 255, 0.13), transparent 28%),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(0deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: auto, 72px 72px, 72px 72px;
+  }
+
   .scanline-overlay::after {
     content: '';
     position: absolute;
@@ -103,10 +111,58 @@ a:not([class*="bg-"]):not([class*="border"]):not([class*="inline-flex"]):focus {
     stroke-dashoffset: 2000;
     animation: sparkline-draw 1s ease-out forwards;
   }
+
+  .probability-draw path {
+    stroke-dasharray: 980;
+    stroke-dashoffset: 980;
+    animation: probability-draw 2.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .probability-orbit {
+    transform-origin: center;
+    animation: probability-breathe 7s cubic-bezier(0.25, 1, 0.5, 1) infinite alternate;
+  }
+
+  .probability-orbit-delay {
+    animation-delay: 900ms;
+  }
+
+  .probability-node {
+    transform-origin: center;
+    animation: probability-node 2.2s cubic-bezier(0.25, 1, 0.5, 1) infinite alternate;
+  }
 }
 
 @keyframes sparkline-draw {
   to {
     stroke-dashoffset: 0;
+  }
+}
+
+@keyframes probability-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes probability-breathe {
+  from {
+    transform: scale(0.985);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.015);
+    opacity: 1;
+  }
+}
+
+@keyframes probability-node {
+  from {
+    transform: scale(0.96);
+    opacity: 0.62;
+  }
+  to {
+    transform: scale(1.04);
+    opacity: 1;
   }
 }

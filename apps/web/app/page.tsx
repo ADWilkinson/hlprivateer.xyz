@@ -4,27 +4,31 @@ import { ProductPipelineDemo } from './ui/ProductPipelineDemo'
 const SITE_URL = 'https://hlprivateer.xyz'
 const GITHUB_URL = 'https://github.com/ADWilkinson/hlprivateer.xyz'
 
-const OUTCOMES = [
+const OBSERVATIONS = [
   {
-    label: 'One judgment point',
-    body: 'AGT is the only place discretion enters: return skip, or return side, pHat, limit, and size as JSON.',
+    label: 'signal',
+    body: 'raw items arrive',
   },
   {
-    label: 'Fourteen ways to say no',
-    body: 'Before anything reaches the router, fixed checks clip stake and deny stale, thin, crowded, illiquid, or badly timed proposals.',
+    label: 'estimate',
+    body: 'AGT writes pHat',
   },
   {
-    label: 'A trace, not a portfolio',
-    body: 'The floor shows mode, market questions, pHat, edge, and tape. Bankroll, positions, raw items, and thesis stay offstage.',
+    label: 'refusal',
+    body: 'RSK tries to kill it',
+  },
+  {
+    label: 'trace',
+    body: 'EXE/OPS leave a public line',
   },
 ]
 
 const STEPS = [
-  ['01', 'Raw sentiment', 'News, X, Farcaster, fixtures, and operator feeds arrive as timestamped market items.'],
-  ['02', 'Agent proposal', 'The strategist reads market state + recent items and emits pHat, side, size, limit, or skip.'],
-  ['03', 'Deterministic clip', 'Stake is capped by Kelly, per-market limits, and remaining gross exposure before risk eval.'],
-  ['04', 'Fail-closed gates', 'Fourteen checks run cheapest-first. First failure returns DENY with observed threshold details.'],
-  ['05', 'Execution + audit', 'Only ALLOW reaches the router. Proposal, decision, fill, and failure events append to JSONL.'],
+  ['01', 'Raw sentiment', 'Timestamped items enter the buffer.'],
+  ['02', 'Agent proposal', 'AGT returns pHat, side, limit, size, or skip.'],
+  ['03', 'Clip', 'Kelly and caps reduce the proposal before risk.'],
+  ['04', 'Gates', 'Fourteen checks run cheapest-first.'],
+  ['05', 'Trace', 'ALLOW reaches EXE; every event lands in JSONL.'],
 ]
 
 const TECH_STACK = ['Bun', 'TypeScript', 'Next.js', 'Hyperliquid HIP-4', 'Zod', 'JSONL audit']
@@ -64,45 +68,54 @@ export default function LandingPage() {
           aria-hidden='true'
         />
         <div className='relative z-10 mx-auto flex min-h-[calc(100svh-120px)] w-full max-w-[1180px] flex-col justify-end px-4 pb-10 pt-20 sm:px-6 lg:px-8'>
-          <div className='max-w-[760px] pb-6'>
-            <div className='mb-4 text-[10px] uppercase tracking-[0.22em] text-hlpPanel/65'>
-              HIP-4 outcome-market agent // live public floor
+          <div className='grid gap-8 pb-6 lg:grid-cols-[minmax(0,0.78fr)_minmax(260px,0.22fr)] lg:items-end'>
+            <div>
+              <div className='mb-4 text-[10px] uppercase tracking-[0.22em] text-hlpPanel/65'>
+                HIP-4 outcome-market agent // live public floor
+              </div>
+              <h1 className='max-w-[760px] text-[31px] font-bold uppercase leading-[0.92] tracking-[0.08em] text-hlpPanel sm:text-[58px] lg:text-[78px]'>
+                [HL] Privateer
+              </h1>
+              <p className='mt-5 max-w-[520px] text-[12px] leading-relaxed tracking-wide text-hlpPanel/74 sm:text-[13px]'>
+                A public model room for a small trading loop: signal enters,
+                AGT estimates, RSK refuses, EXE records the survivor.
+              </p>
+              <div className='mt-6 flex flex-wrap gap-3'>
+                <Link
+                  href='/floor'
+                  className='inline-flex h-11 items-center border border-hlpPanel bg-hlpPanel px-5 text-[10px] uppercase tracking-[0.18em] text-hlpFg transition-[background-color,color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:bg-transparent hover:text-hlpPanel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpPanel'
+                >
+                  Watch the floor
+                </Link>
+                <a
+                  href={GITHUB_URL}
+                  target='_blank'
+                  rel='noreferrer'
+                  className='inline-flex h-11 items-center border border-hlpPanel/35 bg-transparent px-5 text-[10px] uppercase tracking-[0.18em] text-hlpPanel transition-[background-color,border-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-hlpPanel hover:bg-hlpPanel/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpPanel'
+                >
+                  View source
+                </a>
+              </div>
             </div>
-            <h1 className='text-[30px] font-bold uppercase leading-[0.98] tracking-[0.08em] text-hlpPanel sm:text-[52px] lg:text-[66px]'>
-              [HL] Privateer
-            </h1>
-            <p className='mt-5 max-w-[640px] text-[12px] leading-relaxed tracking-wide text-hlpPanel/78 sm:text-[13px]'>
-              A public model room for a small HIP-4 trading loop. Sentiment enters,
-              AGT writes one probability estimate, RSK tries to kill it, and EXE records
-              what survived. The public view is the trace, not the wallet.
-            </p>
-            <div className='mt-6 flex flex-wrap gap-3'>
-              <Link
-                href='/floor'
-                className='inline-flex h-11 items-center border border-hlpPanel bg-hlpPanel px-5 text-[10px] uppercase tracking-[0.18em] text-hlpFg transition-colors hover:bg-transparent hover:text-hlpPanel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpPanel'
-              >
-                Watch the floor
-              </Link>
-              <a
-                href={GITHUB_URL}
-                target='_blank'
-                rel='noreferrer'
-                className='inline-flex h-11 items-center border border-hlpPanel/35 bg-transparent px-5 text-[10px] uppercase tracking-[0.18em] text-hlpPanel transition-colors hover:border-hlpPanel hover:bg-hlpPanel/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-hlpPanel'
-              >
-                View source
-              </a>
+            <div className='hidden border-l border-hlpPanel/25 pl-5 text-hlpPanel lg:block'>
+              <div className='text-[10px] uppercase tracking-[0.26em] text-hlpPanel/48'>latest public estimate</div>
+              <div className='mt-3 text-[48px] font-bold leading-none tracking-[0.04em]'>70.0</div>
+              <div className='mt-2 text-[10px] uppercase tracking-[0.2em] text-hlpPanel/54'>pHat / market 62.0</div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className='border-b border-hlpBorder bg-hlpBg px-4 py-10 sm:px-6 lg:px-8'>
-        <div className='mx-auto grid w-full max-w-[1180px] gap-4 md:grid-cols-3'>
-          {OUTCOMES.map((item) => (
-            <article key={item.label} className='border border-hlpBorder bg-hlpPanel p-4'>
-              <h2 className='text-[11px] uppercase tracking-[0.18em] text-hlpFg'>{item.label}</h2>
-              <p className='mt-3 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>{item.body}</p>
-            </article>
+      <section className='border-b border-hlpBorder bg-hlpBg px-4 py-8 sm:px-6 lg:px-8'>
+        <div className='mx-auto grid w-full max-w-[1180px] border-y border-hlpBorder md:grid-cols-4'>
+          {OBSERVATIONS.map((item, index) => (
+            <div key={item.label} className='grid grid-cols-[46px_1fr] border-b border-hlpBorder py-4 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0'>
+              <div className='text-[10px] text-hlpDim'>{String(index + 1).padStart(2, '0')}</div>
+              <div>
+                <h2 className='text-[13px] uppercase tracking-[0.22em] text-hlpFg'>{item.label}</h2>
+                <p className='mt-2 text-[10px] uppercase tracking-[0.16em] text-hlpMuted'>{item.body}</p>
+              </div>
+            </div>
           ))}
         </div>
       </section>
@@ -110,15 +123,14 @@ export default function LandingPage() {
       <section className='border-b border-hlpBorder bg-hlpPanel px-4 py-12 sm:px-6 lg:px-8'>
         <div className='mx-auto grid w-full max-w-[1180px] gap-8 lg:grid-cols-[0.8fr_1.2fr]'>
           <div>
-            <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>Run log</div>
-            <h2 className='mt-3 text-[18px] uppercase tracking-[0.14em] text-hlpFg'>
-              The casing is off.
+            <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>mechanism</div>
+            <h2 className='mt-3 max-w-[420px] text-[22px] uppercase leading-tight tracking-[0.14em] text-hlpFg'>
+              price is already a probability.
             </h2>
             <p className='mt-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
               HIP-4 outcome contracts already speak in probabilities: a YES price of 0.62
-              says the market is leaning 62%. HL Privateer is a way to watch a second estimate
-              form from sentiment, then watch the fixed gates decide whether that estimate is
-              strong enough to become an order.
+              says the market is leaning 62%. This page watches a second estimate form, then
+              watches the gates decide whether it deserves to touch the book.
             </p>
           </div>
           <ol className='border border-hlpBorder'>
@@ -172,9 +184,8 @@ PRIVATE BY DESIGN
               ))}
             </div>
             <p className='mt-5 border-t border-hlpBorder pt-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
-              v1 was a discretionary perp desk with a larger crew and more surface area.
-              This version is smaller on purpose: one agent call, one process, exchange state
-              as ground truth, and a public screen that shows the control flow.
+              v1 was a larger discretionary perp desk. This version is the small instrument:
+              one call, one process, exchange state, public trace.
             </p>
             <Link
               href='/v1'
