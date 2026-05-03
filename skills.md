@@ -103,6 +103,5 @@ Tape roles:
 
 The first HL Privateer experiment was a 7-role discretionary perp trading
 crew. Its agent surface (positions, copy-trade signals, x402 paid analysis) is
-archived. If you previously consumed `/v1/agent/*` endpoints, those return
-`410 Gone` — see [`/legacy`](https://github.com/ADWilkinson/hlprivateer.xyz/tree/main/legacy)
-for the historical code.
+archived with the v1 code under
+[`/legacy`](https://github.com/ADWilkinson/hlprivateer.xyz/tree/main/legacy).

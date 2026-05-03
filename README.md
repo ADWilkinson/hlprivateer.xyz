@@ -62,8 +62,8 @@ sentiment sources ──► orchestrator ──► StrategyAgent (LLM)
                                            reads clearinghouseState
 ```
 
-**`apps/agent`** is the only app. The orchestrator polls a set of source
-adapters (RSS, X, Farcaster — whatever the operator wires in), buffers raw
+**`apps/agent`** is the only trading runtime. The orchestrator polls a set
+of source adapters (RSS, X, Farcaster — whatever the operator wires in), buffers raw
 sentiment items per market, and on each new item calls a single
 `StrategyAgent.propose(ctx)` seam. The default agent shells out to an LLM
 configured at the shell (`AGENT_LLM_COMMAND` — `claude -p`, `codex`, or
@@ -88,9 +88,9 @@ piece in the system. Everything around it is pure functions:
   Each failure carries `{ code, reason, observed, threshold }`.
 
 On ALLOW, the operator-supplied `OrderRouter` places the order on
-Hyperliquid. The fill returns and the orchestrator appends each step
-(proposal, decision, fill) to an append-only JSONL audit at
-`data/audit.jsonl`.
+Hyperliquid. The orchestrator appends proposals, risk decisions, fills,
+agent failures, and order-placement failures to an append-only JSONL
+audit at `data/audit.jsonl`.
 
 A per-market mutex serialises evaluations: two near-simultaneous signals
 for the same market can't both see pre-fill exposure and over-fill the
@@ -100,9 +100,9 @@ cap. The property-style invariant — total filled exposure ≤
 Positions, equity, and fills live on the exchange. The orchestrator does
 not maintain a parallel ledger. `HyperliquidAccountant` reads
 `clearinghouseState` (TTL-cached, default 4 s) and exposes the views the
-risk gates need. HL errors propagate; there is no graceful degradation.
-If the exchange call throws, the orchestrator's call throws, and the
-operator's monitoring catches it.
+risk gates need. Accountant HL errors propagate; there is no graceful
+degradation. If order placement throws after an ALLOW, the system records
+`order.failed`, writes the tape line, and does not pretend a fill exists.
 
 The agent and order router both refuse to start if their dependencies
 aren't wired. Production paths require real Hyperliquid access and a real
@@ -167,7 +167,7 @@ factory throws, the binary exits with a clear error.
 ```bash
 bun install
 bun run typecheck     # both workspaces
-bun run test          # 76 vitest cases
+bun run test          # 78 agent cases + web smoke test
 bun run build         # production build
 
 export AGENT_HL_USER=0xYourWalletAddress
@@ -216,7 +216,7 @@ someone to cross-reference their own model.
 apps/
   agent/              single-process agent: orchestrator, risk, math,
                       accountant, hl client, strategy seam, HTTP, audit
-  web/                Next.js: landing, /floor, /v1 retrospective
+  web/                Next.js: product site, /floor, /v1 retrospective
 config/
   strategy.template.json    Public defaults (committed)
   strategy.json             Operator's real strategy (gitignored)
@@ -224,9 +224,9 @@ legacy/               Frozen v1 code, docs, and infra. See legacy/README.md.
 docs/SPEC.md          Full v3 architecture + invariants
 ```
 
-Bun + TypeScript 5.7, Zod schemas everywhere. Hyperliquid via plain
+Bun + TypeScript 5.7, Zod schemas for contracts. Hyperliquid via plain
 `fetch` against the `/info` endpoint. Next.js 15 + Tailwind for the
-public site. No Redis. No turbo. No internal packages.
+public site. No Redis. No turbo. No active internal packages.
 
 ## More
 

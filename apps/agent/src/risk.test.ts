@@ -106,7 +106,7 @@ describe('risk.evaluate', () => {
     expect(d.failures[0].code).toBe('PROPOSAL_EXPIRED')
   })
 
-  it('DENYs stale sentinel-considered timestamp', () => {
+  it('DENYs stale agent-considered timestamp', () => {
     const d = evaluate(
       baseCtx({
         proposal: proposal({ signalsConsideredAt: new Date(NOW - 1_500_000).toISOString() })

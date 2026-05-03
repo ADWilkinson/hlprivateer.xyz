@@ -40,7 +40,7 @@ isn't configured" paths. Production paths require real Hyperliquid access:
 If any required piece is missing, the binary refuses to start. Tests inline
 their own fakes locally.
 
-## Components (single app, single process)
+## Components
 
 apps/agent/src/
   contracts.ts        Zod schemas for OutcomeMarket, SentimentItem,

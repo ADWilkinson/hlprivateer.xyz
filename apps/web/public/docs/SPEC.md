@@ -26,8 +26,9 @@ preserved at `legacy/docs/SPEC.md`.
   doesn't explicitly want exposed.
 
 ### Non-goals
-- A demo / simulator. There is no `LocalAccountant`, `DryRunRouter`, or
-  `FixtureMarketProvider` in production paths.
+- A simulator or production fallback path. There is no `LocalAccountant`,
+  `DryRunRouter`, or `FixtureMarketProvider` in production paths. Test and
+  local-development helpers are explicitly test/local scoped.
 - A multi-exchange routing layer. v3 is HL-only.
 - A backtesting framework. The risk engine and math are testable; the
   orchestrator isn't designed for replay.
@@ -263,13 +264,15 @@ AGENT_PNL_BASELINE_USD` when the baseline is set; otherwise `null`.
 
 - **AI proposes, never executes.** `risk.evaluate()` is the only ALLOW
   path. `OrderRouter.place()` is the only fill path.
-- **Fail-closed.** Any dependency error or failed gate denies the proposal.
-  Single-failure short-circuit.
+- **Fail-closed.** Missing production wiring refuses startup; failed gates
+  deny proposals; agent/order failures are written to tape + audit without
+  inventing fills. Single-failure short-circuit.
 - **No fallbacks.** Production paths require real HL access. Tests inline
   their own fakes.
 - **Pure-function gates and math.** `risk.ts` and `math.ts` have zero I/O.
   Deterministic test surface.
-- **Append-only audit.** Every step recorded to JSONL.
+- **Append-only audit.** Proposals, risk decisions, fills, and failure events
+  are recorded to JSONL.
 - **Privacy by default.** Public surface omits positions, notional,
   bankroll, sentiment payloads, and the agent's thesis.
 - **Hyperliquid is the source of truth.** No parallel ledger.
@@ -279,7 +282,7 @@ AGENT_PNL_BASELINE_USD` when the baseline is set; otherwise `null`.
 
 ## 12. Test surface
 
-76 vitest cases across 9 files, all in `apps/agent/src`:
+78 agent vitest cases across 9 files, plus a web smoke test:
 
 | File                       | Cases | What's covered |
 |----------------------------|-------|----------------|
@@ -290,8 +293,9 @@ AGENT_PNL_BASELINE_USD` when the baseline is set; otherwise `null`.
 | `strategy-config.test.ts`  | 4     | Defaults, file load, env override, validation |
 | `accountant.test.ts`       | 7     | Positions mapping, ttl, warmup, errors |
 | `audit.test.ts`            | 2     | JSONL append, in-memory test variant |
-| `orchestrator.test.ts`     | 8     | End-to-end: proposes, denies, fills, mutex |
-| `http.test.ts`             | 9     | Endpoints + operator auth |
+| `orchestrator.test.ts`     | 9     | End-to-end: proposes, denies, fills, mutex, agent failure |
+| `http.test.ts`             | 10    | Endpoints, query routing, methods, operator auth |
+| `apps/web/smoke.test.ts`   | 1     | Web workspace smoke coverage |
 
 `bun run test` runs all of them; `bun run build` and `bun run typecheck`
-are clean from a fresh `dist/` tree.
+are clean from a fresh checkout.
