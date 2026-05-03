@@ -221,6 +221,11 @@ curl http://127.0.0.1:4100/healthz
 curl http://127.0.0.1:4100/v1/public/floor
 ```
 
+`apps/web` prepares the standalone server after each production build by
+copying `public/` and `.next/static/` into `.next/standalone/apps/web/`.
+Without that step, the server returns HTML but browsers cannot load CSS or
+client chunks.
+
 ## HTTP surface
 
 | Method | Path                      | Auth   | Returns                                       |

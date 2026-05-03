@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "bunx next dev -p 3000",
-    "build": "bunx next build",
+    "build": "bunx next build && bash scripts/prepare-standalone.sh",
     "build:static": "HLP_STATIC_EXPORT=1 bunx next build",
+    "prepare:standalone": "bash scripts/prepare-standalone.sh",
     "start": "bunx next start -p 3000",
     "typecheck": "bunx tsc --noEmit",
     "test": "bunx vitest run",

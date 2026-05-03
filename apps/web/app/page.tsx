@@ -6,16 +6,16 @@ const GITHUB_URL = 'https://github.com/ADWilkinson/hlprivateer.xyz'
 
 const OUTCOMES = [
   {
-    label: 'Strategy stays swappable',
-    body: 'The only dynamic seam is `StrategyAgent.propose()`: an operator-supplied LLM returns skip or one structured trade proposal.',
+    label: 'One judgment point',
+    body: 'AGT is the only place discretion enters: return skip, or return side, pHat, limit, and size as JSON.',
   },
   {
-    label: 'Risk stays deterministic',
-    body: 'Kelly clipping, exposure caps, resolution windows, liquidity checks, and 14 ordered gates remain pure functions.',
+    label: 'Fourteen ways to say no',
+    body: 'Before anything reaches the router, fixed checks clip stake and deny stale, thin, crowded, illiquid, or badly timed proposals.',
   },
   {
-    label: 'Public view stays private',
-    body: 'The floor exposes mode, markets, pHat, edge, and role tape while hiding positions, notional, raw signals, and thesis.',
+    label: 'A trace, not a portfolio',
+    body: 'The floor shows mode, market questions, pHat, edge, and tape. Bankroll, positions, raw items, and thesis stay offstage.',
   },
 ]
 
@@ -72,9 +72,9 @@ export default function LandingPage() {
               [HL] Privateer
             </h1>
             <p className='mt-5 max-w-[640px] text-[12px] leading-relaxed tracking-wide text-hlpPanel/78 sm:text-[13px]'>
-              A self-hosted trading system where sentiment becomes a probability estimate,
-              an LLM proposes, deterministic gates decide, and the public floor shows the
-              whole pipeline without leaking private trading state.
+              A public model room for a small HIP-4 trading loop. Sentiment enters,
+              AGT writes one probability estimate, RSK tries to kill it, and EXE records
+              what survived. The public view is the trace, not the wallet.
             </p>
             <div className='mt-6 flex flex-wrap gap-3'>
               <Link
@@ -110,15 +110,15 @@ export default function LandingPage() {
       <section className='border-b border-hlpBorder bg-hlpPanel px-4 py-12 sm:px-6 lg:px-8'>
         <div className='mx-auto grid w-full max-w-[1180px] gap-8 lg:grid-cols-[0.8fr_1.2fr]'>
           <div>
-            <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>How it works</div>
+            <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>Run log</div>
             <h2 className='mt-3 text-[18px] uppercase tracking-[0.14em] text-hlpFg'>
-              Built to be inspected while it runs.
+              The casing is off.
             </h2>
             <p className='mt-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
-              HL Privateer trades binary outcome contracts where price is implied probability.
-              The product idea is simple: compare market probability to an agent's sentiment-derived
-              pHat, then let deterministic safety machinery decide whether a proposal is allowed
-              to reach Hyperliquid.
+              HIP-4 outcome contracts already speak in probabilities: a YES price of 0.62
+              says the market is leaning 62%. HL Privateer is a way to watch a second estimate
+              form from sentiment, then watch the fixed gates decide whether that estimate is
+              strong enough to become an order.
             </p>
           </div>
           <ol className='border border-hlpBorder'>
@@ -172,9 +172,9 @@ PRIVATE BY DESIGN
               ))}
             </div>
             <p className='mt-5 border-t border-hlpBorder pt-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
-              v1 was a discretionary perp desk. v3 is the tighter product: one agent seam,
-              one process, Hyperliquid as source of truth, and a public interface that
-              makes the control flow visible.
+              v1 was a discretionary perp desk with a larger crew and more surface area.
+              This version is smaller on purpose: one agent call, one process, exchange state
+              as ground truth, and a public screen that shows the control flow.
             </p>
             <Link
               href='/v1'
