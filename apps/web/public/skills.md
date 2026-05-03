@@ -14,6 +14,10 @@ Supporting files:
 - Public floor snapshot
 - Recent role tape
 
+## Local demo
+- `AGENT_DEMO=1` runs fixture markets, fixture sentiment, and in-memory fills.
+- Production remains fail-closed and requires HL wiring plus a real LLM command.
+
 ## Discovery
 - `/llms.txt`
 - `/skills.md`

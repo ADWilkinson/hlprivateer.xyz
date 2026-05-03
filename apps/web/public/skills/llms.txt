@@ -13,3 +13,7 @@
 - `pHat` is the agent's current YES probability estimate when available.
 - `edge` is `pHat - yesPrice`.
 - Tape roles are AGT, RSK, EXE, and OPS.
+
+## Local demo
+`AGENT_DEMO=1` is explicit local-only mode: fixture markets, fixture
+sentiment, and in-memory fills for the product floor.

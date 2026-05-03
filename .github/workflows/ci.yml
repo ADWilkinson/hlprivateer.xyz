@@ -25,6 +25,14 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Validate Docker Compose
+        run: |
+          if command -v docker >/dev/null 2>&1; then
+            docker compose -f infra/docker-compose.yml config >/dev/null
+          else
+            echo "docker unavailable; skipping compose validation"
+          fi
+
       - name: Typecheck
         run: bun run typecheck
 

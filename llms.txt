@@ -26,10 +26,10 @@ StrategyAgent.propose() seam — the agent decides side / pHat / size /
 limit / thesis directly. Deterministic plumbing (size clip, 14 risk
 gates, accountant, HTTP) sits below it as a pure-function safety net.
 
-## No fallbacks
+## No production fallbacks
 
-There are no built-in simulators, fake data sources, or "kicks in if real
-isn't configured" paths. Production paths require real Hyperliquid access:
+There are no "kicks in if real isn't configured" paths. Production paths
+require real Hyperliquid access:
 
 - AGENT_HL_USER must be set (HyperliquidAccountant reads clearinghouseState).
 - apps/agent/wiring.ts must exist (operator implements OutcomeMarketProvider
@@ -38,7 +38,9 @@ isn't configured" paths. Production paths require real Hyperliquid access:
   model response from stdout — e.g. `claude -p`).
 
 If any required piece is missing, the binary refuses to start. Tests inline
-their own fakes locally.
+their own fakes locally. `AGENT_DEMO=1` is the only explicit local demo:
+fixture markets, fixture sentiment, and in-memory fills for showing the
+public floor without HL or an LLM command.
 
 ## Components
 
@@ -55,6 +57,7 @@ apps/agent/src/
   accountant.ts       HyperliquidAccountant (TTL-cached state).
   orchestrator.ts     evaluateMarket() loop with per-market mutex,
                       ingest() entrypoint, tape, metrics.
+  demo.ts             Explicit local demo runtime for the product floor.
   http.ts             /healthz /metrics /v1/public/* /v1/operator/*.
   audit.ts            Append-only JSONL log.
   tape.ts             In-process role-tape buffer.

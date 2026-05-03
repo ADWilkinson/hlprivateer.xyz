@@ -1,8 +1,8 @@
 # v1 — Discretionary Perp Trading Desk (concluded)
 
 > **Status:** Concluded experiment. Code preserved here for reference.
-> **Successor:** v2 — Sentiment-driven outcome market trading agents on
-> HIP-4 (root of repo). On-site retrospective at
+> **Successor:** v3 — Sentiment-driven HIP-4 outcome-market agent (root
+> of repo). On-site retrospective at
 > [`/v1`](https://hlprivateer.xyz/v1).
 
 A self-hosted, agentic Hyperliquid trading platform. A 7-role LLM crew
@@ -32,10 +32,10 @@ what we wanted to keep building on.
   SL/TP) does not.
 - **Surface-area cut.** v1 ran 7 LLM roles (scout / research / strategist /
   execution / scribe / risk / ops) and split the runtime across 4 services.
-  v2 collapses to 3 roles and one process. Sentiment-derived probability is
-  a narrower job than full discretionary regime analysis, and outcome
-  trading is event-driven and stateless per proposal — the v1 split was
-  overkill for it.
+  v3 collapses to one strategy seam and one trading runtime. Sentiment-
+  derived probability is a narrower job than full discretionary regime
+  analysis, and outcome trading is event-driven and stateless per proposal
+  — the v1 split was overkill for it.
 
 ## What we shipped
 
@@ -74,23 +74,23 @@ what we wanted to keep building on.
   together in practice.
 - Maintaining parallel state is fragile. v1 had its own positions ledger
   reconciled against Hyperliquid; the reconciliation was a constant source
-  of drift bugs. v2 reads exchange state directly via `clearinghouseState`
+  of drift bugs. v3 reads exchange state directly via `clearinghouseState`
   and never claims to know better.
 - Discretionary perps weren't the venue. Leveraged directional trading on
   a CLOB is a deeply competitive space. Outcome markets — binary, settled,
   sentiment-correlated — are a more interesting fit for an LLM-driven edge.
 
-## What carried forward to v2
+## What carried forward to v3
 
-- The pattern (AI proposes, deterministic gates execute, hash-chained
-  audit). Re-implemented in `packages/outcome-risk/` for binary markets.
+- The pattern: AI proposes, deterministic gates permit or deny, and every
+  proposal/decision/fill/failure is written to an append-only audit.
 - Pure-function discipline. Gates and engine math have zero I/O,
   deterministic test surface, single-failure short-circuit.
 - Privacy by default — public surface exposes pHat / edge / question only.
-- The Redis Streams bus (`packages/event-bus/`). Same envelope shape, new
-  namespace (`hlpv2.*`).
-- The Hyperliquid HTTP client (`packages/hl-client/`). Same exchange, same
-  SDK; outcome markets surface through it too.
+- Hyperliquid as the source of truth. The active accountant reads
+  `clearinghouseState`; no parallel ledger claims to know better.
+- Role-tape clarity. v1's floor became the public AGT / RSK / EXE / OPS
+  tape on the v3 product site.
 
 ## What got nuked
 
@@ -98,10 +98,11 @@ what we wanted to keep building on.
   exposure caps, etc.) — replaced with 14 outcome-market gates (resolution
   horizon, challenge window, edge threshold, proposal expiry, ...).
 - The 4 perp-flavoured services (runtime + api + ws-gateway + agent-runner)
-  — collapsed into a single `apps/oracle` process.
+  — collapsed into a single `apps/agent` process.
 - x402 paid-data endpoints — interesting experiment but a distraction from
-  the trading question. v2 has a smaller free public surface.
-- The 7-role crew — replaced with 3 (SNT / RSK / EXE).
+  the trading question. v3 has a smaller free public surface.
+- The 7-role crew — replaced with one dynamic `StrategyAgent` seam and
+  deterministic RSK / EXE plumbing.
 
 ## What's in this directory
 
@@ -135,14 +136,12 @@ legacy/
 
 ## Build status
 
-The legacy tree is **excluded from the active workspace**: `package.json`
-workspaces and `pnpm-workspace.yaml` only glob `apps/*` and `packages/*`,
-not `legacy/*`. `bun install` / `bun run build` at the repo root will not
-touch this directory.
+The legacy tree is **excluded from the active workspace**: root
+`package.json` only globs `apps/*`, not `legacy/*`. `bun install` /
+`bun run build` at the repo root will not touch this directory.
 
 If you want to dust off a legacy package locally, you'll need to install
 its deps directly (`cd legacy/apps/runtime && bun install`) and rewire any
-`workspace:*` references that have moved or been renamed in v2 — most
-notably the contracts package, since v2 replaced the schemas.
+`workspace:*` references that have moved or been renamed since v1.
 
 Treat this directory as a frozen reference. Not a buildable target.

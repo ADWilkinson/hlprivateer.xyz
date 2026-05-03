@@ -26,9 +26,10 @@ preserved at `legacy/docs/SPEC.md`.
   doesn't explicitly want exposed.
 
 ### Non-goals
-- A simulator or production fallback path. There is no `LocalAccountant`,
-  `DryRunRouter`, or `FixtureMarketProvider` in production paths. Test and
-  local-development helpers are explicitly test/local scoped.
+- A simulator or production fallback path. `AGENT_DEMO=1` is an explicit
+  local demo that uses fixture markets, fixture sentiment, and in-memory
+  fills so the website can show the pipeline. It is not enabled by default
+  and is never used as graceful degradation for production.
 - A multi-exchange routing layer. v3 is HL-only.
 - A backtesting framework. The risk engine and math are testable; the
   orchestrator isn't designed for replay.
@@ -125,6 +126,12 @@ the default strategist system prompt.
 `SentimentSourceAdapter` interface, `FixtureSource`, `InMemorySource`.
 Operator wires production adapters externally.
 
+### `apps/agent/src/demo.ts`
+Explicit local demo runtime for product walkthroughs. `createDemoRuntime`
+wires `DemoMarketProvider`, `DemoAccountant`, `DemoOrderRouter`, and the
+fixture sentiment source. Production startup only uses it when
+`AGENT_DEMO=1`.
+
 ### `apps/agent/src/hl.ts`
 Minimal Hyperliquid info client. `postInfo` posts JSON to `/info` with a
 configurable timeout, no rate limiter, no response cache — the only
@@ -183,7 +190,8 @@ Entrypoint. Loads strategy, builds the HL client, accountant, agent,
 and source adapters, dynamic-imports `apps/agent/wiring.ts` for the
 market provider + order router, starts the orchestrator, opens HTTP, and
 polls the sources every `AGENT_INTERVAL_MS` (default 30 s), feeding each
-new item back through `orchestrator.ingest`.
+new item back through `orchestrator.ingest`. With `AGENT_DEMO=1`, main
+uses the explicit demo runtime and skips HL/LLM/wiring requirements.
 
 ## 5. Per-market mutex
 
@@ -267,8 +275,8 @@ AGENT_PNL_BASELINE_USD` when the baseline is set; otherwise `null`.
 - **Fail-closed.** Missing production wiring refuses startup; failed gates
   deny proposals; agent/order failures are written to tape + audit without
   inventing fills. Single-failure short-circuit.
-- **No fallbacks.** Production paths require real HL access. Tests inline
-  their own fakes.
+- **No production fallbacks.** Production paths require real HL access.
+  Demo mode is opt-in via `AGENT_DEMO=1`; tests inline their own fakes.
 - **Pure-function gates and math.** `risk.ts` and `math.ts` have zero I/O.
   Deterministic test surface.
 - **Append-only audit.** Proposals, risk decisions, fills, and failure events
@@ -282,7 +290,7 @@ AGENT_PNL_BASELINE_USD` when the baseline is set; otherwise `null`.
 
 ## 12. Test surface
 
-78 agent vitest cases across 9 files, plus a web smoke test:
+79 agent vitest cases across 10 files, plus 2 web smoke tests:
 
 | File                       | Cases | What's covered |
 |----------------------------|-------|----------------|
@@ -294,8 +302,9 @@ AGENT_PNL_BASELINE_USD` when the baseline is set; otherwise `null`.
 | `accountant.test.ts`       | 7     | Positions mapping, ttl, warmup, errors |
 | `audit.test.ts`            | 2     | JSONL append, in-memory test variant |
 | `orchestrator.test.ts`     | 9     | End-to-end: proposes, denies, fills, mutex, agent failure |
+| `demo.test.ts`             | 1     | Explicit local demo runtime and in-memory fill path |
 | `http.test.ts`             | 10    | Endpoints, query routing, methods, operator auth |
-| `apps/web/smoke.test.ts`   | 1     | Web workspace smoke coverage |
+| `apps/web/smoke.test.ts`   | 2     | Product homepage + animated pipeline demo coverage |
 
 `bun run test` runs all of them; `bun run build` and `bun run typecheck`
 are clean from a fresh checkout.

@@ -20,3 +20,8 @@ markets, pHat, edge, and role tape.
 Raw sentiment -> StrategyAgent.propose() -> clipSize() -> 14 risk gates ->
 OrderRouter.place() -> Hyperliquid. HyperliquidAccountant reads
 clearinghouseState as the source of truth.
+
+## Local demo
+`AGENT_DEMO=1` is an explicit local-only mode for product walkthroughs. It
+uses fixture markets, fixture sentiment, and in-memory fills; production
+still requires HL wiring and a real LLM command.

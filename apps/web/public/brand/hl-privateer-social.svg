@@ -20,14 +20,14 @@
   <rect x="294" y="98" width="840" height="56" fill="#111111"/>
   <text x="320" y="135" fill="#ffffff" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="34" letter-spacing="2">[HL] PRIVATEER</text>
 
-  <text x="294" y="220" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="42" letter-spacing="1">OPEN HYPERLIQUID DISCRETIONARY DESK</text>
-  <text x="294" y="286" fill="#1e1e1e" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="26">HIP-4 outcome markets, live floor telemetry, deterministic gates.</text>
+  <text x="294" y="220" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="42" letter-spacing="1">HIP-4 OUTCOME MARKET AGENT</text>
+  <text x="294" y="286" fill="#1e1e1e" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="26">Sentiment -> pHat -> 14 gates -> public floor tape.</text>
 
   <rect x="294" y="336" width="790" height="2" fill="#c8d4df"/>
 
-  <text x="294" y="388" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="24">Live floor: /floor</text>
-  <text x="294" y="428" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="24">Agent docs: /llms.txt / AGENT.md / skills.md</text>
-  <text x="294" y="468" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="24">API base: api.hlprivateer.xyz</text>
+  <text x="294" y="388" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="24">Live floor: hlprivateer.xyz/floor</text>
+  <text x="294" y="428" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="24">Public API: markets, pHat, edge, AGT/RSK/EXE/OPS tape</text>
+  <text x="294" y="468" fill="#111111" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="24">Privacy boundary: no raw signals, thesis, bankroll, or positions</text>
 
   <rect x="74" y="514" width="1040" height="46" fill="#111111"/>
   <text x="96" y="544" fill="#ffffff" font-family="IBM Plex Mono, Menlo, Consolas, monospace" font-size="21">hlprivateer.xyz</text>

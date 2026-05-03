@@ -22,7 +22,9 @@ proposal is allowed to reach the operator's order router.
 
 Hyperliquid is the source of truth for accountancy: positions and equity
 are read from `clearinghouseState`, not maintained locally. There are no
-fallbacks or simulators in the production code path.
+fallbacks or simulators in the production code path. `AGENT_DEMO=1` is an
+explicit local-only demo that uses fixture markets, fixture sentiment, and
+in-memory fills for the public floor.
 
 ## v3 vs v2
 

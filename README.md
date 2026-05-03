@@ -43,6 +43,8 @@ strict enough to leave running.
 
 One process. One agent. Deterministic plumbing around it.
 
+![HL Privateer v3 pipeline](docs/pipeline.svg)
+
 ```
 sentiment sources ──► orchestrator ──► StrategyAgent (LLM)
                           │                  │
@@ -164,10 +166,35 @@ factory throws, the binary exits with a clear error.
 
 ## Running it
 
+### Local demo floor
+
+The fastest way to see the whole product loop is explicit demo mode. It
+uses fixture HIP-4 markets, fixture sentiment, and in-memory fills so the
+website can animate a real AGT → RSK → EXE → OPS tape without touching
+Hyperliquid or requiring an LLM command. It is not a production fallback.
+
+```bash
+bun install
+
+(cd apps/agent && \
+  AGENT_DEMO=1 \
+  AGENT_HTTP_PORT=4100 \
+  AGENT_INTERVAL_MS=5000 \
+  bun run dev)
+
+(cd apps/web && \
+  NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:4100 \
+  bun run dev)
+
+open http://127.0.0.1:3000/floor
+```
+
+### Production runtime
+
 ```bash
 bun install
 bun run typecheck     # both workspaces
-bun run test          # 78 agent cases + web smoke test
+bun run test          # agent tests + web smoke tests
 bun run build         # production build
 
 export AGENT_HL_USER=0xYourWalletAddress
@@ -183,6 +210,7 @@ export AGENT_LLM_COMMAND="claude -p"           # or codex, or your wrapper
 #   AGENT_AUDIT_PATH=data/audit.jsonl
 #   AGENT_PNL_BASELINE_USD=...    baseline for /v1/public/floor pnlPct
 #   AGENT_FIXTURE=path/to.json    optional fixture source
+#   AGENT_DEMO=1                  explicit local demo only; no HL/LLM required
 
 cp apps/agent/wiring.template.ts apps/agent/wiring.ts && $EDITOR $_
 cp config/strategy.template.json   config/strategy.json   && $EDITOR $_

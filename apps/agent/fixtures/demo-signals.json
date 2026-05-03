@@ -1,0 +1,22 @@
+[
+  {
+    "marketId": "demo-fed-pause-sep",
+    "source": "news",
+    "summary": "Macro desk notes softer inflation internals and a lower terminal-rate path."
+  },
+  {
+    "marketId": "demo-fed-pause-sep",
+    "source": "farcaster",
+    "summary": "Rates watchers are increasingly framing September as a pause meeting."
+  },
+  {
+    "marketId": "demo-btc-etf-flows",
+    "source": "x",
+    "summary": "ETF desk chatter points to strong early-week creations after two flat sessions."
+  },
+  {
+    "marketId": "demo-inflation-print",
+    "source": "manual",
+    "summary": "Operator note: shelter nowcast softened again while consensus stayed unchanged."
+  }
+]

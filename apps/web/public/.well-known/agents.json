@@ -1,126 +1,60 @@
 {
-  "erc8004": {
-    "chainId": 8453,
-    "agentId": 17903,
-    "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-    "reputationRegistry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
-    "registrationFile": "https://hlprivateer.xyz/.well-known/agent-registration.json"
-  },
-  "schema": "https://openagents.com/schema/v1",
+  "schema": "https://hlprivateer.xyz/schemas/public-agent-index-v3",
   "name": "HL Privateer",
-  "description": "Open Hyperliquid discretionary desk. Agent-facing data and commands are exposed through x402 entitlement flow.",
+  "description": "Privacy-safe public floor for a sentiment-driven Hyperliquid HIP-4 outcome-market trading agent.",
   "url": "https://hlprivateer.xyz",
   "logo": "https://hlprivateer.xyz/icons/icon-512.png",
   "provider": {
     "name": "HL Privateer",
     "url": "https://hlprivateer.xyz"
   },
+  "activeSystem": "v3",
+  "payments": {
+    "x402": false,
+    "note": "The active v3 public surface is free and read-only. v1 x402 experiments are archived under /v1 and /legacy."
+  },
   "api": {
     "type": "rest",
     "base_url": "https://api.hlprivateer.xyz",
     "docs": "https://hlprivateer.xyz/API.md",
-    "websocket": "wss://ws.hlprivateer.xyz",
-    "authentication": {
-      "type": "x402",
-      "flow": "handshake-verify-entitlement",
-      "network": "eip155:8453",
-      "asset": "USDC",
-      "facilitator": "https://facilitator.payai.network"
-    }
+    "authentication": "none for public routes; bearer token only for operator halt/resume"
   },
   "endpoints": [
     {
-      "path": "/v1/agent/handshake",
-      "method": "POST",
-      "description": "Create challenge and provisional entitlement",
-      "price": "free",
+      "path": "/healthz",
+      "method": "GET",
+      "description": "Mode, metrics, equity, and open-market count",
       "auth": "none"
     },
     {
-      "path": "/v1/agent/verify",
-      "method": "POST",
-      "description": "Verify proof and activate entitlement",
-      "price": "proof-required",
+      "path": "/metrics",
+      "method": "GET",
+      "description": "Prometheus mode, equity, and event counters",
       "auth": "none"
     },
     {
-      "path": "/v1/agent/stream/snapshot",
+      "path": "/v1/public/markets",
       "method": "GET",
-      "description": "Live desk snapshot",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/analysis",
-      "method": "GET",
-      "description": "Analysis history",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/analysis/latest",
-      "method": "GET",
-      "description": "Latest analysis",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/positions",
-      "method": "GET",
-      "description": "Open positions",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/orders",
-      "method": "GET",
-      "description": "Open orders",
-      "price": "$0.01",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/insights",
-      "method": "GET",
-      "description": "Agent insights",
-      "price": "$0.02",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/copy-trade/signals",
-      "method": "GET",
-      "description": "Copy-trade signal tape",
-      "price": "$0.03",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/agent/copy-trade/positions",
-      "method": "GET",
-      "description": "Copy-trade positions",
-      "price": "$0.03",
-      "auth": "x402"
-    },
-    {
-      "path": "/v1/public/pnl",
-      "method": "GET",
-      "description": "Public PnL and mode",
-      "price": "free",
+      "description": "Markets with yesPrice, pHat, edge, resolutionAt, and tags",
       "auth": "none"
     },
     {
-      "path": "/v1/public/floor-snapshot",
+      "path": "/v1/public/floor",
       "method": "GET",
-      "description": "Public floor snapshot",
-      "price": "free",
+      "description": "Public floor snapshot: mode, markets, PnL percentage, and role tape",
       "auth": "none"
     },
     {
-      "path": "/v1/public/identity",
+      "path": "/v1/public/floor-tape",
       "method": "GET",
-      "description": "ERC-8004 identity status",
-      "price": "free",
+      "description": "Recent AGT / RSK / EXE / OPS tape lines",
       "auth": "none"
     }
   ],
+  "privacyBoundary": {
+    "public": ["question", "status", "yesPrice", "pHat", "edge", "resolutionAt", "topicTags", "roleTape"],
+    "private": ["positions", "notionalExposure", "bankroll", "rawSentiment", "thesis", "operatorStrategy"]
+  },
   "llms_txt": "https://hlprivateer.xyz/llms.txt",
   "skills": "https://hlprivateer.xyz/skills.md"
 }

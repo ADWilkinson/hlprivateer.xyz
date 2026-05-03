@@ -1,14 +1,15 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { spawn } from 'node:child_process'
-import { HyperliquidAccountant } from './accountant'
+import { HyperliquidAccountant, type Accountant } from './accountant'
 import { AuditLog } from './audit'
 import { createHlClient, type HlClient } from './hl'
 import { createOrchestrator, type OrderRouter, type OutcomeMarketProvider } from './orchestrator'
 import { FixtureSource, type SentimentSourceAdapter } from './sources'
 import { loadStrategy } from './strategy-config'
-import { LlmStrategyAgent, type LlmCompleter } from './strategy'
+import { LlmStrategyAgent, type LlmCompleter, type StrategyAgent } from './strategy'
 import { startHttpServer } from './http'
+import { createDemoRuntime } from './demo'
 
 const log = (msg: string, meta?: unknown) => console.log(`[agent] ${msg}`, meta ?? '')
 
@@ -60,28 +61,47 @@ async function loadWiring(hl: HlClient): Promise<{
 async function main(): Promise<void> {
   const strategy = await loadStrategy({ log: (m) => log(m) })
 
-  const command = process.env.AGENT_LLM_COMMAND
-  if (!command) {
-    throw new Error(
-      'AGENT_LLM_COMMAND is required (e.g. "claude -p"). The agent does not ship a fallback strategist.'
-    )
+  let agent: StrategyAgent
+  let accountant: Accountant
+  let markets: OutcomeMarketProvider
+  let router: OrderRouter
+  let sources: SentimentSourceAdapter[] = []
+
+  if (process.env.AGENT_DEMO === '1') {
+    const demo = createDemoRuntime(process.env.AGENT_FIXTURE)
+    agent = demo.agent
+    accountant = demo.accountant
+    markets = demo.markets
+    router = demo.router
+    sources = demo.sources
+    log('demo mode enabled — using fixture markets, fixture sentiment, and in-memory fills')
+  } else {
+    const command = process.env.AGENT_LLM_COMMAND
+    if (!command) {
+      throw new Error(
+        'AGENT_LLM_COMMAND is required (e.g. "claude -p"). The agent does not ship a fallback strategist.'
+      )
+    }
+    agent = new LlmStrategyAgent(shellCompleter(command), strategy.prompts.strategist)
+
+    const hl = createHlClient({
+      isTestnet: process.env.AGENT_HL_TESTNET === '1',
+      infoUrl: process.env.AGENT_HL_INFO_URL,
+      timeoutMs: 10_000
+    })
+
+    accountant = new HyperliquidAccountant({
+      hl,
+      user: requireEnv('AGENT_HL_USER'),
+      ttlMs: Number(process.env.AGENT_HL_TTL_MS ?? 4000),
+      log
+    })
+
+    const wiring = await loadWiring(hl)
+    markets = wiring.markets
+    router = wiring.router
+    if (process.env.AGENT_FIXTURE) sources.push(new FixtureSource(process.env.AGENT_FIXTURE))
   }
-  const agent = new LlmStrategyAgent(shellCompleter(command), strategy.prompts.strategist)
-
-  const hl = createHlClient({
-    isTestnet: process.env.AGENT_HL_TESTNET === '1',
-    infoUrl: process.env.AGENT_HL_INFO_URL,
-    timeoutMs: 10_000
-  })
-
-  const accountant = new HyperliquidAccountant({
-    hl,
-    user: requireEnv('AGENT_HL_USER'),
-    ttlMs: Number(process.env.AGENT_HL_TTL_MS ?? 4000),
-    log
-  })
-
-  const { markets, router } = await loadWiring(hl)
 
   const audit = new AuditLog(process.env.AGENT_AUDIT_PATH ?? 'data/audit.jsonl')
 
@@ -95,9 +115,6 @@ async function main(): Promise<void> {
     audit,
     log
   })
-
-  const sources: SentimentSourceAdapter[] = []
-  if (process.env.AGENT_FIXTURE) sources.push(new FixtureSource(process.env.AGENT_FIXTURE))
 
   const stop = await orchestrator.start()
 
