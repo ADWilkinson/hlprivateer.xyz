@@ -30,13 +30,18 @@ type FloorSnapshot = {
 
 const POLL_MS = 5_000
 const PIPELINE = [
-  { id: 'sources', label: 'SOURCES', detail: 'raw sentiment' },
-  { id: 'agent', label: 'AGT', detail: 'pHat / side / size', role: 'AGT' },
-  { id: 'clip', label: 'CLIP', detail: 'Kelly + caps' },
-  { id: 'risk', label: 'RSK', detail: '14 fail-closed gates', role: 'RSK' },
-  { id: 'execution', label: 'EXE', detail: 'order router -> HL', role: 'EXE' },
-  { id: 'audit', label: 'OPS', detail: 'JSONL + tape', role: 'OPS' },
+  { id: 'sources', label: 'INPUTS', detail: 'public items' },
+  { id: 'agent', label: 'AGENT', detail: 'estimate / side / size', role: 'AGT' },
+  { id: 'clip', label: 'LIMIT', detail: 'stake sizing' },
+  { id: 'risk', label: 'CHECKS', detail: '14 fixed checks', role: 'RSK' },
+  { id: 'execution', label: 'ORDER', detail: 'allowed attempt', role: 'EXE' },
+  { id: 'audit', label: 'RECORD', detail: 'audit log + tape', role: 'OPS' },
 ] as const
+
+function clamp01(x: number | undefined): number {
+  if (x === undefined || !Number.isFinite(x)) return 0
+  return Math.max(0, Math.min(1, x))
+}
 
 function fmtPct(x: number | undefined): string {
   if (x === undefined || !Number.isFinite(x)) return '—'
@@ -72,6 +77,43 @@ function modeClass(mode: FloorSnapshot['mode'] | undefined): string {
   if (mode === 'READY') return 'border-hlpHealthy text-hlpHealthy'
   if (mode === 'HALT') return 'border-hlpNegative text-hlpNegative'
   return 'border-hlpBorder text-hlpDim'
+}
+
+function ProbabilityRail({ market }: { market: FloorMarket }) {
+  const marketPrice = clamp01(market.yesPrice)
+  const agentEstimate = market.pHat === undefined ? null : clamp01(market.pHat)
+  const marketLeft = `${marketPrice * 100}%`
+  const estimateLeft = agentEstimate === null ? null : `${agentEstimate * 100}%`
+  const edgeLeft = agentEstimate === null ? '0%' : `${Math.min(marketPrice, agentEstimate) * 100}%`
+  const edgeWidth = agentEstimate === null ? '0%' : `${Math.abs(marketPrice - agentEstimate) * 100}%`
+
+  return (
+    <div
+      className='relative h-8 min-w-[170px]'
+      aria-label={`Market ${fmtPct(market.yesPrice)}, agent estimate ${fmtPct(market.pHat)}`}
+      role='img'
+    >
+      <div className='absolute left-0 right-0 top-1/2 h-px bg-hlpBorderStrong/50' />
+      <div
+        className='absolute top-1/2 h-1 -translate-y-1/2 bg-hlpPositive/45'
+        style={{ left: edgeLeft, width: edgeWidth }}
+      />
+      <span
+        className='absolute top-1/2 h-5 w-px -translate-y-1/2 bg-hlpFg'
+        style={{ left: marketLeft }}
+        title={`Market price ${fmtPct(market.yesPrice)}`}
+      />
+      {estimateLeft && (
+        <span
+          className='absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 border border-hlpAccent bg-hlpPanel'
+          style={{ left: estimateLeft }}
+          title={`Agent estimate ${fmtPct(market.pHat)}`}
+        />
+      )}
+      <div className='absolute bottom-0 left-0 text-[8px] uppercase tracking-[0.14em] text-hlpDim'>mkt</div>
+      <div className='absolute bottom-0 right-0 text-[8px] uppercase tracking-[0.14em] text-hlpAccent'>agent</div>
+    </div>
+  )
 }
 
 export default function FloorPage() {
@@ -128,7 +170,7 @@ export default function FloorPage() {
             HIP-4 outcome-market pipeline
           </h1>
           <p className='max-w-[760px] text-[11px] leading-relaxed text-hlpMuted'>
-            Privacy-safe telemetry only: mode, market price, pHat, edge, and the AGT / RSK / EXE / OPS tape.
+            Public fields only: mode, market price, pHat (agent estimate), edge, and role tape.
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-2 md:justify-end' aria-live='polite'>
@@ -155,7 +197,7 @@ export default function FloorPage() {
       <section className='grid gap-3 lg:grid-cols-[1fr_260px]'>
         <div className='border border-hlpBorder bg-hlpPanel'>
           <div className='border-b border-hlpBorder bg-hlpInverseBg px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-hlpPanel/85'>
-            transparent loop
+            public loop
           </div>
           <ol className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'>
             {PIPELINE.map((step, index) => {
@@ -185,7 +227,7 @@ export default function FloorPage() {
         </div>
 
         <aside className='border border-hlpBorder bg-hlpPanel p-3'>
-          <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>last pulse</div>
+          <div className='text-[10px] uppercase tracking-[0.2em] text-hlpDim'>latest line</div>
           <div className='mt-3 min-h-12 text-[10px] leading-relaxed text-hlpMuted'>
             {latestTape ? (
               <>
@@ -206,15 +248,16 @@ export default function FloorPage() {
       <section>
         <div className='mb-2 flex items-center justify-between gap-3'>
           <div className='text-[10px] uppercase tracking-[0.22em] text-hlpDim'>markets</div>
-          <div className='text-[9px] uppercase tracking-[0.16em] text-hlpDim'>public fields only</div>
+          <div className='text-[9px] uppercase tracking-[0.16em] text-hlpDim'>black = market · blue = agent</div>
         </div>
         <div className='overflow-x-auto border border-hlpBorder'>
           <table className='w-full text-[10px]'>
             <thead className='bg-hlpInverseBg text-hlpPanel/85'>
               <tr>
                 <th className='border-r border-hlpBorder px-3 py-1.5 text-left'>QUESTION</th>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-left'>PROBABILITY</th>
                 <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>MKT YES</th>
-                <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>p̂</th>
+                <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>AGENT</th>
                 <th className='border-r border-hlpBorder px-3 py-1.5 text-right'>EDGE</th>
                 <th className='border-r border-hlpBorder px-3 py-1.5 text-left'>RESOLVES</th>
                 <th className='px-3 py-1.5 text-left'>TAGS</th>
@@ -224,6 +267,9 @@ export default function FloorPage() {
               {(snap?.markets ?? []).map((m) => (
                 <tr key={m.id} className='border-t border-hlpBorder'>
                   <td className='min-w-[260px] border-r border-hlpBorder px-3 py-2 text-hlpFg'>{m.question}</td>
+                  <td className='border-r border-hlpBorder px-3 py-1.5'>
+                    <ProbabilityRail market={m} />
+                  </td>
                   <td className='border-r border-hlpBorder px-3 py-1.5 text-right'>{fmtPct(m.yesPrice)}</td>
                   <td className='border-r border-hlpBorder px-3 py-1.5 text-right'>{fmtPct(m.pHat)}</td>
                   <td
@@ -246,7 +292,7 @@ export default function FloorPage() {
               ))}
               {(!snap || snap.markets.length === 0) && (
                 <tr>
-                  <td colSpan={6} className='px-3 py-3 text-center text-hlpDim'>
+                  <td colSpan={7} className='px-3 py-3 text-center text-hlpDim'>
                     {snap ? 'no markets yet' : 'waiting for public floor snapshot'}
                   </td>
                 </tr>

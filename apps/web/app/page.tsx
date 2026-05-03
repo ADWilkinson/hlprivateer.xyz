@@ -7,28 +7,28 @@ const GITHUB_URL = 'https://github.com/ADWilkinson/hlprivateer.xyz'
 const OBSERVATIONS = [
   {
     label: 'signal',
-    body: 'raw items arrive',
+    body: 'new public inputs arrive',
   },
   {
     label: 'estimate',
-    body: 'AGT writes pHat',
+    body: 'the agent marks a probability',
   },
   {
-    label: 'refusal',
-    body: 'RSK tries to kill it',
+    label: 'check',
+    body: 'fixed rules can block it',
   },
   {
-    label: 'trace',
-    body: 'EXE/OPS leave a public line',
+    label: 'record',
+    body: 'the floor gets a line',
   },
 ]
 
 const STEPS = [
-  ['01', 'Raw sentiment', 'Timestamped items enter the buffer.'],
-  ['02', 'Agent proposal', 'AGT returns pHat, side, limit, size, or skip.'],
-  ['03', 'Clip', 'Kelly and caps reduce the proposal before risk.'],
-  ['04', 'Gates', 'Fourteen checks run cheapest-first.'],
-  ['05', 'Trace', 'ALLOW reaches EXE; every event lands in JSONL.'],
+  ['01', 'Inputs', 'Timestamped public items enter the buffer.'],
+  ['02', 'Estimate', 'The agent returns a probability, side, limit, size, or skip.'],
+  ['03', 'Stake limit', 'Kelly sizing and caps reduce the proposal before risk.'],
+  ['04', 'Risk checks', 'Fourteen fixed checks can deny the order.'],
+  ['05', 'Public record', 'Allowed orders and failures land in the audit log.'],
 ]
 
 const TECH_STACK = ['Bun', 'TypeScript', 'Next.js', 'Hyperliquid HIP-4', 'Zod', 'JSONL audit']
@@ -68,7 +68,7 @@ export default function LandingPage() {
           aria-hidden='true'
         />
         <div className='relative z-10 mx-auto flex min-h-[calc(100svh-120px)] w-full max-w-[1180px] flex-col justify-end px-4 pb-10 pt-20 sm:px-6 lg:px-8'>
-          <div className='grid gap-8 pb-6 lg:grid-cols-[minmax(0,0.78fr)_minmax(260px,0.22fr)] lg:items-end'>
+          <div className='pb-6'>
             <div>
               <div className='mb-4 text-[10px] uppercase tracking-[0.22em] text-hlpPanel/65'>
                 HIP-4 outcome-market agent // live public floor
@@ -77,8 +77,9 @@ export default function LandingPage() {
                 [HL] Privateer
               </h1>
               <p className='mt-5 max-w-[520px] text-[12px] leading-relaxed tracking-wide text-hlpPanel/74 sm:text-[13px]'>
-                A public model room for a small trading loop: signal enters,
-                AGT estimates, RSK refuses, EXE records the survivor.
+                A public model room for a small trading loop: signals enter,
+                the agent estimates probability, fixed checks decide, and the
+                floor records only the public trace.
               </p>
               <div className='mt-6 flex flex-wrap gap-3'>
                 <Link
@@ -96,11 +97,6 @@ export default function LandingPage() {
                   View source
                 </a>
               </div>
-            </div>
-            <div className='hidden border-l border-hlpPanel/25 pl-5 text-hlpPanel lg:block'>
-              <div className='text-[10px] uppercase tracking-[0.26em] text-hlpPanel/48'>latest public estimate</div>
-              <div className='mt-3 text-[48px] font-bold leading-none tracking-[0.04em]'>70.0</div>
-              <div className='mt-2 text-[10px] uppercase tracking-[0.2em] text-hlpPanel/54'>pHat / market 62.0</div>
             </div>
           </div>
         </div>
@@ -129,8 +125,8 @@ export default function LandingPage() {
             </h2>
             <p className='mt-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
               HIP-4 outcome contracts already speak in probabilities: a YES price of 0.62
-              says the market is leaning 62%. This page watches a second estimate form, then
-              watches the gates decide whether it deserves to touch the book.
+              says the market is leaning 62%. This page watches a second estimate form,
+              then shows whether the fixed checks allow it to reach the book.
             </p>
           </div>
           <ol className='border border-hlpBorder'>
@@ -155,19 +151,19 @@ export default function LandingPage() {
         <div className='mx-auto grid w-full max-w-[1180px] gap-6 lg:grid-cols-[1fr_340px]'>
           <div className='border border-hlpBorder bg-hlpInverseBg p-4 text-hlpPanel'>
             <div className='mb-3 text-[10px] uppercase tracking-[0.2em] text-hlpPanel/55'>
-              public API surface
+              public window
             </div>
             <pre className='overflow-x-auto text-[10px] leading-[1.7] text-hlpPanel/82'>
 {`GET /v1/public/markets
-  -> question, yesPrice, pHat, edge, resolutionAt
+  -> question, yesPrice, pHat (agent estimate), edge, resolutionAt
 
 GET /v1/public/floor
   -> mode, marketsTracked, markets[], tape[]
 
 GET /v1/public/floor-tape
-  -> AGT / RSK / EXE / OPS narrative
+  -> role tape: agent / risk / execution / ops
 
-PRIVATE BY DESIGN
+NOT SHOWN
   positions, bankroll, notional, raw signals, thesis`}
             </pre>
           </div>
@@ -184,8 +180,8 @@ PRIVATE BY DESIGN
               ))}
             </div>
             <p className='mt-5 border-t border-hlpBorder pt-4 text-[11px] leading-relaxed tracking-wide text-hlpMuted'>
-              v1 was a larger discretionary perp desk. This version is the small instrument:
-              one call, one process, exchange state, public trace.
+              v1 was a larger discretionary perp desk. This version is narrower:
+              one agent call, one risk path, exchange state, public trace.
             </p>
             <Link
               href='/v1'
