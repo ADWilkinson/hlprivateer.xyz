@@ -82,6 +82,10 @@ function shortQuestion(question: string): string {
   return question.length > 46 ? `${question.slice(0, 43)}...` : question
 }
 
+function shortMobileQuestion(question: string): string {
+  return question.length > 34 ? `${question.slice(0, 31)}...` : question
+}
+
 function shortMessage(message: string): string {
   return message.length > 31 ? `${message.slice(0, 28)}...` : message
 }
@@ -130,12 +134,85 @@ export function ProductPipelineDemo() {
   const activeMarketY = 154 + Math.max(0, activeMarketIndex) * 48
   const edgeStart = Math.min(marketX, estimateX)
   const edgeWidth = Math.abs(marketX - estimateX)
+  const mobileAxisStart = 64
+  const mobileAxisWidth = 260
+  const mobileMarketX = mobileAxisStart + clamp01(activeMarket.yesPrice) * mobileAxisWidth
+  const mobileEstimateX = mobileAxisStart + clamp01(activeMarket.pHat ?? activeMarket.yesPrice) * mobileAxisWidth
+  const mobileEdgeStart = Math.min(mobileMarketX, mobileEstimateX)
+  const mobileEdgeWidth = Math.abs(mobileMarketX - mobileEstimateX)
 
   return (
     <div className='absolute inset-0 overflow-hidden bg-hlpDeepBg text-hlpPanel' aria-hidden='true'>
       <div className='absolute inset-0 probability-field opacity-80' />
       <svg
-        className='absolute left-1/2 top-[35%] h-[min(86svh,760px)] w-[min(1160px,96vw)] -translate-x-1/2 -translate-y-1/2 sm:top-1/2'
+        className='absolute left-1/2 top-[31%] h-[360px] w-[96vw] -translate-x-1/2 -translate-y-1/2 sm:hidden'
+        viewBox='0 0 390 360'
+        role='img'
+      >
+        <rect x='18' y='20' width='354' height='302' fill='rgba(255,255,255,0.028)' stroke='rgba(255,255,255,0.12)' />
+        <text x='34' y='48' fill='rgba(255,255,255,0.6)' className='text-[8px] uppercase tracking-[0.22em]'>selected market</text>
+        <circle cx='36' cy='72' r='4' fill='rgba(255,255,255,0.92)' />
+        <text x='50' y='76' fill='rgba(255,255,255,0.78)' className='text-[11px]'>
+          {shortMobileQuestion(activeMarket.question)}
+        </text>
+
+        <text x='34' y='122' fill='rgba(255,255,255,0.56)' className='text-[8px] uppercase tracking-[0.22em]'>market vs agent</text>
+        <line x1={mobileAxisStart} y1='146' x2={mobileAxisStart + mobileAxisWidth} y2='146' stroke='rgba(255,255,255,0.34)' />
+        <rect x={mobileEdgeStart} y='142' width={Math.max(mobileEdgeWidth, 1)} height='8' fill='rgba(120,224,143,0.46)' />
+        <circle cx={mobileMarketX} cy='146' r='5' fill='rgba(255,255,255,0.9)' />
+        <rect x={mobileEstimateX - 7} y='139' width='14' height='14' fill='rgba(8,8,8,0.95)' stroke='rgba(120,184,255,0.98)' />
+        <text x='36' y='166' fill='rgba(255,255,255,0.44)' className='text-[8px] uppercase tracking-[0.16em]'>market {pct(activeMarket.yesPrice)}</text>
+        <text x='224' y='166' fill='rgba(255,255,255,0.58)' className='text-[8px] uppercase tracking-[0.16em]'>agent {pct(activeMarket.pHat)}</text>
+
+        <g className='probability-draw'>
+          <path d='M74 82 C 110 96, 122 174, 168 204' fill='none' stroke='rgba(120,184,255,0.9)' strokeWidth='3' strokeLinecap='round' />
+          <path d='M224 214 C 248 214, 262 214, 286 214' fill='none' stroke='rgba(120,224,143,0.74)' strokeWidth='3' strokeLinecap='round' />
+          <path d='M322 226 C 340 218, 348 204, 360 190' fill='none' stroke='rgba(255,255,255,0.72)' strokeWidth='2' strokeLinecap='round' />
+        </g>
+
+        <g transform='translate(150 176)'>
+          <path d='M45 0 90 45 45 90 0 45Z' fill='rgba(255,255,255,0.035)' stroke='rgba(255,255,255,0.24)' />
+          <circle className='probability-node' cx='45' cy='45' r='34' fill='rgba(255,255,255,0.9)' />
+          <text x='45' y='42' textAnchor='middle' className='fill-black text-[14px] font-bold tracking-[0.14em]'>
+            {pct(activeMarket.pHat)}
+          </text>
+          <text x='45' y='58' textAnchor='middle' className='fill-black/60 text-[7px] uppercase tracking-[0.18em]'>agent</text>
+        </g>
+
+        <g transform='translate(246 182)'>
+          <text fill='rgba(255,255,255,0.56)' className='text-[8px] uppercase tracking-[0.2em]'>stake</text>
+          <path d='M34 26 68 60 34 94 0 60Z' fill='rgba(120,224,143,0.08)' stroke='rgba(120,224,143,0.42)' />
+          <text x='34' y='59' textAnchor='middle' fill='rgba(255,255,255,0.76)' className='text-[8px] uppercase tracking-[0.16em]'>capped</text>
+        </g>
+
+        <g transform='translate(314 180)'>
+          <text fill='rgba(255,255,255,0.56)' className='text-[8px] uppercase tracking-[0.2em]'>checks</text>
+          {RISK_GATES.slice(0, 8).map((gate) => (
+            <rect
+              key={gate}
+              x={(gate % 4) * 10}
+              y={22 + Math.floor(gate / 4) * 26}
+              width='5'
+              height='19'
+              fill={gate === tick % RISK_GATES.length ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.22)'}
+            />
+          ))}
+          <text x='0' y='88' fill='rgba(255,255,255,0.4)' className='text-[7px] uppercase tracking-[0.14em]'>14 gates</text>
+        </g>
+
+        <g transform='translate(34 292)'>
+          {STAGES.map((stage, index) => (
+            <g key={stage} transform={`translate(${index * 68} 0)`} opacity={activeStage === index ? 1 : 0.44}>
+              <line x1='0' y1='0' x2='42' y2='0' stroke={activeStage === index ? '#ffffff' : 'rgba(255,255,255,0.28)'} />
+              <text x='0' y='19' fill='rgba(255,255,255,0.7)' className='text-[7px] uppercase tracking-[0.14em]'>
+                {stage}
+              </text>
+            </g>
+          ))}
+        </g>
+      </svg>
+      <svg
+        className='absolute left-1/2 top-[33%] hidden h-[min(58svh,560px)] w-[min(1160px,96vw)] -translate-x-1/2 -translate-y-1/2 sm:block'
         viewBox='0 0 1160 760'
         role='img'
       >
@@ -153,10 +230,10 @@ export function ProductPipelineDemo() {
         </defs>
 
         <rect width='1160' height='760' fill='url(#micro-grid)' />
-        <rect x='70' y='86' width='1020' height='474' fill='rgba(255,255,255,0.018)' stroke='rgba(255,255,255,0.08)' />
-        <line x1='330' y1='104' x2='330' y2='540' stroke='rgba(255,255,255,0.08)' />
-        <line x1='808' y1='104' x2='808' y2='540' stroke='rgba(255,255,255,0.08)' />
-        <line x1='932' y1='104' x2='932' y2='540' stroke='rgba(255,255,255,0.08)' />
+        <rect x='70' y='86' width='1020' height='474' fill='rgba(255,255,255,0.026)' stroke='rgba(255,255,255,0.14)' />
+        <line x1='330' y1='104' x2='330' y2='540' stroke='rgba(255,255,255,0.12)' />
+        <line x1='808' y1='104' x2='808' y2='540' stroke='rgba(255,255,255,0.12)' />
+        <line x1='932' y1='104' x2='932' y2='540' stroke='rgba(255,255,255,0.12)' />
 
         <g className='probability-draw' filter='url(#soft-glow)' opacity='0.95'>
           <path
@@ -183,7 +260,7 @@ export function ProductPipelineDemo() {
         </g>
 
         <g transform='translate(90 126)'>
-          <text className='fill-white/46 text-[9px] uppercase tracking-[0.26em]'>market window</text>
+          <text fill='rgba(255,255,255,0.46)' className='text-[9px] uppercase tracking-[0.26em]'>market window</text>
           {markets.map((market, index) => (
             <g
               key={market.id}
@@ -191,10 +268,10 @@ export function ProductPipelineDemo() {
               opacity={activeMarket.id === market.id ? 1 : 0.42}
             >
               <circle cx='4' cy='-4' r='3.5' fill={activeMarket.id === market.id ? '#ffffff' : 'rgba(255,255,255,0.34)'} />
-              <text x='18' y='0' className='fill-white/78 text-[11px]'>
+              <text x='18' y='0' fill='rgba(255,255,255,0.78)' className='text-[11px]'>
                 {shortQuestion(market.question)}
               </text>
-              <text x='18' y='18' className='fill-white/38 text-[9px] uppercase tracking-[0.18em]'>
+              <text x='18' y='18' fill='rgba(255,255,255,0.38)' className='text-[9px] uppercase tracking-[0.18em]'>
                 market {pct(market.yesPrice)} / agent {pct(market.pHat)}
               </text>
             </g>
@@ -202,12 +279,12 @@ export function ProductPipelineDemo() {
         </g>
 
         <g transform='translate(390 132)'>
-          <text className='fill-white/46 text-[9px] uppercase tracking-[0.26em]'>probability rail</text>
+          <text fill='rgba(255,255,255,0.46)' className='text-[9px] uppercase tracking-[0.26em]'>probability rail</text>
           <line x1='0' y1='88' x2={axisWidth} y2='88' stroke='rgba(255,255,255,0.28)' />
           {[0, 0.25, 0.5, 0.75, 1].map((mark) => (
             <g key={mark} transform={`translate(${mark * axisWidth} 88)`}>
               <line y1='-8' y2='8' stroke='rgba(255,255,255,0.24)' />
-              <text y='29' textAnchor='middle' className='fill-white/36 text-[8px] uppercase tracking-[0.18em]'>
+              <text y='29' textAnchor='middle' fill='rgba(255,255,255,0.36)' className='text-[8px] uppercase tracking-[0.18em]'>
                 {mark === 0 || mark === 0.5 || mark === 1 ? `${mark * 100}` : ''}
               </text>
             </g>
@@ -233,13 +310,13 @@ export function ProductPipelineDemo() {
         <rect x={edgeStart} y='214' width={Math.max(edgeWidth, 1)} height='6' fill='rgba(120,224,143,0.42)' />
         <circle cx={marketX} cy='220' r='5' fill='rgba(255,255,255,0.9)' />
         <rect x={estimateX - 7} y='213' width='14' height='14' fill='rgba(8,8,8,0.92)' stroke='rgba(120,184,255,0.96)' />
-        <text x={marketX} y='190' textAnchor='middle' className='fill-white/60 text-[10px] uppercase tracking-[0.26em]'>
+        <text x={marketX} y='190' textAnchor='middle' fill='rgba(255,255,255,0.6)' className='text-[10px] uppercase tracking-[0.26em]'>
           market {pct(activeMarket.yesPrice)}
         </text>
-        <text x={estimateX} y='170' textAnchor='middle' className='fill-white/76 text-[10px] uppercase tracking-[0.26em]'>
+        <text x={estimateX} y='170' textAnchor='middle' fill='rgba(255,255,255,0.76)' className='text-[10px] uppercase tracking-[0.26em]'>
           estimate {pct(activeMarket.pHat)}
         </text>
-        <text x={edgeStart + edgeWidth / 2} y='242' textAnchor='middle' className='fill-white/48 text-[9px] uppercase tracking-[0.2em]'>
+        <text x={edgeStart + edgeWidth / 2} y='242' textAnchor='middle' fill='rgba(255,255,255,0.48)' className='text-[9px] uppercase tracking-[0.2em]'>
           edge {pp(activeMarket.edge)}pp
         </text>
 
@@ -267,14 +344,14 @@ export function ProductPipelineDemo() {
         </g>
 
         <g transform='translate(706 318)'>
-          <text className='fill-white/46 text-[9px] uppercase tracking-[0.24em]'>stake limit</text>
+          <text fill='rgba(255,255,255,0.46)' className='text-[9px] uppercase tracking-[0.24em]'>stake limit</text>
           <path d='M42 42 84 84 42 126 0 84Z' fill='rgba(120,224,143,0.08)' stroke='rgba(120,224,143,0.42)' />
-          <text x='42' y='82' textAnchor='middle' className='fill-white/72 text-[10px] uppercase tracking-[0.2em]'>small</text>
-          <text x='42' y='101' textAnchor='middle' className='fill-white/38 text-[8px] uppercase tracking-[0.18em]'>capped</text>
+          <text x='42' y='82' textAnchor='middle' fill='rgba(255,255,255,0.72)' className='text-[10px] uppercase tracking-[0.2em]'>small</text>
+          <text x='42' y='101' textAnchor='middle' fill='rgba(255,255,255,0.38)' className='text-[8px] uppercase tracking-[0.18em]'>capped</text>
         </g>
 
         <g transform='translate(820 302)'>
-          <text className='fill-white/46 text-[9px] uppercase tracking-[0.24em]'>risk checks</text>
+          <text fill='rgba(255,255,255,0.46)' className='text-[9px] uppercase tracking-[0.24em]'>risk checks</text>
           {RISK_GATES.map((gate) => {
             const row = Math.floor(gate / 7)
             const col = gate % 7
@@ -290,11 +367,11 @@ export function ProductPipelineDemo() {
               />
             )
           })}
-          <text x='0' y='136' className='fill-white/40 text-[8px] uppercase tracking-[0.18em]'>14 fixed gates</text>
+          <text x='0' y='136' fill='rgba(255,255,255,0.4)' className='text-[8px] uppercase tracking-[0.18em]'>14 fixed gates</text>
         </g>
 
         <g transform='translate(900 186)'>
-          <text className='fill-white/46 text-[9px] uppercase tracking-[0.26em]'>public floor tape</text>
+          <text fill='rgba(255,255,255,0.46)' className='text-[9px] uppercase tracking-[0.26em]'>public floor tape</text>
           {activeTape.map((entry, index) => (
             <g key={`${entry.role}-${entry.message}-${index}`} transform={`translate(0 ${36 + index * 30})`}>
               <text x='0' y='0' fill={roleColor(entry.role)} className='text-[12px] font-bold tracking-[0.18em]'>
@@ -307,23 +384,6 @@ export function ProductPipelineDemo() {
           ))}
         </g>
 
-        <g transform='translate(158 634)'>
-          {STAGES.map((stage, index) => (
-            <g key={stage} transform={`translate(${index * 184} 0)`} opacity={activeStage === index ? 1 : 0.46}>
-              <line x1='0' y1='0' x2='124' y2='0' stroke={activeStage === index ? '#ffffff' : 'rgba(255,255,255,0.28)'} strokeWidth='2' />
-              <text x='0' y='25' className='fill-white/72 text-[9px] uppercase tracking-[0.24em]'>
-                {stage}
-              </text>
-              <text x='0' y='45' className='fill-white/36 text-[9px]'>
-                {String(index + 1).padStart(2, '0')}
-              </text>
-            </g>
-          ))}
-        </g>
-
-        <text x='90' y='710' className='fill-white/42 text-[10px] uppercase tracking-[0.3em]'>
-          public window: questions / prices / agent estimate / edge / role tape
-        </text>
       </svg>
     </div>
   )

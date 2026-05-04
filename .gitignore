@@ -9,6 +9,7 @@ config/.env.*
 !config/.env.example
 dist
 coverage
+dogfood-output/
 .next
 apps/web/out
 *.log
